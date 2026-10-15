@@ -64,6 +64,11 @@ class Analysis:
     counts: dict[str, int]  # ok/missed/crosstalk/invalid
     stages: dict[str, MetricStats] | None  # "endpoint->stt_final", ...
     health: dict[str, float | bool] | None
+    filler_rate: dict[str, float] | None = None
+
+    @property
+    def filler_rates(self) -> dict[str, float] | None:
+        return self.filler_rate
 
 
 def _calc_metric_stats(values: Sequence[float]) -> MetricStats:
@@ -461,37 +466,59 @@ def analyze(
                         first_answer_audio_s = first_audio_s
 
                         turn_evs = turn_events_map.get(idx, [])
-                        filler_ev = next(
-                            (e for e in turn_evs if e.stage == Stage.FILLER_PLAYED), None
-                        )
-                        if filler_ev is not None:
-                            filler_dur_s = float(filler_ev.data.get("duration_ms", 0)) / 1000.0
-                            clip_path = filler_ev.data.get("clip")
-                            filler_end = t4 + filler_dur_s
-                            if clip_path and Path(clip_path).exists():
-                                try:
-                                    clip_data, _ = sf.read(
-                                        str(clip_path), dtype="float32", always_2d=True
+                        filler_evs = [e for e in turn_evs if e.stage == Stage.FILLER_PLAYED]
+                        filler_evs.sort(key=lambda e: e.t_mono_ns)
+                        if filler_evs:
+                            cur_onset: float | None = t4
+                            filler_end: float = t4
+                            for f_idx, f_ev in enumerate(filler_evs):
+                                if f_idx > 0:
+                                    cur_onset = _find_onset(
+                                        rms_ch0,
+                                        hop_s,
+                                        filler_end,
+                                        win_end_rec,
+                                        thresh_dbfs,
+                                        hold_s=0.030,
                                     )
-                                    clip_mono = clip_data[:, 0]
-                                    filler_dur_s = len(clip_mono) / rec_sr
-                                    f_start_idx = max(0, int(round((t4 - 0.1) * rec_sr)))
-                                    f_end_idx = min(
-                                        len(ch0),
-                                        int(round((t4 + filler_dur_s + 0.5) * rec_sr)),
-                                    )
-                                    search_slice = ch0[f_start_idx:f_end_idx]
-                                    if len(search_slice) >= len(clip_mono):
-                                        c_clip = correlate(
-                                            search_slice,
-                                            clip_mono,
-                                            mode="valid",
-                                            method="fft",
+                                if cur_onset is None:
+                                    break
+                                filler_dur_s = float(f_ev.data.get("duration_ms", 0)) / 1000.0
+                                clip_path = f_ev.data.get("clip")
+                                filler_end = cur_onset + filler_dur_s
+                                if clip_path and Path(clip_path).exists():
+                                    try:
+                                        clip_data, clip_sr = sf.read(
+                                            str(clip_path), dtype="float32", always_2d=True
                                         )
-                                        f_pos = f_start_idx + int(np.argmax(c_clip))
-                                        filler_end = (f_pos / rec_sr) + filler_dur_s
-                                except Exception:
-                                    pass
+                                        clip_mono = clip_data[:, 0]
+                                        if int(clip_sr) != rec_sr:
+                                            clip_obj = AudioClip(
+                                                samples=clip_mono,
+                                                sample_rate=int(clip_sr),
+                                            )
+                                            resampled = wav_resample(clip_obj, rec_sr)
+                                            clip_mono = resampled.samples
+                                        filler_dur_s = len(clip_mono) / rec_sr
+                                        f_start_idx = max(0, int(round((cur_onset - 0.1) * rec_sr)))
+                                        f_end_idx = min(
+                                            len(ch0),
+                                            int(round((cur_onset + filler_dur_s + 0.5) * rec_sr)),
+                                        )
+                                        search_slice = ch0[f_start_idx:f_end_idx]
+                                        if len(search_slice) >= len(clip_mono):
+                                            c_clip = correlate(
+                                                search_slice,
+                                                clip_mono,
+                                                mode="valid",
+                                                method="fft",
+                                            )
+                                            f_pos = f_start_idx + int(np.argmax(c_clip))
+                                            filler_end = (f_pos / rec_sr) + filler_dur_s
+                                        else:
+                                            filler_end = cur_onset + filler_dur_s
+                                    except Exception:
+                                        pass
 
                             ans_t4 = _find_onset(
                                 rms_ch0,
@@ -539,7 +566,9 @@ def analyze(
         if r.status == "ok" and r.kind == "barge_in" and r.barge_in_stop_s is not None
     ]
     valid_barge_duck = [
-        r.barge_in_duck_s for r in results if r.status == "ok" and r.barge_in_duck_s is not None
+        r.barge_in_duck_s
+        for r in results
+        if r.status == "ok" and r.kind == "barge_in" and r.barge_in_duck_s is not None
     ]
 
     valid_noise = [r for r in results if r.kind == "noise" and r.status != "invalid"]
@@ -557,13 +586,30 @@ def analyze(
             endpoint_ev = next((e for e in ev_list if e.stage == Stage.ENDPOINT), None)
             if endpoint_ev is None:
                 continue
-            for ev in ev_list:
-                if ev.t_mono_ns > endpoint_ev.t_mono_ns:
+            seen_stages: set[Stage] = set()
+            for ev in sorted(ev_list, key=lambda e: e.t_mono_ns):
+                if ev.t_mono_ns > endpoint_ev.t_mono_ns and ev.stage not in seen_stages:
+                    seen_stages.add(ev.stage)
                     key = f"endpoint->{ev.stage.value}"
                     delta_s = (ev.t_mono_ns - endpoint_ev.t_mono_ns) / 1e9
                     stage_deltas.setdefault(key, []).append(delta_s)
         if stage_deltas:
             stages_dict = {k: _calc_metric_stats(v) for k, v in stage_deltas.items()}
+
+    filler_rate_dict: dict[str, float] | None = None
+    if turn_events_map:
+        kinds: set[str] = {"delegate", "stall", "notice"}
+        kind_turns: dict[str, set[int]] = {k: set() for k in kinds}
+        for turn_id, ev_list in turn_events_map.items():
+            for ev in ev_list:
+                if ev.stage == Stage.FILLER_PLAYED:
+                    kind = str(ev.data.get("kind", "unknown"))
+                    kind_turns.setdefault(kind, set()).add(turn_id)
+        total_trials = len(truth_set.trials)
+        if total_trials > 0:
+            filler_rate_dict = {
+                k: len(turns) / total_trials for k, turns in sorted(kind_turns.items())
+            }
 
     health_dict: dict[str, float | bool] | None = None
     if health_log is not None:
@@ -584,6 +630,7 @@ def analyze(
         counts=counts,
         stages=stages_dict,
         health=health_dict,
+        filler_rate=filler_rate_dict,
     )
 
 

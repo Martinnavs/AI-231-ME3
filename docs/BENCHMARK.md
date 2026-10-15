@@ -81,18 +81,21 @@ uv run python -m bench.analyze calibrate <recording_bot_disabled.wav> stimulus.w
 
 ### First Answer Audio and Fillers
 
-If the stage log records a `filler_played` event for the turn:
-- The filler clip is located on `ch0` (via cross-correlation if clip audio is available, or via event duration).
-- The first bot onset *after* the filler clip ends is taken as the answer audio ($T_{\text{answer}}$).
+If the stage log records `filler_played` events for the turn:
+- All `filler_played` events for the turn are collected in chronological order.
+- The search is chained: each subsequent filler is located after the previous filler's end.
+- When clip audio is available, the clip is resampled to the recording sample rate with `audio_engine.wav.resample` before measuring duration and cross-correlating.
+- The first bot onset *after* the last filler ends is taken as the answer audio ($T_{\text{answer}}$).
 - `first_answer_audio_s` $= T_{\text{answer}} - T0$. Notice/stall fillers never count as the answer.
 - If no filler was played, `first_answer_audio_s` equals `first_audio_s`.
+- Per-kind filler rates (`delegate`, `stall`, `notice`) are recorded in `results.json` and formatted in `report.md`.
 
 ### Barge-In and Interruption Metrics
 
 - **Bot Active Check:** For `barge_in` and `noise` trials, the bot must be actively speaking (`ch0` RMS $\ge \text{floor} + \text{margin\_db}$) at $t_{\text{event\_rec}}$; otherwise the trial is marked `invalid`.
 - **Barge-in Stop Latency:** Elapsed time from $t_{\text{event\_rec}}$ until `ch0` falls below $\text{floor} + \text{margin\_db}$ and stays below for $\ge 200$ ms.
-- **Barge-in Duck Latency:** Elapsed time from $t_{\text{event\_rec}}$ until `ch0` RMS drops $\ge 10$ dB below its median over the preceding 200 ms, holding for $\ge 30$ ms. Evaluated before bot mute.
-- **Noise Trials (False Interruption):** A noise burst trial is a `false_interruption` if the bot stops within 1.0 s of the burst. A noise burst where the bot ducks and recovers is intended behavior. False interruption rate is $\text{false\_interruptions} / \text{valid\_noise\_trials}$.
+- **Barge-in Duck Latency:** Elapsed time from $t_{\text{event\_rec}}$ until `ch0` RMS drops $\ge 10$ dB below its median over the preceding 200 ms, holding for $\ge 30$ ms. Evaluated before bot mute. Headline `barge_in_duck` statistics include `barge_in` trials only.
+- **Noise Trials (False Interruption):** A noise burst trial is a `false_interruption` if the bot stops within 1.0 s of the burst. A noise burst where the bot ducks and recovers is intended behavior. The duck latency is recorded on the `TrialResult` but excluded from the `barge_in_duck` summary stats. False interruption rate is $\text{false\_interruptions} / \text{valid\_noise\_trials}$.
 - **Pause Trials (Premature Takeover):** If a bot onset starts inside the silent gap $[t_{\text{event\_rec}}, T0)$, `premature_takeover = True` (bot answered half a sentence) and the trial is excluded from first-audio latency stats. A pause trial without takeover is scored for T4 after $T0$ normally. Takeover rate is $\text{takeovers} / \text{valid\_pause\_trials}$.
 
 ### Trial Statuses
@@ -111,7 +114,8 @@ If the stage log records a `filler_played` event for the turn:
   - `low n`: Flagged when fewer than 20 valid trials exist for a metric.
   - `False Interruption Rate`: Fraction of valid noise bursts that caused the bot to mute.
   - `Premature Takeover Rate`: Fraction of valid pause trials where the bot cut in mid-sentence.
-- **Stage Breakdown:** Per-turn latency deltas measured from the `endpoint` stage event to later stages (`stt_final`, `llm_first_token`, `tts_first_chunk`, `audio_out_first`).
+- **Filler Rates:** Per-kind breakdown (`delegate`, `stall`, `notice`) showing the proportion of trials with that filler kind played.
+- **Stage Breakdown:** Per-turn latency deltas measured from the `endpoint` stage event to the first occurrence of each later stage (`stt_final`, `llm_first_token`, `tts_first_chunk`, `audio_out_first`).
 - **Pi Health Summary:** Peak temperature (°C), minimum ARM core frequency (MHz), CPU throttle flags set, median system CPU %, and peak process RSS (MB).
 
 ### CLI Usage

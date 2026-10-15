@@ -5,7 +5,11 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from audio_engine.types import AudioClip
+from audio_engine.wav import resample as wav_resample
 from bench.truth import TruthSet
+
+FillerSpec = tuple[Path | None, float, float]
 
 
 def _make_bot_audio(
@@ -43,11 +47,16 @@ def build_synth_recording(
     barge_in_ducks: dict[str, float] | None = None,
     false_interruptions: set[str] | None = None,
     pause_takeovers: dict[str, float] | None = None,
-    fillers: dict[str, tuple[Path | None, float, float]] | None = None,
+    fillers: dict[str, FillerSpec | list[FillerSpec]] | None = None,
+    rec_sr: int | None = None,
     seed: int = 1234,
 ) -> Path:
-    stim_data, sr = sf.read(str(stimulus_wav), dtype="float32", always_2d=True)
+    stim_data, stim_sr = sf.read(str(stimulus_wav), dtype="float32", always_2d=True)
     stim = stim_data[:, 0]
+    sr = rec_sr if rec_sr is not None else int(stim_sr)
+    if sr != int(stim_sr):
+        stim_clip = AudioClip(samples=stim, sample_rate=int(stim_sr))
+        stim = wav_resample(stim_clip, sr).samples
     drift_ratio = drift_ppm * 1e-6
 
     # Calculate total duration needed in recording time
@@ -115,22 +124,28 @@ def build_synth_recording(
 
         # Fillers
         if fillers and tr.id in fillers:
-            clip_path, filler_dur, ans_gap = fillers[tr.id]
+            spec_val = fillers[tr.id]
+            filler_list = spec_val if isinstance(spec_val, list) else [spec_val]
             lat = (
                 bot_latencies.get(tr.id, default_bot_latency or 0.5)
                 if bot_latencies
                 else (default_bot_latency or 0.5)
             )
-            filler_start = t0 + lat
-            if clip_path and Path(clip_path).exists():
-                c_data, _ = sf.read(str(clip_path), dtype="float32", always_2d=True)
-                filler_audio = c_data[:, 0]
-            else:
-                filler_audio = _make_bot_audio(filler_dur, sr, level_dbfs=bot_level_dbfs)
-            add_ch0(filler_start, filler_audio)
-            ans_start = filler_start + len(filler_audio) / sr + ans_gap
+            cur_filler_t = t0 + lat
+            for clip_path, filler_dur, gap in filler_list:
+                if clip_path and Path(clip_path).exists():
+                    c_data, c_sr = sf.read(str(clip_path), dtype="float32", always_2d=True)
+                    c_mono = c_data[:, 0]
+                    if int(c_sr) != sr:
+                        c_clip = AudioClip(samples=c_mono, sample_rate=int(c_sr))
+                        c_mono = wav_resample(c_clip, sr).samples
+                    f_audio = c_mono
+                else:
+                    f_audio = _make_bot_audio(filler_dur, sr, level_dbfs=bot_level_dbfs)
+                add_ch0(cur_filler_t, f_audio)
+                cur_filler_t += len(f_audio) / sr + gap
             ans_audio = _make_bot_audio(1.5, sr, level_dbfs=bot_level_dbfs)
-            add_ch0(ans_start, ans_audio)
+            add_ch0(cur_filler_t, ans_audio)
             continue
 
         # Normal bot speech

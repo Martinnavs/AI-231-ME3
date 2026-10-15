@@ -53,6 +53,14 @@ def load_results(path: Path) -> Analysis:
         counts=dict(raw["counts"]),
         stages=stages,
         health=dict(raw["health"]) if raw.get("health") is not None else None,
+        filler_rate=(
+            {
+                str(k): float(v)
+                for k, v in (raw.get("filler_rate") or raw.get("filler_rates") or {}).items()
+            }
+            if (raw.get("filler_rate") is not None or raw.get("filler_rates") is not None)
+            else None
+        ),
     )
 
 
@@ -136,6 +144,19 @@ def write_report(analysis: Analysis, out_dir: Path, *, title: str) -> tuple[Path
                 "",
             ]
         )
+
+    if analysis.filler_rate:
+        lines.extend(
+            [
+                "## Filler Rates",
+                "",
+                "| Kind | Rate |",
+                "|---|---|",
+            ]
+        )
+        for kind, rate in sorted(analysis.filler_rate.items()):
+            lines.append(f"| {kind} | {_fmt_pct(rate)} |")
+        lines.append("")
 
     if analysis.stages:
         lines.extend(
