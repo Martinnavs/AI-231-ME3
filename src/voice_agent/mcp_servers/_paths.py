@@ -42,20 +42,20 @@ def _escape() -> PathEscapeError:
     return PathEscapeError("path outside media root")
 
 
-def _check_fd_inside(fd: int, real_root: Path) -> None:
-    link = f"/proc/self/fd/{fd}"
-    if not os.path.exists(link):
-        return
-    if not Path(os.path.realpath(link)).is_relative_to(real_root):
-        raise _escape()
+def _open_root(root: Path) -> int:
+    try:
+        return os.open(str(root), _DIR_FLAGS)
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise _escape() from exc
+        raise
 
 
 def _open_parent(root: Path, rel: str, *, create: bool) -> tuple[int, str]:
     parts = [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]
     if not parts:
         raise _escape()
-    real_root = root.resolve()
-    fd = os.open(real_root, _DIR_FLAGS)
+    fd = _open_root(root)
     try:
         for part in parts[:-1]:
             try:
@@ -71,7 +71,6 @@ def _open_parent(root: Path, rel: str, *, create: bool) -> tuple[int, str]:
                 raise
             os.close(fd)
             fd = nxt
-        _check_fd_inside(fd, real_root)
     except BaseException:
         os.close(fd)
         raise
@@ -81,7 +80,7 @@ def _open_parent(root: Path, rel: str, *, create: bool) -> tuple[int, str]:
 def open_dir(root: Path, rel: str) -> int:
     resolve_inside(root, rel, must_exist=False)
     if not [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]:
-        return os.open(root.resolve(), _DIR_FLAGS)
+        return _open_root(root)
     dfd, name = _open_parent(root, rel, create=False)
     try:
         try:

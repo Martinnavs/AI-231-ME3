@@ -74,3 +74,49 @@ def test_prefix_sibling_not_confused_with_root(tmp_path: Path) -> None:
     (root / "sib").symlink_to(tmp_path / "media2", target_is_directory=True)
     with pytest.raises(PathEscapeError):
         resolve_inside(root, "sib/x.wav", must_exist=False)
+
+
+def _swap_after_check(media: Path, outside: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from voice_agent.mcp_servers import _paths
+
+    real_check = _paths.resolve_inside
+
+    def swapping(*a: object, **k: object) -> Path:
+        result = real_check(*a, **k)  # type: ignore[arg-type]
+        media.rmdir()
+        media.symlink_to(outside, target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(_paths, "resolve_inside", swapping)
+
+
+def test_root_swapped_for_symlink_after_check_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_agent.mcp_servers import _paths
+
+    media = tmp_path / "media"
+    media.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    _swap_after_check(media, outside, monkeypatch)
+    with pytest.raises(PathEscapeError):
+        _paths.write_file_atomic(media, "x/pwn.wav", lambda fh: fh.write(b"x"), overwrite=True)
+    assert list(outside.iterdir()) == []
+
+
+def test_root_swapped_blocks_read_and_open_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_agent.mcp_servers import _paths
+
+    media = tmp_path / "media"
+    media.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "s.wav").write_bytes(b"x")
+    _swap_after_check(media, outside, monkeypatch)
+    with pytest.raises(PathEscapeError):
+        _paths.open_regular_for_read(media, "s.wav")
+    with pytest.raises(PathEscapeError):
+        _paths.open_dir(media, "")

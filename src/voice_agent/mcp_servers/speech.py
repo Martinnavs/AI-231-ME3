@@ -38,6 +38,7 @@ def _backend_error_type() -> type[Exception]:
 SpeechBackendError = _backend_error_type()
 
 MAX_TEXT_CHARS = 2000
+MAX_VOICE_CHARS = 128
 DEFAULT_MAX_AUDIO_S = 120.0
 MAX_SAMPLE_RATE = 48000
 MAX_CHANNELS = 2
@@ -71,6 +72,26 @@ def _backend_kwargs(name: str) -> dict[str, object]:
         return {}
     key = {"deepgram": secrets.deepgram_api_key, "cartesia": secrets.cartesia_api_key}.get(name)
     return {"api_key": key}
+
+
+def _redact(text: str) -> str:
+    try:
+        s = load_config().secrets
+    except ConfigError:
+        return text
+    for secret in (s.deepgram_api_key, s.cartesia_api_key, s.anthropic_api_key):
+        if secret:
+            text = text.replace(secret, "[redacted]")
+    return text
+
+
+def _backend_failure(exc: Exception) -> ValueError:
+    reason = f"speech backend error: {type(exc).__name__}"
+    status = getattr(exc, "status", None) if isinstance(exc, SpeechBackendError) else None
+    if isinstance(status, int) and not isinstance(status, bool):
+        reason += f" (status {status})"
+    log.error("%s: %s", reason, _redact(str(exc)))
+    return ValueError(reason)
 
 
 def _transcriber() -> Transcriber:
@@ -141,8 +162,8 @@ async def transcribe_audio_file(path: str) -> dict[str, object]:
             raise ValueError(f"not an audio file: {path}") from None
     try:
         result = await _transcriber().transcribe(clip)
-    except SpeechBackendError as exc:
-        raise ValueError(f"speech backend error: {exc}") from exc
+    except Exception as exc:
+        raise _backend_failure(exc) from None
     return {"text": result.text, "language": result.language, "duration_s": clip.duration_s}
 
 
@@ -156,6 +177,8 @@ async def synthesize_speech_to_file(
     """
     if len(text) > MAX_TEXT_CHARS:
         raise ValueError(f"text too long: {len(text)} chars exceeds {MAX_TEXT_CHARS}")
+    if voice is not None and len(voice) > MAX_VOICE_CHARS:
+        raise ValueError(f"voice too long: {len(voice)} chars exceeds {MAX_VOICE_CHARS}")
     dest = _resolve(path, must_exist=False)
     if not path.lower().endswith(".wav"):
         raise ValueError(f"output path must end in .wav: {path}")
@@ -165,8 +188,8 @@ async def synthesize_speech_to_file(
         raise ValueError(f"output file exists: {path} (pass overwrite=true)")
     try:
         clip = await _synthesizer().synthesize(text, voice)
-    except SpeechBackendError as exc:
-        raise ValueError(f"speech backend error: {exc}") from exc
+    except Exception as exc:
+        raise _backend_failure(exc) from None
     try:
         write_file_atomic(
             _state.media_root, path, lambda fh: write_wav(fh, clip), overwrite=overwrite
@@ -183,8 +206,8 @@ async def synthesize_speech_to_file(
 async def _voices() -> list[Voice]:
     try:
         return await _synthesizer().list_voices()
-    except SpeechBackendError as exc:
-        raise ValueError(f"speech backend error: {exc}") from exc
+    except Exception as exc:
+        raise _backend_failure(exc) from None
 
 
 @mcp.tool()
