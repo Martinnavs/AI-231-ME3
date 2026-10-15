@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 01
-**Status:** ready-for-agent
+**Status:** done
 
 ## Files
 - `src/voice_agent/telemetry/pi_health.py`
@@ -92,8 +92,8 @@ None
 None (stdlib only).
 
 ## Acceptance Criteria
-- [ ] Contracts implemented; CLI documented in `--help`
-- [ ] All Proof rows green; gate suite green
+- [x] Contracts implemented; CLI documented in `--help`
+- [x] All Proof rows green; gate suite green
 
 ## Non-Goals
 - No plotting, no alerting, no remote collection
@@ -106,3 +106,11 @@ no
 - Output consumed by ticket 14 (`bench.analyze` joins health JSONL)
 
 ## Execution Log
+
+### 2026-10-15 agy: DONE
+- Assumptions verified: A1 Raspberry Pi docs / web search (bit layout 0-3 now, 16-19 since boot matches decode_throttled); A2 `python3 -c 'import os; print("SC_CLK_TCK:", os.sysconf("SC_CLK_TCK"))'` → SC_CLK_TCK: 100; A3 `cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq` → 2250000 kHz
+- Proof: P1 ✅ P2 ✅ P3 ✅ P4 ✅ P5 ✅ P6 ✅ (command: `uv run pytest -q tests/telemetry/test_pi_health.py` → 10 passed)
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (16 passed, 0 skipped)
+- Files: src/voice_agent/telemetry/pi_health.py, tests/telemetry/test_pi_health.py, tests/fixtures/pi_health/
+- Deviations: none
+- Notes for reviewer: none

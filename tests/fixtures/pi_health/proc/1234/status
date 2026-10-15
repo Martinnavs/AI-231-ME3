@@ -1,0 +1,8 @@
+Name:	sample_proc
+Umask:	0022
+State:	S (sleeping)
+Tgid:	1234
+Ngid:	0
+Pid:	1234
+PPid:	1
+VmRSS:	   51200 kB
