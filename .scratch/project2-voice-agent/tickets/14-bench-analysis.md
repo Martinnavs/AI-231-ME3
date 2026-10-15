@@ -140,3 +140,5 @@ no
 - Commit: see git log (14: Benchmark analysis — align, T0/T4, barge-in, p50/p95, report)
 - Notes for reviewer: none
 
+
+### 2026-10-15 claude (review note, R3): `filler_rate` per kind (delegate/stall/notice) from the amended Action step 5 is not reported by `analyze`/`report`; first-answer-audio handling is correct for any filler kind. Fold into the tech-lead review / a later small fix.
