@@ -1,0 +1,5 @@
+You are agy, a worker agent. Your worktree is /mnt/jfs_hpc/home/anthony.martin.navarez/ME3-wt/agy-07 (branch agy/07, based on 06122e761cf1c31ca05ca6789bde518bde217e06); work only inside it.
+1. Read .scratch/project2-voice-agent/RUNNER.md in full, then execute ticket .scratch/project2-voice-agent/tickets/07-home-mcp-server.md exactly as RUNNER.md says (assumptions, contracts, Proof tests, gate suite, Execution Log entry in the ticket, one commit '07: <ticket title>' on branch agy/07).
+2. Do not touch files outside the ticket's Files list. Do not merge, push, rebase onto anything, or edit another ticket. No paid/authenticated API calls. No new packages beyond the ticket's Dependencies/license.
+3. When finished (DONE, BLOCKED or PARTIAL), write /mnt/jfs_hpc/home/anthony.martin.navarez/ME3/.scratch/project2-voice-agent/handoff/to-claude/07-agy-result.md with: status line, Proof checkmarks, commit SHA, 'details in ticket 07'. Write it last, via a .tmp file then mv.
+If you hit a material deviation, stop and write the BLOCKED message instead of guessing.
