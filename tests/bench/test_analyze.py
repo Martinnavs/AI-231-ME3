@@ -20,7 +20,7 @@ from voice_agent.telemetry.events import Stage, StageLogger
 _HERE = Path(__file__).parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
-from synth_recording import build_synth_recording  # noqa: E402
+from synth_recording import _make_bot_audio, build_synth_recording  # noqa: E402
 
 
 @pytest.fixture
@@ -395,3 +395,237 @@ def test_calibrate_and_cli(truth_mixed: tuple[Path, Path], tmp_path: Path) -> No
     assert rc_score == 0
     assert (out_dir / "results.json").exists()
     assert (out_dir / "report.md").exists()
+
+
+def test_two_fillers_then_answer(tmp_path: Path) -> None:
+    # R9: Chained fillers (stall then notice) before real answer
+    spec = {
+        "version": 1,
+        "turns": [{"kind": "turn", "text": "tell me about the solar system"}],
+    }
+    spec_path = tmp_path / "spec_two_fillers.json"
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    truth = build_truth_set(spec_path, FakeSynthesizer(), tmp_path / "truth_two_fillers")
+    stim_wav = tmp_path / "truth_two_fillers" / "stimulus.wav"
+    truth_json = tmp_path / "truth_two_fillers" / "truth.json"
+
+    f1_dur = 0.350
+    gap1 = 0.400
+    f2_dur = 0.450
+    gap2 = 0.500
+    bot_lat = 0.250
+
+    fillers = {truth.trials[0].id: [(None, f1_dur, gap1), (None, f2_dur, gap2)]}
+    rec_path = tmp_path / "rec_two_fillers.wav"
+    build_synth_recording(
+        truth,
+        stim_wav,
+        rec_path,
+        default_bot_latency=bot_lat,
+        fillers=fillers,
+    )
+
+    stage_log = tmp_path / "stage_two_fillers.jsonl"
+    logger = StageLogger(stage_log, run_id="test_two_fillers")
+    logger.emit(
+        Stage.FILLER_PLAYED,
+        turn_id=1,
+        duration_ms=int(round(f1_dur * 1000)),
+        kind="stall",
+    )
+    logger.emit(
+        Stage.FILLER_PLAYED,
+        turn_id=1,
+        duration_ms=int(round(f2_dur * 1000)),
+        kind="notice",
+    )
+    logger.close()
+
+    analysis = analyze(rec_path, stim_wav, truth_json, stage_log=stage_log)
+    tr = analysis.trials[0]
+    assert tr.status == "ok"
+    assert tr.first_audio_s is not None
+    assert tr.first_answer_audio_s is not None
+    assert abs(tr.first_audio_s - bot_lat) <= 0.015
+    expected_answer_audio = bot_lat + f1_dur + gap1 + f2_dur + gap2
+    assert abs(tr.first_answer_audio_s - expected_answer_audio) <= 0.015
+    diff = tr.first_answer_audio_s - tr.first_audio_s
+    expected_diff = f1_dur + gap1 + f2_dur + gap2
+    assert abs(diff - expected_diff) <= 0.015
+
+
+def test_filler_clip_resampled_sr(tmp_path: Path) -> None:
+    # R9: 16 kHz filler clip evaluated against 48 kHz recording
+    spec = {
+        "version": 1,
+        "turns": [{"kind": "turn", "text": "what time is it"}],
+    }
+    spec_path = tmp_path / "spec_resample_filler.json"
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    truth = build_truth_set(spec_path, FakeSynthesizer(), tmp_path / "truth_resample")
+    stim_wav = tmp_path / "truth_resample" / "stimulus.wav"
+    truth_json = tmp_path / "truth_resample" / "truth.json"
+
+    clip_sr = 16000
+    rec_sr = 48000
+    filler_dur = 0.400
+    gap = 0.600
+    bot_lat = 0.300
+
+    clip_path = tmp_path / "stall_16k.wav"
+    clip_samples = _make_bot_audio(filler_dur, clip_sr)
+    sf.write(str(clip_path), clip_samples, clip_sr, subtype="PCM_16")
+
+    fillers = {truth.trials[0].id: (clip_path, filler_dur, gap)}
+    rec_path = tmp_path / "rec_48k_filler.wav"
+    build_synth_recording(
+        truth,
+        stim_wav,
+        rec_path,
+        default_bot_latency=bot_lat,
+        fillers=fillers,
+        rec_sr=rec_sr,
+    )
+
+    stage_log = tmp_path / "stage_resample_filler.jsonl"
+    logger = StageLogger(stage_log, run_id="test_resample_filler")
+    logger.emit(
+        Stage.FILLER_PLAYED,
+        turn_id=1,
+        clip=str(clip_path),
+        duration_ms=int(round(filler_dur * 1000)),
+        kind="stall",
+    )
+    logger.close()
+
+    analysis = analyze(rec_path, stim_wav, truth_json, stage_log=stage_log)
+    tr = analysis.trials[0]
+    assert tr.status == "ok"
+    assert tr.first_audio_s is not None
+    assert tr.first_answer_audio_s is not None
+    assert abs(tr.first_audio_s - bot_lat) <= 0.015
+    assert abs(tr.first_answer_audio_s - (bot_lat + filler_dur + gap)) <= 0.015
+    diff = tr.first_answer_audio_s - tr.first_audio_s
+    assert abs(diff - (filler_dur + gap)) <= 0.015
+
+
+def test_stage_breakdown_first_occurrence_only(tmp_path: Path) -> None:
+    # R10: A turn with 3 tts_request events only records the first one
+    spec = {
+        "version": 1,
+        "turns": [{"kind": "turn", "text": "multiple tts requests in turn"}],
+    }
+    spec_path = tmp_path / "spec_stages.json"
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    truth = build_truth_set(spec_path, FakeSynthesizer(), tmp_path / "truth_stages")
+    stim_wav = tmp_path / "truth_stages" / "stimulus.wav"
+    truth_json = tmp_path / "truth_stages" / "truth.json"
+
+    rec_path = tmp_path / "rec_stages.wav"
+    build_synth_recording(truth, stim_wav, rec_path, default_bot_latency=0.500)
+
+    stage_log = tmp_path / "stage_events_multi_tts.jsonl"
+    logger = StageLogger(stage_log, run_id="test_multi_tts")
+    # Base endpoint at 1.0s mono
+    logger.emit(Stage.ENDPOINT, turn_id=1)
+    # Three TTS_REQUEST events at different offsets
+    logger.emit(Stage.TTS_REQUEST, turn_id=1)
+    logger.emit(Stage.TTS_REQUEST, turn_id=1)
+    logger.emit(Stage.TTS_REQUEST, turn_id=1)
+    logger.close()
+
+    analysis = analyze(rec_path, stim_wav, truth_json, stage_log=stage_log)
+    assert analysis.stages is not None
+    tts_stat = analysis.stages.get("endpoint->tts_request")
+    assert tts_stat is not None
+    assert tts_stat.n == 1  # Only the first occurrence per turn is counted!
+
+
+def test_barge_in_duck_stats_exclude_noise_trials(
+    truth_mixed: tuple[Path, Path], tmp_path: Path
+) -> None:
+    # R24: barge_in_duck headline metric must only count barge_in trials, not noise trials
+    stim_wav, truth_json = truth_mixed
+    from bench.truth import load_truth
+
+    truth = load_truth(truth_json)
+    b_id1 = truth.trials[1].id
+    b_id2 = truth.trials[2].id
+    n_id1 = truth.trials[3].id
+
+    # Trial 1 (barge_in): ducks at 80ms, stops at 350ms
+    # Trial 2 (barge_in): no duck, stops at 500ms
+    # Trial 3 (noise): ducks at 90ms and recovers
+    barge_stops = {b_id1: 0.350, b_id2: 0.500}
+    barge_ducks = {b_id1: 0.080, n_id1: 0.090}
+
+    rec_path = tmp_path / "rec_barge_duck_isolation.wav"
+    build_synth_recording(
+        truth,
+        stim_wav,
+        rec_path,
+        default_bot_latency=0.400,
+        barge_in_stops=barge_stops,
+        barge_in_ducks=barge_ducks,
+    )
+
+    analysis = analyze(rec_path, stim_wav, truth_json)
+    # barge_in_duck metric must have n=1, NOT n=2 (noise trial duck is excluded)
+    assert analysis.barge_in_duck.n == 1
+    assert analysis.barge_in_duck.p50 is not None
+    assert abs(analysis.barge_in_duck.p50 - 0.080) <= 0.015
+
+    # But the noise trial result itself still computes and holds its duck latency
+    r_n1 = next(r for r in analysis.trials if r.id == n_id1)
+    assert r_n1.barge_in_duck_s is not None
+    assert abs(r_n1.barge_in_duck_s - 0.090) <= 0.015
+
+
+def test_filler_rate_per_kind(tmp_path: Path) -> None:
+    # R24: filler_rate per kind reported in analysis and report
+    from bench.report import write_report
+
+    spec = {
+        "version": 1,
+        "turns": [
+            {"kind": "turn", "text": "turn one"},
+            {"kind": "turn", "text": "turn two"},
+            {"kind": "turn", "text": "turn three"},
+            {"kind": "turn", "text": "turn four"},
+        ],
+    }
+    spec_path = tmp_path / "spec_filler_rate.json"
+    spec_path.write_text(json.dumps(spec), encoding="utf-8")
+    truth = build_truth_set(spec_path, FakeSynthesizer(), tmp_path / "truth_fr")
+    stim_wav = tmp_path / "truth_fr" / "stimulus.wav"
+    truth_json = tmp_path / "truth_fr" / "truth.json"
+
+    rec_path = tmp_path / "rec_fr.wav"
+    build_synth_recording(truth, stim_wav, rec_path, default_bot_latency=0.400)
+
+    stage_log = tmp_path / "stage_fr.jsonl"
+    logger = StageLogger(stage_log, run_id="test_fr")
+    # Turn 1 has stall and notice
+    logger.emit(Stage.FILLER_PLAYED, turn_id=1, kind="stall")
+    logger.emit(Stage.FILLER_PLAYED, turn_id=1, kind="notice")
+    # Turn 2 has stall
+    logger.emit(Stage.FILLER_PLAYED, turn_id=2, kind="stall")
+    # Turn 3 has delegate
+    logger.emit(Stage.FILLER_PLAYED, turn_id=3, kind="delegate")
+    # Turn 4 has no fillers
+    logger.close()
+
+    analysis = analyze(rec_path, stim_wav, truth_json, stage_log=stage_log)
+    assert analysis.filler_rate is not None
+    assert analysis.filler_rate["stall"] == 2 / 4  # 50%
+    assert analysis.filler_rate["notice"] == 1 / 4  # 25%
+    assert analysis.filler_rate["delegate"] == 1 / 4  # 25%
+    assert analysis.filler_rates == analysis.filler_rate
+
+    out_dir = tmp_path / "report_fr"
+    _, md_path = write_report(analysis, out_dir, title="Filler Rate Benchmark")
+    md_text = md_path.read_text(encoding="utf-8")
+    assert "## Filler Rates" in md_text
+    assert "| stall | 50.0% |" in md_text
+    assert "| notice | 25.0% |" in md_text
+    assert "| delegate | 25.0% |" in md_text
