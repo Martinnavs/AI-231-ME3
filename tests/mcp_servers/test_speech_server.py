@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import soundfile as sf
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult, TextContent
@@ -191,3 +192,121 @@ def test_stdout_only_jsonrpc(media: Path) -> None:
     for ln in lines:
         assert json.loads(ln)["jsonrpc"] == "2.0"
     assert "speech server" in stderr
+
+
+@pytest.fixture
+def inproc(media: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    from voice_agent.mcp_servers import speech
+
+    monkeypatch.setattr(speech._state, "media_root", media)
+    monkeypatch.setattr(speech._state, "transcriber", None)
+    monkeypatch.setattr(speech._state, "synthesizer", None)
+    monkeypatch.setattr(speech._state, "max_audio_s", 120.0)
+    return media
+
+
+async def test_dir_swapped_for_symlink_during_synthesis(
+    inproc: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_agent.mcp_servers import speech
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (inproc / "sub").mkdir()
+
+    class Swapper:
+        async def synthesize(self, text: str, voice: str | None = None) -> AudioClip:
+            (inproc / "sub").rename(inproc / "sub_old")
+            (inproc / "sub").symlink_to(outside)
+            return AudioClip(np.zeros(1600, dtype=np.float32), 16000)
+
+    monkeypatch.setattr(speech._state, "synthesizer", Swapper())
+    with pytest.raises(ValueError):
+        await speech.synthesize_speech_to_file("x", "sub/x.wav")
+    assert list(outside.iterdir()) == []
+
+
+async def test_high_rate_multichannel_flac_rejected_without_decoding(
+    inproc: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_agent.mcp_servers import speech
+
+    sf.write(
+        str(inproc / "bomb.wav"),
+        np.zeros((655350, 8), dtype=np.float32),
+        655350,
+        format="FLAC",
+    )
+    assert (inproc / "bomb.wav").stat().st_size < 10_000
+    calls: list[object] = []
+    real = speech.read_wav
+    monkeypatch.setattr(speech, "read_wav", lambda *a, **k: (calls.append(a), real(*a, **k))[1])
+    with pytest.raises(ValueError, match="bomb.wav"):
+        await speech.transcribe_audio_file("bomb.wav")
+    assert calls == []
+
+
+async def test_non_wav_format_and_oversize_caps(inproc: Path) -> None:
+    from voice_agent.mcp_servers import speech
+
+    sf.write(str(inproc / "ok_rate.wav"), np.zeros((100, 3), dtype=np.float32), 16000)
+    with pytest.raises(ValueError, match="ok_rate.wav"):
+        await speech.transcribe_audio_file("ok_rate.wav")
+    sf.write(str(inproc / "hi.wav"), np.zeros(1000, dtype=np.float32), 96000)
+    with pytest.raises(ValueError, match="hi.wav"):
+        await speech.transcribe_audio_file("hi.wav")
+    sf.write(str(inproc / "flac.wav"), np.zeros(1000, dtype=np.float32), 16000, format="FLAC")
+    with pytest.raises(ValueError, match="flac.wav"):
+        await speech.transcribe_audio_file("flac.wav")
+
+
+async def test_hardlink_overwrite_does_not_touch_outside_file(inproc: Path, tmp_path: Path) -> None:
+    from voice_agent.mcp_servers import speech
+
+    outside = tmp_path / "outside.wav"
+    write_wav(outside, AudioClip(np.zeros(1600, dtype=np.float32), 16000))
+    before = outside.read_bytes()
+    (inproc / "h.wav").hardlink_to(outside)
+    await speech.synthesize_speech_to_file("hello", "h.wav", overwrite=True)
+    assert outside.read_bytes() == before
+    assert read_wav(inproc / "h.wav").duration_s == pytest.approx(5 * 0.060, abs=0.02)
+
+
+async def test_write_error_names_only_relative_path(
+    inproc: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_agent.mcp_servers import speech
+
+    def boom(*a: object, **k: object) -> None:
+        raise OSError(f"cannot open {inproc}/secret-location")
+
+    monkeypatch.setattr(sf, "write", boom)
+    with pytest.raises(ValueError) as ei:
+        await speech.synthesize_speech_to_file("hi", "o.wav")
+    assert str(inproc) not in str(ei.value)
+    assert "o.wav" in str(ei.value)
+
+
+async def test_non_wav_output_rejected(inproc: Path) -> None:
+    from voice_agent.mcp_servers import speech
+
+    for bad in ("a.flac", "a.txt", "a", "a.wav.mp3"):
+        with pytest.raises(ValueError, match=r"\.wav"):
+            await speech.synthesize_speech_to_file("hi", bad)
+    assert list(inproc.iterdir()) == []
+    await speech.synthesize_speech_to_file("hi", "UP.WAV")
+    assert (inproc / "UP.WAV").is_file()
+    info = sf.info(str(inproc / "UP.WAV"))
+    assert info.format == "WAV"
+
+
+@pytest.mark.parametrize("bad", ["nan", "inf", "-inf", "0", "-5"])
+def test_max_audio_s_must_be_finite_positive(
+    bad: str, media: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_agent.mcp_servers import speech
+
+    monkeypatch.setattr(speech.mcp, "run", lambda **k: None)
+    with pytest.raises(SystemExit) as ei:
+        speech.main(["--media-root", str(media), "--max-audio-s", bad])
+    assert ei.value.code == 2
