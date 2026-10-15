@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import socket
+import stat
 from pathlib import Path
 
 import pytest
@@ -23,7 +26,7 @@ PREFIX = [
     "systemd-run", "--user", "--scope", "--quiet",
     "-p", "MemoryMax=512M", "-p", "CPUQuota=100%",
     "-p", "TasksMax=64", "-p", "MemorySwapMax=0",
-    "timeout", "60", "bwrap",
+    "timeout", "60", "prlimit", "--fsize=268435456", "bwrap",
 ]  # fmt: skip
 
 
@@ -131,6 +134,8 @@ def test_preflight_reports_missing_bwrap_and_memory(tmp_path: Path) -> None:
     _executable(root / "usr/bin/bwrap")
     _executable(root / "usr/bin/systemd-run")
     controllers.write_text("cpu memory pids\n")
+    assert preflight(root).problems == ["prlimit not found: install util-linux"]
+    _executable(root / "usr/bin/prlimit")
     ok = preflight(root)
     assert ok.bwrap == root / "usr/bin/bwrap"
     assert ok.memory_controller
@@ -298,3 +303,112 @@ async def test_dir_usage_flagged(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert res.disk_exceeded and res.dir_bytes >= 300_000
     res = await run_in_sandbox(SandboxPolicy(root=tmp_path, max_dir_bytes=10_000_000), ["x"])
     assert not res.disk_exceeded
+
+
+def test_scrubbed_env_falls_back_to_runtime_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for k in ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "LANG", "LC_ALL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    run_user = tmp_path / "run_user"
+    runtime = run_user / str(os.getuid())
+    runtime.mkdir(parents=True)
+    monkeypatch.setattr(runner, "_RUN_USER", run_user)
+    env = runner._scrubbed_env()
+    assert env == {"PATH": "/usr/bin", "HOME": "/sandbox", "XDG_RUNTIME_DIR": str(runtime)}
+
+    sock = socket.socket(socket.AF_UNIX)
+    sock.bind(str(runtime / "bus"))
+    try:
+        assert stat.S_ISSOCK((runtime / "bus").stat().st_mode)
+        env = runner._scrubbed_env()
+    finally:
+        sock.close()
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == f"unix:path={runtime}/bus"
+    assert "ANTHROPIC_API_KEY" not in env
+
+    monkeypatch.setattr(runner, "_RUN_USER", tmp_path / "missing")
+    assert "XDG_RUNTIME_DIR" not in runner._scrubbed_env()
+
+
+def test_scrubbed_env_keeps_explicit_runtime_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/4242")
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    assert runner._scrubbed_env()["XDG_RUNTIME_DIR"] == "/run/user/4242"
+
+
+async def test_subprocess_env_has_runtime_dir_with_empty_environ(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run_user = tmp_path / "run_user"
+    (run_user / str(os.getuid())).mkdir(parents=True)
+    monkeypatch.setattr(runner, "_RUN_USER", run_user)
+    for k in list(os.environ):
+        if k not in ("PATH",):
+            monkeypatch.delenv(k)
+    _Fake(monkeypatch).command(monkeypatch, 'echo "$XDG_RUNTIME_DIR"')
+    res = await run_in_sandbox(SandboxPolicy(root=tmp_path), ["x"])
+    assert res.stdout.strip() == str(run_user / str(os.getuid()))
+
+
+async def test_refuses_to_start_when_already_over_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "big.bin").write_bytes(b"x" * 300_000)
+    marker = tmp_path.parent / "ran.txt"
+    _Fake(monkeypatch).command(monkeypatch, f"touch {marker}")
+    res = await run_in_sandbox(SandboxPolicy(root=tmp_path, max_dir_bytes=100_000), ["x"])
+    assert res.disk_exceeded and res.dir_bytes > 100_000 and res.stdout == ""
+    assert not marker.exists()
+
+
+def test_dir_usage_tolerates_unreadable_and_caps_entries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (locked / "f").write_text("x")
+    locked.chmod(0)
+    try:
+        if os.access(locked, os.R_OK):
+            pytest.skip("running as a user that ignores permissions")
+        used = runner._dir_usage(tmp_path, 1000)
+    finally:
+        locked.chmod(0o700)
+    assert used > 1000
+
+    for i in range(5):
+        (tmp_path / f"f{i}").write_text("")
+    monkeypatch.setattr(runner, "_MAX_SCAN_ENTRIES", 3)
+    assert runner._dir_usage(tmp_path, 10**9) > 10**9
+
+
+async def test_cancel_waits_for_process_death(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _Fake(monkeypatch).command(monkeypatch, "sleep 30")
+    procs: list[asyncio.subprocess.Process] = []
+    real_exec = asyncio.create_subprocess_exec
+
+    async def spy(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        proc = await real_exec(*args, **kwargs)  # type: ignore[arg-type]
+        procs.append(proc)
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spy)
+    task = asyncio.create_task(run_in_sandbox(SandboxPolicy(root=tmp_path, timeout_s=30), ["x"]))
+    await asyncio.sleep(0.3)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert procs[0].returncode is not None
+
+
+def test_command_has_fsize_limit() -> None:
+    cmd = build_command(
+        SandboxPolicy(root=Path("/s"), max_dir_bytes=12345), ["x"], HostLayout({}, False, False)
+    )
+    i = cmd.index("prlimit")
+    assert cmd[i + 1] == "--fsize=12345" and cmd[i + 2] == "bwrap"
