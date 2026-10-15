@@ -38,3 +38,38 @@ Backends are created on first use through the `audio_engine` registry (see `AUDI
 ### Resource
 
 `speech://voices`: markdown list of the same voices as `get_tts_voices`.
+
+## code
+
+Run: `python -m voice_agent.mcp_servers.code [--root DIR]` (`--root` defaults to `paths.sandbox_root`; created if missing). Site URLs use `sites_host` and `sites_port` from `config/agent.toml`.
+
+Tool paths go through `resolve_inside` against the sandbox root; an escape is the tool error `"path outside sandbox root"`.
+
+| Tool | Returns | Errors |
+|---|---|---|
+| `write_file(path, content)` | `{"path", "bytes"}` | outside root; content over 256 KiB; path is a directory |
+| `read_file(path)` | text | outside root; missing; not a file; over 256 KiB |
+| `list_files(path=".")` | sorted names, directories end with `/` | outside root; missing; not a directory |
+| `run_python(path, args=None, timeout_s=60)` | `{"returncode", "stdout", "stderr", "timed_out", "oom_killed", "duration_s"}` | outside root; missing; `sandbox unavailable: ...`. `timeout_s` is capped at 120. One job at a time (`asyncio.Lock`). |
+| `publish_site(subdir, name)` | `{"url", "files", "bytes"}` | invalid name; outside root; source has a symlink or special file (named); over 200 files or 20 MiB (counts given). Nothing is copied on error. |
+
+`publish_site` copies regular files into `paths.sites_root/<name>/` (`name` matches `^[a-z0-9][a-z0-9-]{0,39}$`). It copies to a hidden temp dir under `sites_root`, then renames, so a republish replaces the old site without mixing files; a failed publish leaves the old site. `sites_root` is created with mode 0755 if missing, and the server writes nowhere else outside the sandbox root. A read-only static server (`voice-agent-sites.service`, ticket 16) serves it.
+
+### Sandbox model
+
+`voice_agent.sandbox.runner.run_in_sandbox` runs the script as:
+
+`systemd-run --user --scope --quiet -p MemoryMax=512M -p CPUQuota=100% timeout <s> bwrap <binds> --chdir /sandbox --unshare-all --die-with-parent --new-session python3 <script>`
+
+- **Filesystem:** only `/usr` (read-only), the `/bin` `/lib` `/sbin` symlinks (or read-only binds on a non-merged host), `/etc/alternatives` (read-only), a fresh `/proc`, `/dev`, `/tmp` (tmpfs) and the sandbox folder at `/sandbox` (read-write). `$HOME` is not mounted. The bind list is built from what exists on the host (`detect_layout`): a missing `/lib64` is skipped, a symlink into `/usr` becomes `--symlink usr/<x> /<x>`.
+- **Network and PIDs:** `--unshare-all` removes network, PID, IPC and UTS access. `SandboxPolicy.network=True` adds `--share-net`; the code server never sets it.
+- **Limits:** memory (`MemoryMax`), one core (`CPUQuota`), wall clock (`timeout`, exit 124, plus a host-side kill 5 s later). Output over 64 KiB per stream is cut with `…[truncated N bytes]`. An exit of 137 or SIGKILL is reported as `oom_killed` (best effort).
+- **Environment:** the child gets only `PATH`, `LANG`, `LC_ALL`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS` and `HOME=/sandbox`, so API keys in the server's environment never reach scripts.
+- Python packages the scripts need must be under `/usr`, or passed as `SandboxPolicy.ro_binds`.
+
+### Pi prerequisites
+
+- `sudo apt install bubblewrap` (the dev host has no `bwrap`; `run_python` then returns `sandbox unavailable: install bubblewrap`).
+- A user systemd session (`loginctl enable-linger <user>`); without one, `run_python` returns `sandbox unavailable` with the `systemd-run` error.
+- The memory cgroup controller: `memory` must appear in `/sys/fs/cgroup/user.slice/cgroup.controllers`. If not, add `cgroup_enable=memory` to `/boot/firmware/cmdline.txt` and reboot. Until then `run_in_sandbox` refuses unless `allow_no_memory_limit=True`.
+- `preflight()` reports all of the above in `problems`. The isolation tests (`tests/sandbox/test_run.py`, marker `pi`) run only on the Pi with `VOICE_AGENT_PI=1`.
