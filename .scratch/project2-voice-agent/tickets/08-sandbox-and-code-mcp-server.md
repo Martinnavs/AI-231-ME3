@@ -194,3 +194,14 @@ Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not a
 - Proof: new tests fail on old src (11 failed incl. 2 updated goldens), pass on fix. `make check` ok; `uv run pytest -q` -> 205 passed, 6 skipped. No bwrap/Pi tests run.
 - Unverified: `prlimit --fsize` ahead of bwrap inside `systemd-run --scope`/`timeout` (Pi checkpoint, add to R6); `/run/user/<uid>` fallback on the Pi. SIGXFSZ kills a script writing an oversize file (rc 153).
 - Files: src/voice_agent/sandbox/runner.py, src/voice_agent/mcp_servers/code.py, tests/sandbox/test_command.py, tests/mcp_servers/test_code_server.py
+
+### 2026-10-16 developer: DONE (fix package A2: M-1, L-1, L-2, L-3, L-4, L-6)
+- M-1: `_dir_usage` no longer invents bytes. Design chosen (least risky, no new tool/contract/SandboxResult change): (a) dirs owned by the server uid lacking u+rwx are chmod'ed to u+rwx while scanning, so a script's `chmod 000` is measured, not hidden; (b) any still-unscannable subtree (EACCES, ENAMETOOLONG) is skipped, and the 200k entry cap stops the scan returning the partial lower bound; neither state refuses a run. Rejected: refusing on unknown state (permanent lockout, no delete tool). Trade-off: unmeasured subtrees are not counted; this is the same class as M-2 (no total cap, H5) and the per-file `prlimit --fsize` guard stays the backstop. A genuine measured over-limit (the only remaining refusal) now says "at least N bytes" and tells the LLM to shrink files by overwriting them with write_file (list_files to find them) - recoverable with existing tools.
+- L-1: `_media_rel` is lazy (lexical first, resolve only when needed) and wraps OSError/RuntimeError; `_hidden_has_symlink` likewise; both raise the generic "refusing to run: the media folder cannot be verified" (no path).
+- L-2: post-kill drain + `proc.wait()` now under `anyio.CancelScope(shield=True)` (plus asyncio.shield); readers are awaited after cancel, removing the "_GatheringFuture exception never retrieved" warning. `anyio` imported directly (transitive via mcp; not in pyproject - outside my file list).
+- L-3: `publish_site` shields the to_thread future and, on any exception/cancel, waits for it (under a shielded scope) before the lock is released.
+- L-4: `..` in media_root is rejected (`_media_rel` raises the generic refusal; `main()` exits via parser.error at startup).
+- L-6: `list_files` also capped by `MAX_LIST_BYTES` (32 KiB of names); entries starting with the marker prefix are returned as `./<name>` so only the real marker starts with it.
+- Skipped: L-5, M-2 (out of scope). Info note on rc 153 acknowledged (not touched).
+- Proof: 11 new/updated tests fail on the pre-fix src, pass on the fix (67 passed, 5 skipped in tests/sandbox + test_code_server). No bwrap tests run (Pi-marked remain skipped).
+- Files: src/voice_agent/sandbox/runner.py, src/voice_agent/mcp_servers/code.py, tests/sandbox/test_command.py, tests/mcp_servers/test_code_server.py
