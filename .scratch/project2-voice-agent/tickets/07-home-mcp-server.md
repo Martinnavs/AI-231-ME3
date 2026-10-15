@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 06 (reuses its `docs/MCP-SERVERS.md` and server conventions)
-**Status:** ready-for-agent
+**Status:** done
 
 ## Files
 - `src/voice_agent/mcp_servers/home.py`
@@ -81,8 +81,8 @@ None
 `httpx` (BSD-3; already added in 05).
 
 ## Acceptance Criteria
-- [ ] Contracts implemented; mapping table in `docs/MCP-SERVERS.md`
-- [ ] Proof rows green (P4 may skip); gate suite green
+- [x] Contracts implemented; mapping table in `docs/MCP-SERVERS.md`
+- [x] Proof rows green (P4 may skip); gate suite green
 
 ## Non-Goals
 - No changes to ME2; no auth layer (dashboard stays on a trusted network — note it in the docs)
@@ -97,3 +97,13 @@ no (trusted-LAN HTTP client; writes one append-only log under `state_dir`)
 - `docs/MCP-SERVERS.md`
 
 ## Execution Log
+
+### 2026-10-15 agy: DONE
+- Assumptions verified: A1 read ME2/src/app/main.py at commit 3d68dbb; route and body field names matched ticket specifications; A2 read ME2/src/app/main.py; /api/vocab keys reminder_tasks, alarm_times, timer_presets_s, light_colors, light_levels, thermostat_degrees, tracks matched; A3 read ME2/src/app/main.py; phone routes take no body and return _respond shape {"changed", "message", "state"}
+- Proof: P1 ✅ P2 ✅ P3 ✅ P4 ⏭️ P5 ✅ P6 ✅ (command: `uv run pytest -q tests/mcp_servers/test_home_server.py` → 7 passed, 1 skipped)
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (97 passed, 1 skipped)
+- Files: src/voice_agent/mcp_servers/home.py, docs/MCP-SERVERS.md, tests/mcp_servers/test_home_server.py
+- Deviations: none
+- Commit: b2f4422
+- Notes for reviewer: P4 skipped with reason because fastapi/uvicorn are not part of voice-agent dependencies; table-driven MockTransport and real stdio client test all contracts, actions, routes, vocab validation, timeout/reachability errors, and phone logging.
+

@@ -73,3 +73,52 @@ Tool paths go through `resolve_inside` against the sandbox root; an escape is th
 - A user systemd session (`loginctl enable-linger <user>`); without one, `run_python` returns `sandbox unavailable` with the `systemd-run` error.
 - The memory cgroup controller: `memory` must appear in `/sys/fs/cgroup/user.slice/cgroup.controllers`. If not, add `cgroup_enable=memory` to `/boot/firmware/cmdline.txt` and reboot. Until then `run_in_sandbox` refuses unless `allow_no_memory_limit=True`.
 - `preflight()` reports all of the above in `problems`. The isolation tests (`tests/sandbox/test_run.py`, marker `pi`) run only on the Pi with `VOICE_AGENT_PI=1`.
+
+## home
+
+Run: `python -m voice_agent.mcp_servers.home [--base-url URL] [--state-dir DIR]`
+
+| Flag | Default |
+|---|---|
+| `--base-url` | `home_dashboard_url` from `config/agent.toml` (default `http://127.0.0.1:8000`) |
+| `--state-dir` | `paths.state_dir` from `config/agent.toml` (default `~/.local/state/voice_agent`) |
+
+Wraps the ME2 dashboard's HTTP API as an IoT target. No auth layer is used as the dashboard is assumed to run on a trusted local network.
+
+Scope note: base tasks work for any phrasing and value, but the dashboard accepts only closed vocabularies. This server covers only devices where fixed vocabularies are natural limits: **lights**, **thermostat**, and **phone**. Music is handled by the media server (ticket 19), while timers, alarms, and reminders are handled by the assistant server (ticket 20). The dashboard's own music, timer, alarm, reminder, weather, and time widgets are not driven by the agent. Real telephony and email tools are out of scope.
+
+### Route Mapping & Tools
+
+| Tool | Action / Params | HTTP Method | Endpoint | Body |
+|---|---|---|---|---|
+| `get_home_state()` | — | `GET` | `/api/state` | None |
+| `control_lights(action, ...)` | `action="on"` | `POST` | `/api/light/power_on` | None |
+| | `action="off"` | `POST` | `/api/light/power_off` | None |
+| | `action="brighter"` | `POST` | `/api/light/increase` | None |
+| | `action="dimmer"` | `POST` | `/api/light/decrease` | None |
+| | `action="set_color", color=...` | `POST` | `/api/light/set_color` | `{"color": color}` |
+| | `action="set_brightness", level=...` | `POST` | `/api/light/set_brightness` | `{"level": level}` |
+| `set_thermostat(degrees)` | `degrees=...` | `POST` | `/api/thermostat` | `{"degrees": degrees}` |
+| `phone(action, contact=...)` | `action="call", contact=...` | `POST` | `/api/phone/call` | None |
+| | `action="hang_up"` | `POST` | `/api/phone/hang_up` | None |
+| `send_message(contact, text)` | `contact=..., text=...` | `POST` | `/api/phone/message` | None |
+
+Every action tool returns the dashboard's own `_respond` shape: `{"changed": bool, "message": str, "state": {...}}`.
+
+### Phone Simulation & Logging
+
+The ME2 dashboard simulates phone calls and messages without a real contact book. The `phone("call")` and `send_message` tools take a contact name and message text, post to the dashboard routes to trigger the visible UI update, and append a record to `paths.state_dir/phone.jsonl`:
+`{"t": float, "action": "call" | "send_message", "contact": str, "text": str}`.
+If `phone.jsonl` is not writable, the dashboard action still succeeds and the result carries `logged: false`.
+
+### Validation & Errors
+
+Arguments are validated against `/api/vocab` (fetched once at startup, refreshed on any 4xx response). Out-of-vocabulary values are rejected immediately with a list of allowed values, making zero HTTP calls.
+- If the dashboard is unreachable at startup, the server starts anyway with an empty vocabulary; subsequent tool calls return `"home dashboard unreachable at <url>"` until the dashboard is reachable.
+- Request timeouts (> 2 s) return `"dashboard timed out"`.
+- If `phone("call")` lacks a contact or `send_message` lacks text, the server raises `"who should I call?"` or `"what should the message say?"` without making an HTTP call.
+
+### Resource
+
+`home://vocab`: JSON string of allowed vocabularies fetched from the dashboard (`GET /api/vocab`).
+
