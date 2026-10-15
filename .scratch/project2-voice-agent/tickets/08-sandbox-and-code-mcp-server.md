@@ -194,3 +194,8 @@ Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not a
 - Proof: new tests fail on old src (11 failed incl. 2 updated goldens), pass on fix. `make check` ok; `uv run pytest -q` -> 205 passed, 6 skipped. No bwrap/Pi tests run.
 - Unverified: `prlimit --fsize` ahead of bwrap inside `systemd-run --scope`/`timeout` (Pi checkpoint, add to R6); `/run/user/<uid>` fallback on the Pi. SIGXFSZ kills a script writing an oversize file (rc 153).
 - Files: src/voice_agent/sandbox/runner.py, src/voice_agent/mcp_servers/code.py, tests/sandbox/test_command.py, tests/mcp_servers/test_code_server.py
+
+### 2026-10-16 test-engineer: DONE (fix G, review R1 proof + R6 cases)
+- Added tests/agent/test_code_via_manager.py: real code server spawned via McpClientManager with a wiped parent env (secrets set in parent), stub systemd-run/bwrap/prlimit on PATH; calls code__run_python; asserts stub systemd-run saw XDG_RUNTIME_DIR=/run/user/<uid> and no ANTHROPIC_API_KEY/DEEPGRAM_API_KEY in its env. Skips if /run/user/<uid> missing or memory cgroup not delegated.
+- Verified it fails pre-fix: swapped in runner.py from 76d060d (restored afterwards) -> `AssertionError: assert '' == '/run/user/1077000508'`; passes on current runner.
+- Added tests/sandbox/test_run_mask.py: argv-level media-mask cases (symlinked parent of sandbox_root, media via real/symlink path mixes, nested media, media outside root, symlinked media dir and intermediate refused, hidden-path escape) plus one pi-marked real-bwrap test (media hidden, writes not leaking). Pi test skipped here (no bwrap); still needs human checkpoint 5.
