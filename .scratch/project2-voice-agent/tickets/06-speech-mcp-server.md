@@ -97,3 +97,12 @@ yes — filesystem path confinement for a tool an LLM drives. Flag for `security
 - `docs/AUDIO-ENGINE.md`; producer of `docs/MCP-SERVERS.md` and `_paths.resolve_inside` (reused by 07, 08)
 
 ## Execution Log
+
+### 2026-10-15 developer: DONE
+- Assumptions verified: A1 `uv run python -c "from mcp.server.fastmcp import FastMCP; print(FastMCP)"` → class printed, mcp 1.30.0 installed; A2 P4 real stdio client got `isError=True` for escapes and the next call succeeded; A3 P2 `stdio_client` spawns `sys.executable -m voice_agent.mcp_servers.speech`
+- Proof: P1 ✅ P2 ✅ P3 ✅ P4 ✅ P5 ✅ P6 ✅ (command: `uv run pytest -q tests/mcp_servers` → 34 passed)
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (60 passed, 0 skipped)
+- Files: src/voice_agent/mcp_servers/{__init__,_paths,speech}.py, docs/MCP-SERVERS.md, tests/mcp_servers/{test_paths,test_speech_server}.py, pyproject.toml + uv.lock (`uv add "mcp>=1.2,<2"`)
+- Deviations: `SpeechBackendError` (ticket 05, not landed) is looked up via importlib in `audio_engine._ws` with a local fallback class; once 05 lands the fallback is dead code. Real-backend `api_key` kwarg is passed from config secrets for names deepgram/cartesia (unverified until 05). Extra `--max-audio-s` flag per the cost-guard edge. Duration guard uses `sf.info` before reading the whole file. Absolute paths are rejected even when inside the root.
+- Commit: see git log (`06: Speech MCP server (stdio) — transcribe / synthesize / list voices`)
+- Notes for reviewer: security-sensitive; confinement in `_paths.py` (reject absolute/`..`/NUL, then resolve symlinks and `is_relative_to` on the resolved root). Check-then-write TOCTOU between resolve and write is not defended (single-user local server). P6 proves stdout carries only JSON-RPC while stderr gets the log line; a stray `print` inside a tool would still corrupt stdout, which is not separately guarded.
