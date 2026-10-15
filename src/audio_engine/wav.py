@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from math import gcd
 from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
 import numpy.typing as npt
@@ -22,18 +23,24 @@ def float_to_pcm16(samples: npt.NDArray[np.float32]) -> bytes:
     return np.clip(scaled, -32768, 32767).astype("<i2").tobytes()
 
 
-def read_wav(path: Path) -> AudioClip:
+def read_wav(path: Path | BinaryIO) -> AudioClip:
     try:
-        data, rate = sf.read(str(path), dtype="float32", always_2d=True)
+        src = path if hasattr(path, "read") else str(path)
+        data, rate = sf.read(src, dtype="float32", always_2d=True)
     except (OSError, RuntimeError, sf.LibsndfileError) as exc:
         raise AudioFileError(f"cannot read audio file {path}: {exc}") from exc
     mono = data.mean(axis=1).astype(np.float32)
     return AudioClip(samples=mono, sample_rate=int(rate))
 
 
-def write_wav(path: Path, clip: AudioClip) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(path), clip.samples, clip.sample_rate, subtype="PCM_16")
+def write_wav(path: Path | BinaryIO, clip: AudioClip) -> None:
+    dest: str | BinaryIO
+    if isinstance(path, (str, Path)):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        dest = str(path)
+    else:
+        dest = path
+    sf.write(dest, clip.samples, clip.sample_rate, subtype="PCM_16", format="WAV")
 
 
 def resample(clip: AudioClip, rate: int) -> AudioClip:

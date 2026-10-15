@@ -3,10 +3,13 @@ from __future__ import annotations
 import argparse
 import importlib
 import logging
+import math
+import os
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 import soundfile as sf
 from mcp.server.fastmcp import FastMCP
@@ -15,7 +18,12 @@ import audio_engine
 from audio_engine import AudioFileError, Synthesizer, Transcriber, Voice
 from audio_engine.wav import read_wav, write_wav
 from voice_agent.config import AgentConfig, ConfigError, PathsConfig, load_config
-from voice_agent.mcp_servers._paths import PathEscapeError, resolve_inside
+from voice_agent.mcp_servers._paths import (
+    PathEscapeError,
+    open_regular_for_read,
+    resolve_inside,
+    write_file_atomic,
+)
 
 
 def _backend_error_type() -> type[Exception]:
@@ -31,6 +39,11 @@ SpeechBackendError = _backend_error_type()
 
 MAX_TEXT_CHARS = 2000
 DEFAULT_MAX_AUDIO_S = 120.0
+MAX_SAMPLE_RATE = 48000
+MAX_CHANNELS = 2
+MAX_DECODED_BYTES = 64 * 1024 * 1024
+MAX_FILE_BYTES = 64 * 1024 * 1024
+_WAV_FORMATS = {"WAV", "WAVEX"}
 
 log = logging.getLogger("voice_agent.mcp.speech")
 mcp = FastMCP("speech")
@@ -83,22 +96,49 @@ def _resolve(rel: str, *, must_exist: bool) -> Path:
         raise ValueError(f"file not found: {rel}") from None
 
 
+def _open_audio(path: str) -> BinaryIO:
+    try:
+        return open_regular_for_read(_state.media_root, path)
+    except PathEscapeError:
+        raise ValueError("path outside media root") from None
+    except FileNotFoundError:
+        raise ValueError(f"file not found: {path}") from None
+    except OSError:
+        raise ValueError(f"not an audio file: {path}") from None
+
+
+def _check_audio(fh: BinaryIO, path: str) -> None:
+    bad = ValueError(f"not an audio file: {path}")
+    if os.fstat(fh.fileno()).st_size > MAX_FILE_BYTES:
+        raise ValueError(f"audio file too large: {path}")
+    try:
+        info = sf.info(fh)
+    except (OSError, RuntimeError, sf.LibsndfileError):
+        raise bad from None
+    fh.seek(0)
+    if (
+        info.format not in _WAV_FORMATS
+        or not 0 < info.channels <= MAX_CHANNELS
+        or not 0 < info.samplerate <= MAX_SAMPLE_RATE
+    ):
+        raise bad
+    if info.frames * info.channels * 4 > MAX_DECODED_BYTES:
+        raise ValueError(f"audio too large: {path}")
+    duration = info.frames / info.samplerate
+    if duration > _state.max_audio_s:
+        raise ValueError(f"audio too long: {duration:.1f}s exceeds {_state.max_audio_s:g}s limit")
+
+
 @mcp.tool()
 async def transcribe_audio_file(path: str) -> dict[str, object]:
     """Transcribe a WAV file under the media folder. Returns {"text", "language", "duration_s"}."""
-    src = _resolve(path, must_exist=True)
-    if not src.is_file():
-        raise ValueError(f"not an audio file: {path}")
-    try:
-        duration = float(sf.info(str(src)).duration)
-    except (OSError, RuntimeError, sf.LibsndfileError):
-        raise ValueError(f"not an audio file: {path}") from None
-    if duration > _state.max_audio_s:
-        raise ValueError(f"audio too long: {duration:.1f}s exceeds {_state.max_audio_s:g}s limit")
-    try:
-        clip = read_wav(src)
-    except AudioFileError:
-        raise ValueError(f"not an audio file: {path}") from None
+    _resolve(path, must_exist=True)
+    with _open_audio(path) as fh:
+        _check_audio(fh, path)
+        try:
+            clip = read_wav(fh)
+        except AudioFileError:
+            raise ValueError(f"not an audio file: {path}") from None
     try:
         result = await _transcriber().transcribe(clip)
     except SpeechBackendError as exc:
@@ -117,6 +157,8 @@ async def synthesize_speech_to_file(
     if len(text) > MAX_TEXT_CHARS:
         raise ValueError(f"text too long: {len(text)} chars exceeds {MAX_TEXT_CHARS}")
     dest = _resolve(path, must_exist=False)
+    if not path.lower().endswith(".wav"):
+        raise ValueError(f"output path must end in .wav: {path}")
     if dest.is_dir():
         raise ValueError(f"output path is a directory: {path}")
     if dest.exists() and not overwrite:
@@ -125,7 +167,16 @@ async def synthesize_speech_to_file(
         clip = await _synthesizer().synthesize(text, voice)
     except SpeechBackendError as exc:
         raise ValueError(f"speech backend error: {exc}") from exc
-    write_wav(dest, clip)
+    try:
+        write_file_atomic(
+            _state.media_root, path, lambda fh: write_wav(fh, clip), overwrite=overwrite
+        )
+    except PathEscapeError:
+        raise ValueError("path outside media root") from None
+    except FileExistsError:
+        raise ValueError(f"output file exists: {path} (pass overwrite=true)") from None
+    except (OSError, RuntimeError):
+        raise ValueError(f"cannot write output file: {path}") from None
     return {"path": path, "duration_s": clip.duration_s, "sample_rate": clip.sample_rate}
 
 
@@ -157,6 +208,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--media-root", type=Path)
     parser.add_argument("--max-audio-s", type=float, default=DEFAULT_MAX_AUDIO_S)
     args = parser.parse_args(argv)
+    if not math.isfinite(args.max_audio_s) or args.max_audio_s <= 0:
+        parser.error("--max-audio-s must be a finite number > 0")
     try:
         cfg = load_config()
         agent, paths = cfg.agent, cfg.paths
