@@ -24,3 +24,4 @@ STOP LINE (needs the user): 05 and 10 (D1 unconfirmed; D3 Tavily edit to 10 pend
 ## Log
 - 13 merged (worker gate re-run clean, 45 passed). Note for review: speech_bounds hangover_ms is a no-op; build_truth_set gained voice kw.
 - 06 merged (60 passed). Follow-ups: when 05 lands, confirm speech.py picks up the real SpeechBackendError from audio_engine._ws (currently local fallback). security-auditor over 06 pending.
+- 02 merged (agy; full suite green). 14, 07, 08 dispatched.
