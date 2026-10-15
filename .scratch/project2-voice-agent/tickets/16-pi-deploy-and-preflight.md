@@ -71,6 +71,9 @@ None
 ## Dependencies/license
 None new.
 
+## Added requirement (security audit of 08, L8)
+The static server that serves `~/agent_sites` must refuse symlinks and dotfiles, disable directory listings, and send `Content-Security-Policy: sandbox` and `X-Content-Type-Options: nosniff` (published pages share the Pi's hostname with other LAN services). Also document in the runbook that `network=True` in the sandbox also exposes host loopback services (audit L2).
+
 ## Acceptance Criteria
 - [ ] `python -m voice_agent.preflight` runs on the dev host without failures caused by Pi-only checks
 - [ ] `docs/PI-SETUP.md` has the "Pi 4 hardware rules" section and covers a fresh Pi → running agent, including the AEC device as default capture/playback and running the sandbox `pi` tests (ticket 08 P6)
