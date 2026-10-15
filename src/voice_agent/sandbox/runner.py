@@ -15,6 +15,8 @@ _KILL_GRACE_S = 5
 _SYSTEMD_FAILURES = ("Failed to connect to", "Failed to create bus", "Failed to start transient")
 _PASS_ENV = ("PATH", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
 _MERGED_DIRS = ("/bin", "/lib", "/sbin")
+_RUN_USER = Path("/run/user")
+_MAX_SCAN_ENTRIES = 200_000
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,8 @@ def preflight(root: Path = Path("/"), uid: int | None = None) -> Preflight:
         problems.append("bwrap not found: install bubblewrap")
     if systemd_run is None:
         problems.append("systemd-run not found")
+    if _which("prlimit", root) is None:
+        problems.append("prlimit not found: install util-linux")
     if not memory:
         problems.append(
             "memory cgroup controller not delegated to the user manager: add "
@@ -141,6 +145,8 @@ def build_command(policy: SandboxPolicy, argv: Sequence[str], layout: HostLayout
         "MemorySwapMax=0",
         "timeout",
         str(policy.timeout_s),
+        "prlimit",
+        f"--fsize={policy.max_dir_bytes}",
         "bwrap",
         "--ro-bind",
         "/usr",
@@ -180,6 +186,18 @@ def build_command(policy: SandboxPolicy, argv: Sequence[str], layout: HostLayout
 def _scrubbed_env() -> dict[str, str]:
     env = {k: os.environ[k] for k in _PASS_ENV if k in os.environ}
     env["HOME"] = "/sandbox"
+    if "XDG_RUNTIME_DIR" not in env:
+        uid = os.getuid()
+        runtime = _RUN_USER / str(uid)
+        with contextlib.suppress(OSError):
+            if runtime.is_dir() and runtime.stat().st_uid == uid:
+                env["XDG_RUNTIME_DIR"] = str(runtime)
+    runtime_dir = env.get("XDG_RUNTIME_DIR")
+    if runtime_dir and "DBUS_SESSION_BUS_ADDRESS" not in env:
+        bus = Path(runtime_dir) / "bus"
+        with contextlib.suppress(OSError):
+            if bus.is_socket():
+                env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={bus}"
     return env
 
 
@@ -212,16 +230,23 @@ def _oom_kill_count(uid: int | None = None) -> int | None:
 
 def _dir_usage(root: Path, limit: int) -> int:
     total = 0
+    seen = 0
     stack = [str(root)]
     while stack:
-        with os.scandir(stack.pop()) as it:
-            for entry in it:
-                st = entry.stat(follow_symlinks=False)
-                total += st.st_blocks * 512
-                if total > limit:
-                    return total
-                if entry.is_dir(follow_symlinks=False):
-                    stack.append(entry.path)
+        try:
+            with os.scandir(stack.pop()) as it:
+                for entry in it:
+                    seen += 1
+                    if seen > _MAX_SCAN_ENTRIES:
+                        return limit + 1
+                    st = entry.stat(follow_symlinks=False)
+                    total += st.st_blocks * 512
+                    if total > limit:
+                        return total
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(entry.path)
+        except OSError:
+            return max(total, limit + 1)
     return total
 
 
@@ -240,6 +265,18 @@ async def run_in_sandbox(policy: SandboxPolicy, argv: Sequence[str]) -> SandboxR
         raise SandboxUnavailable(
             "sandbox unavailable: memory cgroup controller missing; add cgroup_enable=memory "
             "to /boot/firmware/cmdline.txt and reboot"
+        )
+    before = await asyncio.to_thread(_dir_usage, policy.root, policy.max_dir_bytes)
+    if before > policy.max_dir_bytes:
+        return SandboxResult(
+            returncode=1,
+            stdout="",
+            stderr="",
+            timed_out=False,
+            oom_killed=False,
+            duration_s=0.0,
+            dir_bytes=before,
+            disk_exceeded=True,
         )
     info_r, info_w = os.pipe()
     os.set_blocking(info_r, False)
@@ -273,6 +310,9 @@ async def run_in_sandbox(policy: SandboxPolicy, argv: Sequence[str]) -> SandboxR
     except BaseException:
         _kill_group(proc)
         os.close(info_r)
+        readers.cancel()
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await asyncio.shield(asyncio.wait_for(proc.wait(), _KILL_GRACE_S))
         raise
     stdout, stderr = await readers
     duration = time.monotonic() - start

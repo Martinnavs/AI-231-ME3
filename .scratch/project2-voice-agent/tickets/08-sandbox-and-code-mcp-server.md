@@ -183,3 +183,14 @@ Non-goals: no `config.py` default change (media_root location is parked for the 
 ### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
 - R1 [R1] code server spawned by McpClientManager has no XDG_RUNTIME_DIR -> systemd-run fails -> run_python always 'sandbox unavailable' (reproduced). R2 [R2, security] media mask fails open when an ancestor of sandbox_root is a symlink (reproduced). R5 [R2] disk/inode cap post-hoc; _dir_usage fragile. R6 [R2, HUMAN] P6/bwrap behavior unverified. R13 [R2] docs drift. R17-R20 [R3].
 Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.
+
+### 2026-10-16 developer: DONE (fix package A: R1, R2, R5 worker part, R17, R16 list cap, R20)
+- R1: `runner._scrubbed_env` falls back to `/run/user/<uid>` (must be a dir owned by uid) when `XDG_RUNTIME_DIR` is unset, and sets `DBUS_SESSION_BUS_ADDRESS=unix:path=<dir>/bus` only if that socket exists. Nothing else is added; secrets stay out (test asserts). Tests run with an empty environ and check the env given to the subprocess.
+- R2: `code._media_rel` tries lexical (abspath both sides) then resolved comparison, fails closed; `run_python` now refuses if ANY component of the hidden path under the real root is a symlink (`_hidden_has_symlink`).
+- R5: run refused up front (returns `disk_exceeded=True`, no process started) when the folder is already over `max_dir_bytes`; `_dir_usage` returns over-limit on any OSError (no path in any message) and past `_MAX_SCAN_ENTRIES` (200k); `prlimit --fsize=<max_dir_bytes>` inserted before `bwrap` in the argv (golden argv + preflight tests updated; preflight reports "prlimit not found" if missing).
+- R17: cancel path cancels the readers and does a shielded `proc.wait()` (<= grace) before re-raising.
+- R16 (list cap): `list_files` capped at 1000 entries plus a truncation marker. R20: `publish_site` runs `_publish` via `asyncio.to_thread`; dot entries filtered while iterating.
+- Skipped: R18 (+0.5 s heuristic could misclassify real timeouts; `--unit` memory.events unverifiable without Pi), R19 (`--disable-userns` needs bwrap >= 0.8, unverifiable here; would break all runs on older bwrap), R16 render cap (package D).
+- Proof: new tests fail on old src (11 failed incl. 2 updated goldens), pass on fix. `make check` ok; `uv run pytest -q` -> 205 passed, 6 skipped. No bwrap/Pi tests run.
+- Unverified: `prlimit --fsize` ahead of bwrap inside `systemd-run --scope`/`timeout` (Pi checkpoint, add to R6); `/run/user/<uid>` fallback on the Pi. SIGXFSZ kills a script writing an oversize file (rc 153).
+- Files: src/voice_agent/sandbox/runner.py, src/voice_agent/mcp_servers/code.py, tests/sandbox/test_command.py, tests/mcp_servers/test_code_server.py

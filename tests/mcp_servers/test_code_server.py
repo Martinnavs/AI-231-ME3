@@ -453,3 +453,59 @@ async def test_run_python_masks_media_and_checks_size(
     monkeypatch.setattr(code, "run_in_sandbox", big)
     with pytest.raises(ValueError, match="over the limit"):
         await code.run_python("s.py")
+
+
+async def _capture_policy(monkeypatch: pytest.MonkeyPatch) -> dict[str, SandboxPolicy]:
+    seen: dict[str, SandboxPolicy] = {}
+
+    async def fake(policy: SandboxPolicy, argv: list[str]) -> SandboxResult:
+        seen["policy"] = policy
+        return SandboxResult(0, "", "", False, False, 0.1, 0, False)
+
+    monkeypatch.setattr(code, "run_in_sandbox", fake)
+    return seen
+
+
+async def test_media_mask_survives_symlinked_ancestor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = tmp_path / "real"
+    (real / "agent_sandbox").mkdir(parents=True)
+    link = tmp_path / "home"
+    link.symlink_to(real)
+    root = link / "agent_sandbox"
+    monkeypatch.setattr(code._state, "root", root)
+    monkeypatch.setattr(code._state, "media_root", root / "media")
+    monkeypatch.setattr(code._state, "lock", asyncio.Lock())
+    seen = await _capture_policy(monkeypatch)
+    await code.write_file("s.py", "")
+    await code.run_python("s.py")
+    assert seen["policy"].hidden_paths == ("media",)
+
+    monkeypatch.setattr(code._state, "media_root", real / "agent_sandbox" / "media")
+    assert code._media_rel() == "media"
+    monkeypatch.setattr(code._state, "root", real / "agent_sandbox")
+    monkeypatch.setattr(code._state, "media_root", root / "media")
+    assert code._media_rel() == "media"
+
+
+async def test_media_symlinked_intermediate_component_refused(
+    box: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(code._state, "media_root", box / "a" / "media")
+    outside = tmp_path / "outside"
+    (outside / "media").mkdir(parents=True)
+    (box / "a").symlink_to(outside)
+    await _capture_policy(monkeypatch)
+    await code.write_file("s.py", "")
+    with pytest.raises(ValueError, match="symlink"):
+        await code.run_python("s.py")
+
+
+async def test_list_files_caps_entries(box: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(code, "MAX_LIST_ENTRIES", 5)
+    for i in range(8):
+        (box / f"f{i}").write_text("")
+    out = await code.list_files(".")
+    assert len(out) == 6 and out[-1].startswith("…[truncated")
+    assert str(box) not in "".join(out)

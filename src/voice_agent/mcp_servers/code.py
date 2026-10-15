@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import contextlib
 import errno
+import itertools
 import logging
 import os
 import re
@@ -38,6 +39,7 @@ MAX_SITE_FILES = 200
 MAX_SITE_BYTES = 20 * 1024 * 1024
 MAX_SITE_DIRS = 100
 MAX_SITE_DEPTH = 8
+MAX_LIST_ENTRIES = 1000
 SITE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 
 log = logging.getLogger("voice_agent.mcp.code")
@@ -124,21 +126,39 @@ async def list_files(path: str = ".") -> list[str]:
             raise ValueError(f"not a directory: {path}") from None
         try:
             with os.scandir(fd) as it:
-                names = [f"{e.name}/" if e.is_dir(follow_symlinks=False) else e.name for e in it]
+                names = [
+                    f"{e.name}/" if e.is_dir(follow_symlinks=False) else e.name
+                    for e in itertools.islice(it, MAX_LIST_ENTRIES + 1)
+                ]
         finally:
             os.close(fd)
-    return sorted(names)
+    truncated = len(names) > MAX_LIST_ENTRIES
+    result = sorted(names[:MAX_LIST_ENTRIES])
+    if truncated:
+        result.append(f"…[truncated: more than {MAX_LIST_ENTRIES} entries]")
+    return result
 
 
 def _media_rel() -> str | None:
     media = _state.media_root
     if media is None:
         return None
-    try:
-        rel = Path(os.path.abspath(media)).relative_to(_state.root.resolve())
-    except ValueError:
-        return None
-    return rel.as_posix() if rel.parts else None
+    lexical_media = Path(os.path.abspath(media))
+    candidates = (
+        (lexical_media, Path(os.path.abspath(_state.root))),
+        (lexical_media.resolve(), _state.root.resolve()),
+    )
+    for m, r in candidates:
+        if m.is_relative_to(r):
+            rel = m.relative_to(r)
+            if rel.parts:
+                return rel.as_posix()
+    return None
+
+
+def _hidden_has_symlink(real_root: Path, hidden: str) -> bool:
+    parts = Path(hidden).parts
+    return any((real_root.joinpath(*parts[: i + 1])).is_symlink() for i in range(len(parts)))
 
 
 @mcp.tool()
@@ -153,7 +173,7 @@ async def run_python(
         real_root = _state.root.resolve()
         rel = script.relative_to(real_root).as_posix()
         hidden = _media_rel()
-        if hidden is not None and (real_root / hidden).is_symlink():
+        if hidden is not None and _hidden_has_symlink(real_root, hidden):
             raise ValueError(f"refusing to run: {hidden} inside the sandbox is a symlink")
         policy = SandboxPolicy(
             root=real_root,
@@ -237,6 +257,7 @@ def _copy_tree(src_fd: int, dst_fd: int, prefix: str, depth: int, tally: _Tally)
                 e.is_file(follow_symlinks=False),
             )
             for e in it
+            if not e.name.startswith(".")
         )
     for name, is_link, is_dir, is_file in entries:
         if name.startswith("."):
@@ -286,7 +307,7 @@ async def publish_site(subdir: str, name: str) -> dict[str, object]:
     if not SITE_NAME.fullmatch(name):
         raise ValueError("invalid site name: use 1-40 chars of a-z, 0-9 and '-', not starting '-'")
     async with _state.lock:
-        return _publish(subdir, name)
+        return await asyncio.to_thread(_publish, subdir, name)
 
 
 def _publish(subdir: str, name: str) -> dict[str, object]:
