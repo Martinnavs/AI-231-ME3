@@ -21,6 +21,8 @@ def resolve_inside(root: Path, rel: str, *, must_exist: bool) -> Path:
         raise PathEscapeError("path outside media root")
     if ".." in rel.replace("\\", "/").split("/"):
         raise PathEscapeError("path outside media root")
+    if root.is_symlink():
+        raise PathEscapeError("path outside media root")
     real_root = root.resolve()
     try:
         resolved = (real_root / rel).resolve(strict=False)
@@ -74,6 +76,22 @@ def _open_parent(root: Path, rel: str, *, create: bool) -> tuple[int, str]:
         os.close(fd)
         raise
     return fd, parts[-1]
+
+
+def open_dir(root: Path, rel: str) -> int:
+    resolve_inside(root, rel, must_exist=False)
+    if not [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]:
+        return os.open(root.resolve(), _DIR_FLAGS)
+    dfd, name = _open_parent(root, rel, create=False)
+    try:
+        try:
+            return os.open(name, _DIR_FLAGS, dir_fd=dfd)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise _escape() from exc
+            raise
+    finally:
+        os.close(dfd)
 
 
 def open_regular_for_read(root: Path, rel: str) -> BinaryIO:

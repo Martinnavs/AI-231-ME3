@@ -7,7 +7,7 @@ import shutil
 import signal
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 MAX_OUTPUT_BYTES = 64 * 1024
@@ -26,6 +26,9 @@ class SandboxPolicy:
     network: bool = False
     ro_binds: tuple[Path, ...] = ()
     allow_no_memory_limit: bool = False
+    hidden_paths: tuple[str, ...] = ()  # root-relative paths masked with an empty tmpfs
+    max_dir_bytes: int = 256 * 1024 * 1024
+    info_fd: int | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,8 @@ class SandboxResult:
     timed_out: bool
     oom_killed: bool
     duration_s: float
+    dir_bytes: int = 0
+    disk_exceeded: bool = False
 
 
 class SandboxUnavailable(RuntimeError):
@@ -92,14 +97,21 @@ def _which(name: str, root: Path) -> Path | None:
     return Path(found) if found else None
 
 
-def preflight(root: Path = Path("/")) -> Preflight:
+def _memory_delegated(root: Path, uid: int) -> bool:
+    cgroup = root / "sys/fs/cgroup/user.slice"
+    delegated = cgroup / f"user-{uid}.slice/user@{uid}.service/cgroup.subtree_control"
+    for path in (delegated, cgroup / "cgroup.controllers"):
+        try:
+            return "memory" in path.read_text().split()
+        except OSError:
+            continue
+    return False
+
+
+def preflight(root: Path = Path("/"), uid: int | None = None) -> Preflight:
     bwrap = _which("bwrap", root)
     systemd_run = _which("systemd-run", root)
-    controllers = root / "sys/fs/cgroup/user.slice/cgroup.controllers"
-    try:
-        memory = "memory" in controllers.read_text().split()
-    except OSError:
-        memory = False
+    memory = _memory_delegated(root, os.getuid() if uid is None else uid)
     problems: list[str] = []
     if bwrap is None:
         problems.append("bwrap not found: install bubblewrap")
@@ -107,8 +119,8 @@ def preflight(root: Path = Path("/")) -> Preflight:
         problems.append("systemd-run not found")
     if not memory:
         problems.append(
-            "memory cgroup controller missing from user.slice: add cgroup_enable=memory to "
-            "/boot/firmware/cmdline.txt and reboot"
+            "memory cgroup controller not delegated to the user manager: add "
+            "cgroup_enable=memory to /boot/firmware/cmdline.txt and reboot"
         )
     return Preflight(bwrap, systemd_run, memory, detect_layout(root), problems)
 
@@ -123,6 +135,10 @@ def build_command(policy: SandboxPolicy, argv: Sequence[str], layout: HostLayout
         f"MemoryMax={policy.memory_max}",
         "-p",
         f"CPUQuota={policy.cpu_quota}",
+        "-p",
+        "TasksMax=64",
+        "-p",
+        "MemorySwapMax=0",
         "timeout",
         str(policy.timeout_s),
         "bwrap",
@@ -144,10 +160,20 @@ def build_command(policy: SandboxPolicy, argv: Sequence[str], layout: HostLayout
     cmd += ["--bind", str(policy.root), "/sandbox"]
     for ro in policy.ro_binds:
         cmd += ["--ro-bind", str(ro), str(ro)]
+    for hidden in policy.hidden_paths:
+        parts = hidden.split("/")
+        if hidden.startswith("/") or ".." in parts or not hidden:
+            raise ValueError(f"hidden path must be relative and inside the root: {hidden!r}")
+        cmd += ["--tmpfs", f"/sandbox/{hidden}"]
     cmd += ["--chdir", "/sandbox", "--unshare-all"]
     if policy.network:
         cmd.append("--share-net")
-    cmd += ["--die-with-parent", "--new-session", *argv]
+    if policy.info_fd is not None:
+        cmd += ["--info-fd", str(policy.info_fd)]
+    cmd += ["--die-with-parent", "--new-session"]
+    cmd += ["--clearenv", "--setenv", "PATH", "/usr/bin:/bin"]
+    cmd += ["--setenv", "HOME", "/sandbox", "--setenv", "LANG", "C.UTF-8"]
+    cmd += list(argv)
     return cmd
 
 
@@ -171,6 +197,34 @@ async def _read_capped(stream: asyncio.StreamReader) -> str:
     return text
 
 
+def _oom_kill_count(uid: int | None = None) -> int | None:
+    uid = os.getuid() if uid is None else uid
+    path = Path(f"/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service/memory.events")
+    try:
+        for line in path.read_text().splitlines():
+            key, _, value = line.partition(" ")
+            if key == "oom_kill":
+                return int(value)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _dir_usage(root: Path, limit: int) -> int:
+    total = 0
+    stack = [str(root)]
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                st = entry.stat(follow_symlinks=False)
+                total += st.st_blocks * 512
+                if total > limit:
+                    return total
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(entry.path)
+    return total
+
+
 def _kill_group(proc: asyncio.subprocess.Process) -> None:
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(proc.pid, signal.SIGKILL)
@@ -187,16 +241,26 @@ async def run_in_sandbox(policy: SandboxPolicy, argv: Sequence[str]) -> SandboxR
             "sandbox unavailable: memory cgroup controller missing; add cgroup_enable=memory "
             "to /boot/firmware/cmdline.txt and reboot"
         )
-    cmd = build_command(policy, argv, pre.layout)
+    info_r, info_w = os.pipe()
+    os.set_blocking(info_r, False)
+    cmd = build_command(replace(policy, info_fd=info_w), argv, pre.layout)
+    oom_before = _oom_kill_count()
     start = time.monotonic()
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=_scrubbed_env(),
-        start_new_session=True,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_scrubbed_env(),
+            start_new_session=True,
+            pass_fds=(info_w,),
+        )
+    except BaseException:
+        os.close(info_r)
+        raise
+    finally:
+        os.close(info_w)
     assert proc.stdout is not None and proc.stderr is not None
     readers = asyncio.gather(_read_capped(proc.stdout), _read_capped(proc.stderr))
     wall_clock_hit = False
@@ -208,20 +272,34 @@ async def run_in_sandbox(policy: SandboxPolicy, argv: Sequence[str]) -> SandboxR
         await proc.wait()
     except BaseException:
         _kill_group(proc)
+        os.close(info_r)
         raise
     stdout, stderr = await readers
+    duration = time.monotonic() - start
+    try:
+        started = bool(os.read(info_r, 1))
+    except OSError:
+        started = False
+    finally:
+        os.close(info_r)
     returncode = proc.returncode if proc.returncode is not None else -1
-    if returncode != 0 and stderr.startswith(_SYSTEMD_FAILURES):
+    if not started and returncode != 0 and stderr.startswith(_SYSTEMD_FAILURES):
         raise SandboxUnavailable(f"sandbox unavailable: {stderr.strip()[:300]}")
-    timed_out = wall_clock_hit or returncode == 124
+    timed_out = wall_clock_hit or (returncode == 124 and started and duration >= policy.timeout_s)
     if wall_clock_hit:
         returncode = 124
-    oom = not timed_out and returncode in (137, -signal.SIGKILL)
+    oom = False
+    if not timed_out and returncode in (137, -signal.SIGKILL):
+        oom_after = _oom_kill_count()
+        oom = oom_before is None or oom_after is None or oom_after > oom_before
+    dir_bytes = await asyncio.to_thread(_dir_usage, policy.root, policy.max_dir_bytes)
     return SandboxResult(
         returncode=returncode,
         stdout=stdout,
         stderr=stderr,
         timed_out=timed_out,
         oom_killed=oom,
-        duration_s=time.monotonic() - start,
+        duration_s=duration,
+        dir_bytes=dir_bytes,
+        disk_exceeded=dir_bytes > policy.max_dir_bytes,
     )

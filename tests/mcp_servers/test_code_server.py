@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
-from collections.abc import Iterator
+import pathlib
+import shutil
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from voice_agent.mcp_servers import code
+from voice_agent.mcp_servers import _paths, code
 from voice_agent.sandbox.runner import SandboxPolicy, SandboxResult, SandboxUnavailable
 
 
@@ -18,6 +23,8 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.setattr(code._state, "sites_root", tmp_path / "sites")
     monkeypatch.setattr(code._state, "sites_host", "pi.local")
     monkeypatch.setattr(code._state, "sites_port", 8081)
+    monkeypatch.setattr(code._state, "media_root", root / "media", raising=False)
+    monkeypatch.setattr(code._state, "lock", asyncio.Lock())
     yield root
 
 
@@ -133,8 +140,9 @@ async def test_publish_site_rejects_bad_entries(box: Path, tmp_path: Path) -> No
     (box / "dirlink").symlink_to(site)
     with pytest.raises(ValueError, match="outside sandbox root|symlink"):
         await code.publish_site("../web", "demo")
-    await code.publish_site("dirlink", "ok")
-    assert (sites / "ok/index.html").exists()
+    with pytest.raises(ValueError, match="not a directory|outside sandbox root"):
+        await code.publish_site("dirlink", "ok")
+    assert list(sites.iterdir()) == []
 
 
 async def test_publish_site_failed_republish_keeps_old(box: Path, tmp_path: Path) -> None:
@@ -179,3 +187,269 @@ async def test_publish_site_name_limit_and_missing_source(box: Path) -> None:
     await code.publish_site("web", "a" * 40)
     with pytest.raises(ValueError, match="not found"):
         await code.publish_site("nope", "demo")
+
+
+def _swap_after_resolve(monkeypatch: pytest.MonkeyPatch, swap: Callable[[], None]) -> None:
+    real = _paths.resolve_inside
+    done: list[bool] = []
+
+    def spy(root: Path, rel: str, *, must_exist: bool) -> Path:
+        out = real(root, rel, must_exist=must_exist)
+        if not done:
+            done.append(True)
+            swap()
+        return out
+
+    monkeypatch.setattr(_paths, "resolve_inside", spy)
+    monkeypatch.setattr(code, "resolve_inside", spy, raising=False)
+
+
+async def test_write_file_parent_swap_race(
+    box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (box / "sub").mkdir()
+
+    def swap() -> None:
+        shutil.rmtree(box / "sub")
+        (box / "sub").symlink_to(outside)
+
+    _swap_after_resolve(monkeypatch, swap)
+    with pytest.raises(ValueError, match="outside sandbox root"):
+        await code.write_file("sub/x.txt", "pwned")
+    assert list(outside.iterdir()) == []
+
+
+async def test_read_file_symlink_swap_race(
+    box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "key").write_text("TOPSECRET")
+    (box / "a.txt").write_text("fine")
+
+    def swap() -> None:
+        (box / "a.txt").unlink()
+        (box / "a.txt").symlink_to(tmp_path / "key")
+
+    _swap_after_resolve(monkeypatch, swap)
+    with pytest.raises(ValueError, match="outside sandbox root"):
+        await code.read_file("a.txt")
+
+
+async def test_read_file_fifo_swap_does_not_hang(
+    box: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (box / "a.txt").write_text("fine")
+
+    def swap() -> None:
+        (box / "a.txt").unlink()
+        os.mkfifo(box / "a.txt")
+
+    _swap_after_resolve(monkeypatch, swap)
+    with pytest.raises(ValueError, match="not a file"):
+        await asyncio.wait_for(code.read_file("a.txt"), 3)
+
+
+async def test_root_symlink_refused(
+    box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    link = tmp_path / "rootlink"
+    link.symlink_to(box)
+    monkeypatch.setattr(code._state, "root", link)
+    with pytest.raises(ValueError, match="outside sandbox root"):
+        await code.write_file("x.txt", "x")
+    with pytest.raises(ValueError, match="outside sandbox root"):
+        await code.list_files(".")
+    assert not (box / "x.txt").exists()
+
+
+async def test_tools_serialize_on_lock(box: Path) -> None:
+    await code.write_file("a.txt", "1")
+    await code._state.lock.acquire()
+    tasks = [
+        asyncio.ensure_future(code.write_file("b.txt", "2")),
+        asyncio.ensure_future(code.read_file("a.txt")),
+        asyncio.ensure_future(code.list_files(".")),
+    ]
+    await asyncio.sleep(0.1)
+    assert not any(t.done() for t in tasks)
+    code._state.lock.release()
+    await asyncio.gather(*tasks)
+
+
+def _spy_scandir(monkeypatch: pytest.MonkeyPatch, swap: Callable[[], None]) -> None:
+    real = os.scandir
+    fired: list[bool] = []
+
+    class Spy:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            self.it = real(*a, **k)
+
+        def __enter__(self) -> Any:
+            return self.it.__enter__()
+
+        def __exit__(self, *exc: Any) -> Any:
+            res = self.it.__exit__(*exc)
+            if not fired:
+                fired.append(True)
+                swap()
+            return res
+
+    monkeypatch.setattr(os, "scandir", Spy)
+
+
+async def test_publish_scan_copy_race(
+    box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site = _site(box)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOPSECRET")
+    secret.chmod(0o600)
+
+    def swap() -> None:
+        (site / "index.html").unlink()
+        (site / "index.html").symlink_to(secret)
+
+    _spy_scandir(monkeypatch, swap)
+    with contextlib.suppress(ValueError):
+        await code.publish_site("web", "demo")
+    assert oct(secret.stat().st_mode & 0o777) == "0o600"
+    for p in (tmp_path / "sites").rglob("*"):
+        assert not p.is_symlink()
+        assert not (p.is_file() and p.read_text() == "TOPSECRET")
+
+
+async def test_publish_dir_swap_race(
+    box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site = _site(box)
+    outdir = tmp_path / "outdir"
+    outdir.mkdir()
+    (outdir / "loot.txt").write_text("TOPSECRET")
+
+    def swap() -> None:
+        shutil.rmtree(site / "css")
+        (site / "css").symlink_to(outdir)
+
+    _spy_scandir(monkeypatch, swap)
+    with contextlib.suppress(ValueError):
+        await code.publish_site("web", "demo")
+    assert not list((tmp_path / "sites").rglob("loot.txt"))
+
+
+async def test_publish_rejects_root_and_media(box: Path, tmp_path: Path) -> None:
+    (box / "index.html").write_text("x")
+    for sub in (".", "./"):
+        with pytest.raises(ValueError):
+            await code.publish_site(sub, "demo")
+    (box / "media/deep").mkdir(parents=True)
+    (box / "media/a.wav").write_text("x")
+    with pytest.raises(ValueError, match="media"):
+        await code.publish_site("media", "demo")
+    with pytest.raises(ValueError, match="media"):
+        await code.publish_site("media/deep", "demo")
+    assert not (tmp_path / "sites").exists()
+
+
+async def test_publish_skips_dot_entries(box: Path, tmp_path: Path) -> None:
+    site = _site(box)
+    (site / ".env").write_text("KEY=1")
+    (site / ".git").mkdir()
+    (site / ".git/config").write_text("x")
+    res = await code.publish_site("web", "demo")
+    assert res["files"] == 2
+    assert sorted(p.name for p in (tmp_path / "sites/demo").iterdir()) == ["css", "index.html"]
+
+
+async def test_publish_dir_count_and_depth_caps(box: Path, tmp_path: Path) -> None:
+    path = box / "deep"
+    for i in range(code.MAX_SITE_DEPTH + 2):
+        path = path / f"d{i}"
+    path.mkdir(parents=True)
+    with pytest.raises(ValueError, match="deep"):
+        await code.publish_site("deep", "demo")
+
+    wide = box / "wide"
+    wide.mkdir()
+    for i in range(code.MAX_SITE_DIRS + 1):
+        (wide / f"d{i}").mkdir()
+    with pytest.raises(ValueError, match="directories"):
+        await code.publish_site("wide", "demo")
+    assert not (tmp_path / "sites").exists()
+
+
+async def test_publish_staging_private_until_complete(
+    box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _site(box)
+    created: list[int] = []
+    real_mkdtemp = code.tempfile.mkdtemp
+
+    def mk(*a: Any, **k: Any) -> str:
+        out = real_mkdtemp(*a, **k)
+        created.append(os.stat(out).st_mode & 0o777)
+        return out
+
+    monkeypatch.setattr(code.tempfile, "mkdtemp", mk)
+    seen: list[int] = []
+    real = pathlib.Path.rename
+
+    def spy(self: Path, target: Any) -> Path:
+        if self.name.startswith(".tmp-"):
+            seen.append(self.stat().st_mode & 0o777)
+        return real(self, target)
+
+    monkeypatch.setattr(pathlib.Path, "rename", spy)
+    await code.publish_site("web", "demo")
+    assert created and all(m & 0o077 == 0 for m in created)
+    assert seen == [0o755]
+    assert [p.name for p in (tmp_path / "sites").iterdir()] == ["demo"]
+
+
+async def test_failed_republish_restores_old_site(
+    box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _site(box)
+    await code.publish_site("web", "demo")
+    (box / "web/index.html").write_text("<h1>new</h1>")
+    real = pathlib.Path.rename
+
+    def flaky(self: Path, target: Any) -> Path:
+        if self.name.startswith(".tmp-"):
+            raise OSError("disk exploded")
+        return real(self, target)
+
+    monkeypatch.setattr(pathlib.Path, "rename", flaky)
+    with pytest.raises(OSError, match="exploded"):
+        await code.publish_site("web", "demo")
+    sites = tmp_path / "sites"
+    assert (sites / "demo/index.html").read_text() == "<h1>old</h1>"
+    assert [p.name for p in sites.iterdir()] == ["demo"]
+
+
+async def test_run_python_masks_media_and_checks_size(
+    box: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, object] = {}
+
+    async def fake(policy: SandboxPolicy, argv: list[str]) -> SandboxResult:
+        seen["policy"] = policy
+        return SandboxResult(0, "", "", False, False, 0.1, 0, False)
+
+    monkeypatch.setattr(code, "run_in_sandbox", fake)
+    await code.write_file("s.py", "")
+    await code.run_python("s.py")
+    policy = seen["policy"]
+    assert isinstance(policy, SandboxPolicy) and policy.hidden_paths == ("media",)
+
+    (box / "media").symlink_to("/tmp")
+    with pytest.raises(ValueError, match="media"):
+        await code.run_python("s.py")
+    (box / "media").unlink()
+
+    async def big(policy: SandboxPolicy, argv: list[str]) -> SandboxResult:
+        return SandboxResult(0, "", "", False, False, 0.1, 10**9, True)
+
+    monkeypatch.setattr(code, "run_in_sandbox", big)
+    with pytest.raises(ValueError, match="over the limit"):
+        await code.run_python("s.py")
