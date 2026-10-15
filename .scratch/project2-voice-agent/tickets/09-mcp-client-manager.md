@@ -97,3 +97,12 @@ no
 - `docs/MCP-SERVERS.md`
 
 ## Execution Log
+
+### 2026-10-15 developer: DONE
+- Assumptions verified: A1 `uv run python -c "...inspect.signature(stdio_client)..."` → mcp 1.30.0, `stdio_client(server: StdioServerParameters, errlog=...)`, params fields command/args/env/cwd; `ClientSession.call_tool(name, arguments, read_timeout_seconds=...)`. A2 `CallToolResult.model_fields` → meta, content, structuredContent, isError. A3 tests build their own `McpServerSpec`s (sys.executable, fake backends, unused port, tmp roots); shipped config not used.
+- Proof: P1 ✅ P2 ✅ P3 ✅ P4 ✅ P5 ✅ P6 ✅ plus env/timeout/render/unrecoverable-death tests (command: `uv run pytest -q tests/agent/test_mcp_clients.py` → 11 passed)
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (177 passed, 6 skipped)
+- Files: src/voice_agent/agent/__init__.py, src/voice_agent/agent/mcp_clients.py, tests/agent/test_mcp_clients.py
+- Deviations: each server is owned by one dedicated asyncio task (not a shared AsyncExitStack) so anyio scopes open/close in one task and a single server can be stopped/restarted/timed out independently; `subset()` registries only call their own tools (hidden tools stay callable on the full registry); unknown tool returns an error outcome; docs/MCP-SERVERS.md not touched (not in Files list).
+- Commit: see git log (`09: ...`)
+- Notes for reviewer: `code` server was only listed/spawned, never `run_python` (no bwrap here). Tests pass `start_timeout_s=60` because the speech import takes 3-4 s on this loaded host and the default 10 s flaked once with three servers booting in parallel. Per-call timeout is enforced both via `read_timeout_seconds` and `asyncio.wait_for`. Process reaping checked by scanning /proc for children of the test process (Linux only). Restart is serialised per server by a lock, so concurrent calls to one server queue.
