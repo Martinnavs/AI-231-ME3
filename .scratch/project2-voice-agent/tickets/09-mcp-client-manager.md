@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 06, 07, 08 (needs the real servers to test against)
-**Status:** ready-for-agent
+**Status:** done
 
 ## Files
 - `src/voice_agent/agent/__init__.py`, `src/voice_agent/agent/mcp_clients.py`
