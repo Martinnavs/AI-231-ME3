@@ -1,0 +1,335 @@
+{
+ "version": 1,
+ "turns": [
+  {
+   "kind": "turn",
+   "text": "What is the capital of France?"
+  },
+  {
+   "kind": "turn",
+   "text": "How tall is Mount Everest?"
+  },
+  {
+   "kind": "turn",
+   "text": "Tell me a fun fact about octopuses."
+  },
+  {
+   "kind": "turn",
+   "text": "What is the weather like on Mars?"
+  },
+  {
+   "kind": "turn",
+   "text": "Can you spell the word necessary?"
+  },
+  {
+   "kind": "turn",
+   "text": "How many days are in a leap year?"
+  },
+  {
+   "kind": "turn",
+   "text": "Who wrote Romeo and Juliet?"
+  },
+  {
+   "kind": "turn",
+   "text": "What is twelve times eleven?"
+  },
+  {
+   "kind": "turn",
+   "text": "Explain what a black hole is in one sentence."
+  },
+  {
+   "kind": "turn",
+   "text": "What's a good name for a goldfish?"
+  },
+  {
+   "kind": "turn",
+   "text": "How far away is the moon?"
+  },
+  {
+   "kind": "turn",
+   "text": "Which planet has the most moons?"
+  },
+  {
+   "kind": "turn",
+   "text": "Give me a tip for studying at night."
+  },
+  {
+   "kind": "turn",
+   "text": "What does DNA stand for?"
+  },
+  {
+   "kind": "turn",
+   "text": "How do you say thank you in Spanish?"
+  },
+  {
+   "kind": "turn",
+   "text": "What is the boiling point of water in Fahrenheit?"
+  },
+  {
+   "kind": "turn",
+   "text": "Name three primary colors."
+  },
+  {
+   "kind": "turn",
+   "text": "Why is the sky blue?"
+  },
+  {
+   "kind": "turn",
+   "text": "What time zone is Tokyo in?"
+  },
+  {
+   "kind": "turn",
+   "text": "How many legs does a spider have?"
+  },
+  {
+   "kind": "turn",
+   "text": "Tell me a short riddle."
+  },
+  {
+   "kind": "turn",
+   "text": "What is the square root of eighty one?"
+  },
+  {
+   "kind": "turn",
+   "text": "Who painted the Mona Lisa?"
+  },
+  {
+   "kind": "turn",
+   "text": "What is the tallest animal in the world?"
+  },
+  {
+   "kind": "turn",
+   "text": "Recommend a calm song for a rainy day."
+  },
+  {
+   "kind": "turn",
+   "text": "How long does it take to boil an egg?"
+  },
+  {
+   "kind": "turn",
+   "text": "What is the largest ocean on Earth?"
+  },
+  {
+   "kind": "turn",
+   "text": "Can you convert ten kilometers to miles?"
+  },
+  {
+   "kind": "turn",
+   "text": "What is photosynthesis?"
+  },
+  {
+   "kind": "turn",
+   "text": "Where do penguins live?"
+  },
+  {
+   "kind": "turn",
+   "text": "What's the difference between weather and climate?"
+  },
+  {
+   "kind": "turn",
+   "text": "How many continents are there?"
+  },
+  {
+   "kind": "turn",
+   "text": "Tell me something interesting about honey."
+  },
+  {
+   "kind": "turn",
+   "text": "What is the chemical symbol for gold?"
+  },
+  {
+   "kind": "turn",
+   "text": "How do airplanes stay in the air?"
+  },
+  {
+   "kind": "turn",
+   "text": "What is a haiku?"
+  },
+  {
+   "kind": "turn",
+   "text": "Please say something encouraging."
+  },
+  {
+   "kind": "turn",
+   "text": "What is the fastest land animal?"
+  },
+  {
+   "kind": "turn",
+   "text": "Cuál es la capital de España?"
+  },
+  {
+   "kind": "turn",
+   "text": "What year did the first moon landing happen?"
+  },
+  {
+   "kind": "barge_in",
+   "text": "Tell me about the history of the Roman Empire.",
+   "event_text": "Stop, I have a different question."
+  },
+  {
+   "kind": "barge_in",
+   "text": "Describe how a refrigerator works.",
+   "event_text": "Wait, never mind that."
+  },
+  {
+   "kind": "barge_in",
+   "text": "Read me a long story about a dragon.",
+   "event_text": "Hold on, please stop talking."
+  },
+  {
+   "kind": "barge_in",
+   "text": "Explain how the internet works.",
+   "event_text": "Actually, can you be quiet for a second?"
+  },
+  {
+   "kind": "barge_in",
+   "text": "List the planets in the solar system.",
+   "event_text": "Sorry, one moment please."
+  },
+  {
+   "kind": "barge_in",
+   "text": "Tell me about the life of Marie Curie.",
+   "event_text": "Stop, that is enough."
+  },
+  {
+   "kind": "barge_in",
+   "text": "How do vaccines work?",
+   "event_text": "Excuse me, I need to ask something else."
+  },
+  {
+   "kind": "barge_in",
+   "text": "Describe the water cycle in detail.",
+   "event_text": "Okay okay, stop there."
+  },
+  {
+   "kind": "barge_in",
+   "text": "Tell me a long joke.",
+   "event_text": "No wait, I changed my mind."
+  },
+  {
+   "kind": "barge_in",
+   "text": "What are the benefits of exercise?",
+   "event_text": "Pause, please. Someone is at the door."
+  },
+  {
+   "kind": "noise",
+   "text": "Tell me about the ocean currents."
+  },
+  {
+   "kind": "noise",
+   "text": "Describe your favorite season."
+  },
+  {
+   "kind": "noise",
+   "text": "Explain how bicycles stay upright."
+  },
+  {
+   "kind": "noise",
+   "text": "What can you tell me about volcanoes?"
+  },
+  {
+   "kind": "noise",
+   "text": "Tell me about the history of chess."
+  },
+  {
+   "kind": "noise",
+   "text": "How do bees make honey?"
+  },
+  {
+   "kind": "noise",
+   "text": "Describe how a rainbow forms."
+  },
+  {
+   "kind": "noise",
+   "text": "What should I know about sleeping well?"
+  },
+  {
+   "kind": "noise",
+   "text": "Tell me about the northern lights."
+  },
+  {
+   "kind": "noise",
+   "text": "How does a compass work?"
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "My birthday is",
+    "January first, nineteen ninety."
+   ],
+   "pause_s": 0.8
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "My phone number is five five five,",
+    "zero one two three."
+   ],
+   "pause_s": 0.7
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "I would like to book a table for",
+    "four people at seven thirty."
+   ],
+   "pause_s": 0.9
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "The address is twelve,",
+    "Maple Street."
+   ],
+   "pause_s": 0.6
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "I was born in",
+    "Lisbon, Portugal."
+   ],
+   "pause_s": 0.5
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "My favorite color is",
+    "dark green."
+   ],
+   "pause_s": 0.7
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "Can you remind me to call",
+    "my sister tomorrow morning?"
+   ],
+   "pause_s": 0.8
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "The meeting is on",
+    "Thursday at three in the afternoon."
+   ],
+   "pause_s": 1.0
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "My name is",
+    "Alexandra Smith."
+   ],
+   "pause_s": 0.6
+  },
+  {
+   "kind": "pause",
+   "parts": [
+    "I'd like a coffee with",
+    "two sugars and a bit of milk."
+   ],
+   "pause_s": 0.9
+  }
+ ]
+}
