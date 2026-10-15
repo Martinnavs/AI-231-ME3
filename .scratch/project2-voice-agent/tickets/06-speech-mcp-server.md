@@ -130,3 +130,7 @@ Non-goals: do NOT change `config.py` defaults (media_root vs sandbox_root overla
 - Deviations: file-size cap 64 MB and decoded cap 64 MB (float32) as constants; non-overwrite writes use `os.link` of the temp file so an existing target is never replaced (FileExistsError -> "output file exists"); symlinked intermediate dirs inside the root are now rejected as "path outside media root" even if they point inside. Early `resolve_inside` check kept for existing messages. No tests added in tests/audio_engine (wav change covered by existing tests + speech tests). `config.py` untouched.
 - Commit: HEAD of branch worktree-agent-a3708a1d3170b3960 (message `06: security fixes (R2-1, R2-2, R3-3..5, R4-6)`)
 - Notes for reviewer: `_check_fd_inside` is skipped where /proc/self/fd is unavailable. Duration is computed from frames/samplerate (same as sf.info.duration).
+
+### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
+- R3 [R2, security] root TOCTOU in _paths (reproduced write outside root). R4 [R2, security] raw backend exception text forwarded by FastMCP; fallback SpeechBackendError catches nothing. R7 [R2, HUMAN H3] backend kwargs vs ticket 05 ctors (Cartesia voice required). R13 [R2] docs drift. R21/R30 [R3].
+Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.

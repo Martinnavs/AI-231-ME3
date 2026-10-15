@@ -142,3 +142,7 @@ no
 
 
 ### 2026-10-15 claude (review note, R3): `filler_rate` per kind (delegate/stall/notice) from the amended Action step 5 is not reported by `analyze`/`report`; first-answer-audio handling is correct for any filler kind. Fold into the tech-lead review / a later small fix.
+
+### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
+- R8 [R2, HUMAN H2] turn<->trial matching by index; time-match edge not implementable as specified. R9 [R2] only first filler used; clip sample rate wrong. R10 [R2] stage breakdown mixes occurrences. R12 [R2] calibrate test asserts only > 0. R23/R24 [R3].
+Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.

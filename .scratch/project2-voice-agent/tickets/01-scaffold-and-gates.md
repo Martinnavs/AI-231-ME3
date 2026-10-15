@@ -151,3 +151,7 @@ no
 - Proof: P1–P5 ✅ (`uv run pytest -q` → 6 passed); P6 ✅
 - Gate suite: ruff ✅ format ✅ mypy ✅ pytest ✅
 - Deviations: added `test_dotenv_overlay_and_absent`; ruff `.scratch` excluded; PEP 695 generic for `_build`
+
+### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
+- R14 [R2, HUMAN H1] media_root default inside sandbox_root. R27 [R3] _build has no type validation. R28 [R3] cwd-relative config in servers.
+Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.

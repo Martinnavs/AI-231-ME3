@@ -128,3 +128,7 @@ no
 - Deviations: `speech_bounds` refines the end/start to the first/last sample above the threshold inside the active frames (frame-only gives up to 10 ms overshoot); `hangover_ms` is accepted but has no effect on first/last boundaries. Added `longest_internal_gap_s` to signal.py (for the internal-pause edge). `build_truth_set` gained trailing kw `voice: str | None = None` (and CLI `--voice`). Spec = 40 turns + 10 + 10 + 10 trials (70 total). Noise bursts are Gaussian at -12 dBFS RMS and may clip at 1.0 on rare peaks. For pause trials `t_event < t_speech_end`, so P3's ordering is asserted per kind. This log entry is committed with the ticket file although it is outside the Files list.
 - Commit: see git log (13: ...)
 - Notes for reviewer: spec JSON shape is {"version":1,"turns":[{kind,text[,event_text]} | {kind:"pause",parts:[a,b],pause_s}]}; ids t001.. are assigned by order.
+
+### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
+- R11 [R2, Principle 10, HUMAN H4] speech_bounds T0 accuracy only proven on tones/synthetic noise; needs real-speech fixture. R25 [R3] hangover_ms no-op.
+Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.

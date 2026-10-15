@@ -179,3 +179,7 @@ Non-goals: no `config.py` default change (media_root location is parked for the 
 - Unverified (no bwrap here, VOICE_AGENT_PI not set): that bwrap accepts `--info-fd` and writes it before exec, that `--tmpfs` over the media mount point works inside the `--bind` root, that `--clearenv`/`--setenv` behave as expected, TasksMax/MemorySwapMax on a user scope, that `memory.events` under `user@UID.service` counts descendant OOM kills, and every P6 test. If bwrap does not write the info fd, a genuine systemd failure is reported as a normal result instead of "sandbox unavailable" (fails safe, not forgeable).
 - Not done / parked: L2, L4, L8, L9 (not in the fix-request); `config.py` media_root default untouched (human call). M1 relies on the mask only when `media_root` is inside `sandbox_root`.
 - Commit: tip of branch worktree-agent-af48160bd5f8030c5 (`08: security fixes (H1, H2, M1-M4, L1, L3, L5-L7)`)
+
+### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
+- R1 [R1] code server spawned by McpClientManager has no XDG_RUNTIME_DIR -> systemd-run fails -> run_python always 'sandbox unavailable' (reproduced). R2 [R2, security] media mask fails open when an ancestor of sandbox_root is a symlink (reproduced). R5 [R2] disk/inode cap post-hoc; _dir_usage fragile. R6 [R2, HUMAN] P6/bwrap behavior unverified. R13 [R2] docs drift. R17-R20 [R3].
+Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.

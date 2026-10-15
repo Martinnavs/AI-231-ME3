@@ -107,3 +107,7 @@ no (trusted-LAN HTTP client; writes one append-only log under `state_dir`)
 - Commit: b2f4422
 - Notes for reviewer: P4 skipped with reason because fastapi/uvicorn are not part of voice-agent dependencies; table-driven MockTransport and real stdio client test all contracts, actions, routes, vocab validation, timeout/reachability errors, and phone logging.
 
+
+### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
+- R26 [R3] opaque errors on non-dict/invalid JSON; unbounded res.text in tool errors; P4 (real ME2 app) never run.
+Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.

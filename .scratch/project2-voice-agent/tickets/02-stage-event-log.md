@@ -127,3 +127,7 @@ no
 - Files: src/voice_agent/telemetry/__init__.py, src/voice_agent/telemetry/events.py, docs/EVENT-LOG.md, tests/telemetry/test_events.py
 - Deviations: none
 - Notes for reviewer: none
+
+### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
+- R8 [R2, HUMAN H2] turn_id semantics undefined; analysis maps turn_id == trial index. R22 [R3] close() can block; json.dumps can raise in emit.
+Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.
