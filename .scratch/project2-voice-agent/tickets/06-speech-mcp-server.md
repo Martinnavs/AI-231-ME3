@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 04 (05 for real backends; tests use the fake)
-**Status:** ready-for-agent
+**Status:** done
 
 ## Files
 - `src/voice_agent/mcp_servers/__init__.py`, `src/voice_agent/mcp_servers/_paths.py`, `src/voice_agent/mcp_servers/speech.py`
