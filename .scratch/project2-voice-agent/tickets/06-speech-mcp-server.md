@@ -106,3 +106,18 @@ yes — filesystem path confinement for a tool an LLM drives. Flag for `security
 - Deviations: `SpeechBackendError` (ticket 05, not landed) is looked up via importlib in `audio_engine._ws` with a local fallback class; once 05 lands the fallback is dead code. Real-backend `api_key` kwarg is passed from config secrets for names deepgram/cartesia (unverified until 05). Extra `--max-audio-s` flag per the cost-guard edge. Duration guard uses `sf.info` before reading the whole file. Absolute paths are rejected even when inside the root.
 - Commit: see git log (`06: Speech MCP server (stdio) — transcribe / synthesize / list voices`)
 - Notes for reviewer: security-sensitive; confinement in `_paths.py` (reject absolute/`..`/NUL, then resolve symlinks and `is_relative_to` on the resolved root). Check-then-write TOCTOU between resolve and write is not defended (single-user local server). P6 proves stdout carries only JSON-RPC while stderr gets the log line; a stray `print` inside a tool would still corrupt stdout, which is not separately guarded.
+
+### 2026-10-15 security-auditor: findings (static scan, main @ 06122e7; no High)
+- **R2-1** TOCTOU: `_paths.resolve_inside` check, then `speech.py` write/read re-open by path string after an `await`; a dir swapped for a symlink in that gap lets a write land outside the media root (probe: `outside/pwn.wav` created). Same race on the read side (FIFO swap after `is_file()`).
+- **R2-2** Any libsndfile format accepted; a ~2 KB FLAC named `.wav` at 655350 Hz × 8 ch passes the 120 s duration guard and would allocate ~2.5 GB.
+- R3-3 error text leaks absolute host paths on write failures. R3-4 output extension/format unrestricted. R3-5 overwrite of a hard link writes through to a file outside the root.
+- R4-6 `--max-audio-s nan/inf/<=0` silently disables the guard. R4-7 backend error text passed to the LLM (needs a ticket 05 requirement). R5-8 no cap on `voice` length or media-dir size. R5-9 `mcp>=1.2` floor loose (lock pins 1.30.0).
+
+### 2026-10-15 claude (tech-lead role): FIX-REQUEST to developer (R2 loop, attempt 1 of 2)
+Fix R2-1, R2-2, R3-3, R3-4, R3-5, R4-6, touching only `src/voice_agent/mcp_servers/speech.py`, `src/voice_agent/mcp_servers/_paths.py`, `src/audio_engine/wav.py` and the tests under `tests/mcp_servers/` and `tests/audio_engine/`:
+1. Write: verify the parent dir component-by-component, open with `O_NOFOLLOW|O_CREAT|O_EXCL` in the verified parent dir (dir fd + `openat` semantics), write to a temp file there, then `os.replace` onto the target (this also breaks hard links). After opening, `fstat` and re-check the real path is still inside the root. Read: open with `O_NOFOLLOW`, `fstat`, require `S_ISREG`, read from that fd.
+2. After `sf.info` require format in {WAV, WAVEX}, channels <= 2, samplerate <= 48000, frames*channels under a cap that keeps float32 allocation <= 64 MB, and a file-size cap; check before `sf.read`.
+3. Output path must end in `.wav` (case-insensitive) and be written with `format="WAV"`. Wrap write errors so messages name only the relative path, never an absolute one.
+4. `--max-audio-s` must be finite and > 0, else exit with a clear error.
+5. Tests that really run (add to Proof, do not weaken existing rows): swap a directory for a symlink inside a fake synthesizer during the await and assert nothing is created outside the root; small high-samplerate/multichannel FLAC named `.wav` is rejected without allocating; hard-link overwrite does not modify the outside file; write error text contains no absolute path; non-`.wav` output rejected; `--max-audio-s nan` rejected.
+Non-goals: do NOT change `config.py` defaults (media_root vs sandbox_root overlap is parked for the human), no new packages, keep every existing tool signature and edge.

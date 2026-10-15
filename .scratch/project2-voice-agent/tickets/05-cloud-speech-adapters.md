@@ -87,6 +87,9 @@ class ReconnectingSocket:
 ## Dependencies/license
 `websockets` (BSD-3), `httpx` (BSD-3).
 
+## Added requirement (security audit of 06, R4-7)
+`SpeechBackendError` messages carry only the HTTP/WS status and a short reason, never URLs, headers, response bodies or keys; add a test asserting a fake key never appears in the message or in the speech MCP tool output.
+
 ## Acceptance Criteria
 - [ ] Both backends implement the ticket-04 ABCs; registered lazily; `audio_engine` import still pulls no vendor modules (ticket 04 P7 still green)
 - [ ] Proof P1–P6 green; P7 written and skipped by default; gate suite green
