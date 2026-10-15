@@ -134,3 +134,10 @@ Non-goals: do NOT change `config.py` defaults (media_root vs sandbox_root overla
 ### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
 - R3 [R2, security] root TOCTOU in _paths (reproduced write outside root). R4 [R2, security] raw backend exception text forwarded by FastMCP; fallback SpeechBackendError catches nothing. R7 [R2, HUMAN H3] backend kwargs vs ticket 05 ctors (Cartesia voice required). R13 [R2] docs drift. R21/R30 [R3].
 Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.
+
+### 2026-10-16 developer: DONE (package B: R3, R4, R30 voice cap)
+- R3: `_paths._open_root` opens the configured root with `O_DIRECTORY|O_NOFOLLOW`, no `resolve()`; every walk starts from that fd (ELOOP/ENOTDIR -> PathEscapeError). `_check_fd_inside` removed (it compared against the same re-resolved root). `resolve_inside` unchanged (kept its `is_symlink` early check as a convenience; confinement no longer depends on it). All public signatures unchanged.
+- R4: `speech.py` wraps backend construction and every backend call (`transcribe`, `synthesize`, `list_voices`) in `except Exception`; tool error is `speech backend error: <ExceptionType>` plus ` (status N)` when a `SpeechBackendError` has an int `status`. Detail goes to stderr log with configured secret values redacted.
+- R30: `voice` capped at 128 chars (`MAX_VOICE_CHARS`) -> ValueError before any work. pyproject `mcp` floor is out of scope (not in file list).
+- Tests: 6 new (2 paths root swap mirroring reproduction 3, 3 backend error sanitising, 1 voice cap); all 6 fail on old code (reverted src, 6 failed / 45 passed), pass on fix. make check green; full pytest 183 passed, 6 skipped.
+- Not done / for reviewer: the review also suggested recording root (st_dev, st_ino) at server start and comparing with fstat; skipped because it needs a signature or state change in `_paths` (O_NOFOLLOW on the root already closes the swap). Ticket 05 note (authenticate with headers, never query-string key) is for the orchestrator. R7 untouched.

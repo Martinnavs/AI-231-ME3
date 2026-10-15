@@ -310,3 +310,88 @@ def test_max_audio_s_must_be_finite_positive(
     with pytest.raises(SystemExit) as ei:
         speech.main(["--media-root", str(media), "--max-audio-s", bad])
     assert ei.value.code == 2
+
+
+FAKE_KEY = "sk-FAKEKEY-123456"
+FAKE_URL = "wss://api.example.test/v1?api_key=" + FAKE_KEY
+
+
+class _Boom:
+    async def synthesize(self, text: str, voice: str | None = None) -> AudioClip:
+        raise RuntimeError(f"connect failed {FAKE_URL} /home/user/secret")
+
+    async def list_voices(self) -> list[object]:
+        raise RuntimeError(f"connect failed {FAKE_URL}")
+
+    async def transcribe(self, clip: AudioClip) -> object:
+        raise RuntimeError(f"connect failed {FAKE_URL}")
+
+
+async def test_backend_exception_text_not_forwarded(
+    inproc: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from voice_agent.config import Secrets
+    from voice_agent.mcp_servers import speech
+
+    write_wav(inproc / "a.wav", AudioClip(np.zeros(1600, dtype=np.float32), 16000))
+    monkeypatch.setattr(speech._state, "synthesizer", _Boom())
+    monkeypatch.setattr(speech._state, "transcriber", _Boom())
+    monkeypatch.setattr(
+        speech,
+        "load_config",
+        lambda *a, **k: type("C", (), {"secrets": Secrets(cartesia_api_key=FAKE_KEY)})(),
+    )
+    calls = [
+        speech.synthesize_speech_to_file("hi", "o.wav"),
+        speech.get_tts_voices(),
+        speech.voices_resource(),
+        speech.transcribe_audio_file("a.wav"),
+    ]
+    for call in calls:
+        with pytest.raises(ValueError) as ei:
+            await call
+        msg = str(ei.value)
+        assert msg == "speech backend error: RuntimeError"
+        assert FAKE_KEY not in msg and "example.test" not in msg
+    assert FAKE_KEY not in caplog.text
+
+
+async def test_backend_construction_failure_is_sanitised(
+    inproc: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_agent.mcp_servers import speech
+
+    def bad(name: str, **kw: object) -> object:
+        raise TypeError(f"missing {FAKE_URL}")
+
+    monkeypatch.setattr(speech.audio_engine, "create_synthesizer", bad)
+    with pytest.raises(ValueError) as ei:
+        await speech.get_tts_voices()
+    assert str(ei.value) == "speech backend error: TypeError"
+
+
+async def test_speech_backend_error_reports_status_only(
+    inproc: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_agent.mcp_servers import speech
+
+    class Err(speech.SpeechBackendError):  # type: ignore[name-defined,misc]
+        status = 429
+
+    class B:
+        async def list_voices(self) -> list[object]:
+            raise Err(f"body {FAKE_URL}")
+
+    monkeypatch.setattr(speech._state, "synthesizer", B())
+    with pytest.raises(ValueError) as ei:
+        await speech.get_tts_voices()
+    assert str(ei.value) == "speech backend error: Err (status 429)"
+
+
+async def test_voice_length_capped(inproc: Path) -> None:
+    from voice_agent.mcp_servers import speech
+
+    with pytest.raises(ValueError, match="voice too long"):
+        await speech.synthesize_speech_to_file("hi", "v.wav", voice="x" * 129)
+    assert list(inproc.iterdir()) == []
+    await speech.synthesize_speech_to_file("hi", "v.wav", voice="x" * 128)
