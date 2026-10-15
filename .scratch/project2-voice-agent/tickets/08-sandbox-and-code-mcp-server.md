@@ -142,3 +142,12 @@ yes — process isolation for LLM-written code. Flag for `security-auditor`.
 - `docs/MCP-SERVERS.md`; `voice_agent.mcp_servers._paths.resolve_inside` (ticket 06)
 
 ## Execution Log
+
+### 2026-10-15 developer: DONE
+- Assumptions verified: A1 `systemd-run --help` → lists `--scope`, `-q/--quiet`, `-p/--property` (MemoryMax/CPUQuota are standard resource-control properties, not run here); A2 `cat /sys/fs/cgroup/user.slice/cgroup.controllers` → `cpuset cpu io memory hugetlb pids rdma misc` (file exists, `memory` readable the same way `preflight` parses it); A3 `timeout 0.1 sleep 1; echo $?` → 124; A4 fetched bubblewrap `bwrap.xml` from GitHub, grep found all of --ro-bind --symlink --proc --dev --tmpfs --bind --chdir --unshare-all --die-with-parent --new-session --share-net.
+- Proof: P1 ✅ P2 ✅ P3 ✅ P4 ✅ (`uv run pytest -q tests/sandbox/test_command.py`); P5 ✅ P7 ✅ (`uv run pytest -q tests/mcp_servers/test_code_server.py`); P6 written, 5 tests skipped (marker `pi` + no bwrap on dev host). Combined: 29 passed, 5 skipped.
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (119 passed, 5 skipped)
+- Files: src/voice_agent/sandbox/__init__.py, src/voice_agent/sandbox/runner.py, src/voice_agent/mcp_servers/code.py, docs/MCP-SERVERS.md (appended "code" section), tests/sandbox/test_command.py, tests/sandbox/test_run.py, tests/mcp_servers/test_code_server.py
+- Deviations: (1) subprocess env is scrubbed to PATH/LANG/LC_ALL/XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS + HOME=/sandbox so API keys never reach scripts (not in the review command; build_command itself matches it). (2) `HostLayout.usr_merged` also carries "/lib64": True when it is a symlink into usr; `has_lib64` is true only for a real dir. (3) Extra tests beyond P1-P7 drive `run_in_sandbox` with a faked `build_command` (sh -c) to cover timeout/oom/systemd-failure/memory-refusal/env scrub/wall-clock kill without bwrap. (4) Tool path-escape message is "path outside sandbox root". (5) systemd-run failure is detected by stderr prefix ("Failed to connect to", "Failed to create bus", "Failed to start transient") with nonzero exit.
+- Commit: see git log (`08: Sandbox runner (systemd-run + bwrap) and code MCP server`)
+- Notes for reviewer: real bwrap isolation is unverified on this host (no bwrap); P6 must run on the Pi. publish_site replace is two renames (old aside, new in) so there is a brief window with no site, never a mix. `oom_killed` is best effort (137/SIGKILL). Security-auditor should look at the env scrub, the symlink/special-file rejection, and resolve_inside use on read/write.
