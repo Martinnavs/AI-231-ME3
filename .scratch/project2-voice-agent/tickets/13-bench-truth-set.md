@@ -119,3 +119,12 @@ no
 - `docs/AUDIO-ENGINE.md`; producer of `docs/BENCHMARK.md` and the truth schema consumed by 14
 
 ## Execution Log
+
+### 2026-10-15 developer: DONE
+- Assumptions verified: A1 `uv run pytest -q tests/bench/test_signal.py` (synthetic fixtures; two words with 300 ms gap) → bounds within 10 ms; real-TTS spot-check left to the human (documented in docs/BENCHMARK.md). A2 same test, fixture with 80 ms noise tail at -30 dB relative → end within 10 ms of tail end.
+- Proof: P1 ✅ P2 ✅ P3 ✅ P4 ✅ P5 ✅ P6 ✅ (command: `uv run pytest -q tests/bench` → 19 passed). Extra tests cover every Edge row (trim, resample, normalize, internal pause, unknown kind, bad pause trial, non-ASCII, CLI, shipped spec counts).
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (45 passed, 0 skipped)
+- Files: src/bench/signal.py, src/bench/truth.py, bench/turns/v1.json, docs/BENCHMARK.md, tests/bench/test_signal.py, tests/bench/test_truth.py
+- Deviations: `speech_bounds` refines the end/start to the first/last sample above the threshold inside the active frames (frame-only gives up to 10 ms overshoot); `hangover_ms` is accepted but has no effect on first/last boundaries. Added `longest_internal_gap_s` to signal.py (for the internal-pause edge). `build_truth_set` gained trailing kw `voice: str | None = None` (and CLI `--voice`). Spec = 40 turns + 10 + 10 + 10 trials (70 total). Noise bursts are Gaussian at -12 dBFS RMS and may clip at 1.0 on rare peaks. For pause trials `t_event < t_speech_end`, so P3's ordering is asserted per kind. This log entry is committed with the ticket file although it is outside the Files list.
+- Commit: see git log (13: ...)
+- Notes for reviewer: spec JSON shape is {"version":1,"turns":[{kind,text[,event_text]} | {kind:"pause",parts:[a,b],pause_s}]}; ids t001.. are assigned by order.
