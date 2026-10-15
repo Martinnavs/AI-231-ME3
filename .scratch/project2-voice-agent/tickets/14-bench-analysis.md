@@ -146,3 +146,8 @@ no
 ### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
 - R8 [R2, HUMAN H2] turn<->trial matching by index; time-match edge not implementable as specified. R9 [R2] only first filler used; clip sample rate wrong. R10 [R2] stage breakdown mixes occurrences. R12 [R2] calibrate test asserts only > 0. R23/R24 [R3].
 Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.
+
+### 2026-10-16 test-engineer: fix F (R12 only)
+- Added tests/bench/test_calibrate.py (7 tests: 5 pass, 2 strict xfail). Numeric asserts on a deterministic fixture (-60 dBFS noise +-2.5 dB, seed 1234): margin == 2.7 +-0.2 and within 0.1 dB of an independent numpy 30 ms-sustained-peak oracle; margin at m gives ok=0/missed=5, at m-1.0 gives ok>=1; -50 dBFS crosstalk gives margin 8.5..10.5 (leak-floor +-1); bot-active recording passed as disabled gives margin >=35 (no rejection exists in calibrate); silent loopback raises ValueError(chirp).
+- Findings (src untouched): (1) at calibrated m, `analyze` still reports 1 crosstalk trial on noise-only recording because `_check_crosstalk` uses a single-frame max (R23); strict xfail. (2) digitally silent bot channel gives floor -120 dBFS, threshold -107.5; no clamp (R23); strict xfail. (3) calibrate never rejects an implausibly large margin (bot-on recording returns ~39 dB); test pins current behavior only. Filler/answer-indistinguishable case is not applicable to calibrate.
+- Gate: make check ok; uv run pytest -q: 210 passed, 6 skipped, 2 xfailed.
