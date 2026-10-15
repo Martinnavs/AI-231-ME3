@@ -42,13 +42,41 @@ def _escape() -> PathEscapeError:
     return PathEscapeError("path outside media root")
 
 
+_trust_anchor: Path | None = None
+
+
+def set_trust_anchor(anchor: Path | None) -> None:
+    global _trust_anchor
+    _trust_anchor = None if anchor is None else Path(os.path.abspath(anchor))
+
+
 def _open_root(root: Path) -> int:
     try:
+        anchor = _trust_anchor
+        if anchor is not None:
+            below = Path(os.path.abspath(root)).relative_to(anchor).parts
+            if below:
+                return _open_below(anchor, below)
         return os.open(str(root), _DIR_FLAGS)
     except OSError as exc:
         if exc.errno in (errno.ELOOP, errno.ENOTDIR):
             raise _escape() from exc
         raise
+    except ValueError:
+        return os.open(str(root), _DIR_FLAGS)
+
+
+def _open_below(anchor: Path, parts: tuple[str, ...]) -> int:
+    fd = os.open(str(anchor), os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0))
+    try:
+        for part in parts:
+            nxt = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def _open_parent(root: Path, rel: str, *, create: bool) -> tuple[int, str]:

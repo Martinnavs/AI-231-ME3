@@ -120,3 +120,43 @@ def test_root_swapped_blocks_read_and_open_dir(
         _paths.open_regular_for_read(media, "s.wav")
     with pytest.raises(PathEscapeError):
         _paths.open_dir(media, "")
+
+
+def test_swapped_ancestor_below_anchor_is_refused(tmp_path: Path) -> None:
+    import os
+
+    from voice_agent.mcp_servers import _paths
+
+    sb = tmp_path / "sandbox"
+    (sb / "a" / "media").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    (outside / "media").mkdir(parents=True)
+    (outside / "media" / "secret.wav").write_bytes(b"RIFFsecret")
+    media = sb / "a" / "media"
+    _paths.set_trust_anchor(sb)
+    try:
+        os.rename(sb / "a", sb / "a.old")
+        (sb / "a").symlink_to(outside, target_is_directory=True)
+        with pytest.raises(PathEscapeError):
+            _paths.write_file_atomic(media, "x/pwn.wav", lambda fh: fh.write(b"x"), overwrite=True)
+        with pytest.raises(PathEscapeError):
+            _paths.open_regular_for_read(media, "secret.wav")
+        assert not (outside / "media" / "x").exists()
+    finally:
+        _paths.set_trust_anchor(None)
+
+
+def test_symlinks_above_anchor_are_allowed(tmp_path: Path) -> None:
+    from voice_agent.mcp_servers import _paths
+
+    real = tmp_path / "real"
+    (real / "sandbox" / "media").mkdir(parents=True)
+    (real / "sandbox" / "media" / "f.wav").write_bytes(b"x")
+    (tmp_path / "home").symlink_to(real, target_is_directory=True)
+    sb = tmp_path / "home" / "sandbox"
+    _paths.set_trust_anchor(sb)
+    try:
+        with _paths.open_regular_for_read(sb / "media", "f.wav") as fh:
+            assert fh.read() == b"x"
+    finally:
+        _paths.set_trust_anchor(None)

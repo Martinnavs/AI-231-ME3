@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator
@@ -395,3 +396,76 @@ async def test_voice_length_capped(inproc: Path) -> None:
         await speech.synthesize_speech_to_file("hi", "v.wav", voice="x" * 129)
     assert list(inproc.iterdir()) == []
     await speech.synthesize_speech_to_file("hi", "v.wav", voice="x" * 128)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores chmod")
+async def test_permission_error_does_not_leak_host_path(inproc: Path) -> None:
+    from voice_agent.mcp_servers import speech
+
+    locked = inproc / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        for call in (
+            lambda: speech.synthesize_speech_to_file("hi", "locked/o.wav"),
+            lambda: speech.transcribe_audio_file("locked/a.wav"),
+        ):
+            with pytest.raises(ValueError) as ei:
+                await call()
+            assert str(inproc) not in str(ei.value)
+            assert "Errno" not in str(ei.value)
+    finally:
+        locked.chmod(0o755)
+
+
+async def test_redact_oserror_does_not_leak(
+    inproc: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from voice_agent.mcp_servers import speech
+
+    def boom(*a: object, **k: object) -> object:
+        raise PermissionError(13, "denied", "/repo/.env")
+
+    monkeypatch.setattr(speech, "load_config", boom)
+    monkeypatch.setattr(speech._state, "synthesizer", _Boom())
+    with pytest.raises(ValueError) as ei:
+        await speech.get_tts_voices()
+    assert str(ei.value) == "speech backend error: RuntimeError"
+    assert "example.test" not in caplog.text and ".env" not in caplog.text
+
+
+async def test_redaction_covers_encoded_prefix_and_query(
+    inproc: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from voice_agent.config import Secrets
+    from voice_agent.mcp_servers import speech
+
+    key = "sk_FAKE+key/abc="
+
+    class B:
+        async def list_voices(self) -> list[object]:
+            raise RuntimeError(
+                "fail wss://api.example.test/tts?api_key=zzz%2Bq enc=sk_FAKE%2Bkey%2Fabc%3D "
+                "plus=sk_FAKE+key%2Fabc%3D pre=sk_FAKE+key"
+            )
+
+    monkeypatch.setattr(speech._state, "synthesizer", B())
+    monkeypatch.setattr(
+        speech,
+        "load_config",
+        lambda *a, **k: type("C", (), {"secrets": Secrets(cartesia_api_key=key)})(),
+    )
+    with pytest.raises(ValueError):
+        await speech.get_tts_voices()
+    for leak in ("sk_FAKE", "zzz", "?api_key"):
+        assert leak not in caplog.text
+    assert "wss://api.example.test/tts" in caplog.text
+
+
+@pytest.mark.parametrize("voice", ["a/b", "a\\b", "x\r\nX-Inj: 1", "v\x00", "a\x7fb", "a​b"])
+async def test_voice_content_validated(inproc: Path, voice: str) -> None:
+    from voice_agent.mcp_servers import speech
+
+    with pytest.raises(ValueError, match="invalid voice"):
+        await speech.synthesize_speech_to_file("hi", "v.wav", voice=voice)
+    assert list(inproc.iterdir()) == []

@@ -5,11 +5,13 @@ import importlib
 import logging
 import math
 import os
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
+from urllib.parse import quote, quote_plus
 
 import soundfile as sf
 from mcp.server.fastmcp import FastMCP
@@ -22,6 +24,7 @@ from voice_agent.mcp_servers._paths import (
     PathEscapeError,
     open_regular_for_read,
     resolve_inside,
+    set_trust_anchor,
     write_file_atomic,
 )
 
@@ -74,14 +77,26 @@ def _backend_kwargs(name: str) -> dict[str, object]:
     return {"api_key": key}
 
 
-def _redact(text: str) -> str:
+_MIN_PREFIX = 6
+_URL_QUERY = re.compile(r"(\w+://[^\s?#]*)[?#]\S*")
+_KV_SECRET = re.compile(r"(?i)\b(api[_-]?key|access[_-]?token|token|key|authorization)=[^&\s]+")
+
+
+def _redact(text: str) -> str | None:
     try:
         s = load_config().secrets
-    except ConfigError:
-        return text
+    except Exception:
+        return None
+    text = _URL_QUERY.sub(r"\1", text)
+    text = _KV_SECRET.sub(r"\1=[redacted]", text)
+    forms: set[str] = set()
     for secret in (s.deepgram_api_key, s.cartesia_api_key, s.anthropic_api_key):
         if secret:
-            text = text.replace(secret, "[redacted]")
+            for variant in (secret, quote(secret, safe=""), quote_plus(secret)):
+                forms.update(variant[:n] for n in range(_MIN_PREFIX, len(variant) + 1))
+    if forms:
+        pattern = "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
+        text = re.sub(pattern, "[redacted]", text)
     return text
 
 
@@ -90,7 +105,11 @@ def _backend_failure(exc: Exception) -> ValueError:
     status = getattr(exc, "status", None) if isinstance(exc, SpeechBackendError) else None
     if isinstance(status, int) and not isinstance(status, bool):
         reason += f" (status {status})"
-    log.error("%s: %s", reason, _redact(str(exc)))
+    detail = _redact(str(exc))
+    if detail is None:
+        log.error("%s", reason)
+    else:
+        log.error("%s: %s", reason, detail)
     return ValueError(reason)
 
 
@@ -115,6 +134,8 @@ def _resolve(rel: str, *, must_exist: bool) -> Path:
         raise ValueError("path outside media root") from None
     except FileNotFoundError:
         raise ValueError(f"file not found: {rel}") from None
+    except OSError:
+        raise ValueError(f"path not accessible: {rel}") from None
 
 
 def _open_audio(path: str) -> BinaryIO:
@@ -177,14 +198,22 @@ async def synthesize_speech_to_file(
     """
     if len(text) > MAX_TEXT_CHARS:
         raise ValueError(f"text too long: {len(text)} chars exceeds {MAX_TEXT_CHARS}")
-    if voice is not None and len(voice) > MAX_VOICE_CHARS:
-        raise ValueError(f"voice too long: {len(voice)} chars exceeds {MAX_VOICE_CHARS}")
+    if voice is not None:
+        if len(voice) > MAX_VOICE_CHARS:
+            raise ValueError(f"voice too long: {len(voice)} chars exceeds {MAX_VOICE_CHARS}")
+        if not voice.isprintable() or "/" in voice or "\\" in voice:
+            raise ValueError("invalid voice id")
     dest = _resolve(path, must_exist=False)
     if not path.lower().endswith(".wav"):
         raise ValueError(f"output path must end in .wav: {path}")
-    if dest.is_dir():
+    try:
+        is_dir = dest.is_dir()
+        exists = dest.exists()
+    except OSError:
+        raise ValueError(f"path not accessible: {path}") from None
+    if is_dir:
         raise ValueError(f"output path is a directory: {path}")
-    if dest.exists() and not overwrite:
+    if exists and not overwrite:
         raise ValueError(f"output file exists: {path} (pass overwrite=true)")
     try:
         clip = await _synthesizer().synthesize(text, voice)
@@ -238,6 +267,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         agent, paths = cfg.agent, cfg.paths
     except ConfigError:
         agent, paths = AgentConfig(), PathsConfig()
+    set_trust_anchor(paths.sandbox_root.expanduser())
     _state.stt_backend = args.stt_backend or agent.stt_backend
     _state.tts_backend = args.tts_backend or agent.tts_backend
     _state.media_root = (args.media_root or paths.media_root).expanduser()
