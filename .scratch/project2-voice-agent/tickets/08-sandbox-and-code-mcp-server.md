@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 06 (reuses `_paths.resolve_inside` and `docs/MCP-SERVERS.md`)
-**Status:** ready-for-agent
+**Status:** done
 
 ## Files
 - `src/voice_agent/sandbox/__init__.py`, `src/voice_agent/sandbox/runner.py`
