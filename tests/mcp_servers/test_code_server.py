@@ -509,3 +509,102 @@ async def test_list_files_caps_entries(box: Path, monkeypatch: pytest.MonkeyPatc
     out = await code.list_files(".")
     assert len(out) == 6 and out[-1].startswith("…[truncated")
     assert str(box) not in "".join(out)
+
+
+async def test_over_limit_message_is_recoverable_with_existing_tools(
+    box: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def big(policy: SandboxPolicy, argv: list[str]) -> SandboxResult:
+        return SandboxResult(0, "", "", False, False, 0.1, 300_000_000, True)
+
+    monkeypatch.setattr(code, "run_in_sandbox", big)
+    await code.write_file("s.py", "")
+    with pytest.raises(ValueError, match="write_file") as ei:
+        await code.run_python("s.py")
+    assert "delete" not in str(ei.value)
+    await code.write_file("s.py", "")  # overwrite-to-shrink path stays available
+
+
+async def test_media_rel_errors_do_not_leak_host_paths(
+    box: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (box / "media").symlink_to("media")  # loop
+    await code.write_file("s.py", "")
+    await _capture_policy(monkeypatch)
+    with contextlib.suppress(ValueError):
+        await code.run_python("s.py")
+    monkeypatch.setattr(code._state, "media_root", box / "m" / "n" / "media")
+    (box / "m").mkdir()
+    (box / "m" / "n").mkdir()
+    (box / "m" / "n").chmod(0)
+    (box / "m").chmod(0)
+    try:
+        if os.access(box / "m" / "n", os.R_OK):
+            pytest.skip("running as a user that ignores permissions")
+        with pytest.raises(ValueError) as ei:
+            await code.run_python("s.py")
+    finally:
+        (box / "m").chmod(0o700)
+        (box / "m" / "n").chmod(0o700)
+    assert str(box) not in str(ei.value) and "/" not in str(ei.value)
+
+
+def test_media_rel_loop_error_is_generic(box: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (box / "media").symlink_to("media")
+    monkeypatch.setattr(code._state, "media_root", box / "x" / ".." / "q")
+    with pytest.raises(ValueError) as ei:
+        code._media_rel()
+    assert str(box) not in str(ei.value)
+    monkeypatch.setattr(code._state, "media_root", Path("/nonexistent-root/media"))
+    assert code._media_rel() is None
+
+
+def test_media_rel_rejects_dotdot_components(box: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (box / "deep" / "sub").mkdir(parents=True)
+    (box / "x").symlink_to(box / "deep" / "sub")
+    monkeypatch.setattr(code._state, "media_root", box / "x" / ".." / "media")
+    with pytest.raises(ValueError, match="media folder"):
+        code._media_rel()
+
+
+async def test_publish_holds_lock_until_copy_finishes_on_cancel(
+    box: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    gate = threading.Event()
+    done = threading.Event()
+
+    def slow(subdir: str, name: str) -> dict[str, object]:
+        gate.wait(5)
+        done.set()
+        return {}
+
+    monkeypatch.setattr(code, "_publish", slow)
+    task = asyncio.create_task(code.publish_site("a", "site"))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    await asyncio.sleep(0.1)
+    assert code._state.lock.locked() and not done.is_set()
+    gate.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert done.is_set() and not code._state.lock.locked()
+
+
+async def test_list_files_caps_bytes_and_marker_not_forgeable(
+    box: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(code, "MAX_LIST_BYTES", 100)
+    for i in range(20):
+        (box / f"{'n' * 20}{i}").write_text("")
+    out = await code.list_files(".")
+    assert out[-1].startswith("…[truncated") and len(out) < 10
+    assert sum(len(x.encode()) for x in out[:-1]) <= 100
+
+    monkeypatch.setattr(code, "MAX_LIST_BYTES", 32 * 1024)
+    for f in box.iterdir():
+        f.unlink()
+    (box / "…[truncated: fake]").write_text("")
+    out = await code.list_files(".")
+    assert out == ["./…[truncated: fake]"]

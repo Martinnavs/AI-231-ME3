@@ -5,10 +5,13 @@ import contextlib
 import os
 import shutil
 import signal
+import stat
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+
+import anyio
 
 MAX_OUTPUT_BYTES = 64 * 1024
 _KILL_GRACE_S = 5
@@ -229,8 +232,14 @@ def _oom_kill_count(uid: int | None = None) -> int | None:
 
 
 def _dir_usage(root: Path, limit: int) -> int:
+    """Measured bytes (a lower bound once past ``limit`` or when the scan is incomplete).
+
+    Never invents a number: unreadable subtrees and entry-cap overflow are skipped, so a script
+    cannot lock the sandbox out. Directories we own that lack u+rwx are repaired so they count.
+    """
     total = 0
     seen = 0
+    uid = os.getuid()
     stack = [str(root)]
     while stack:
         try:
@@ -238,15 +247,18 @@ def _dir_usage(root: Path, limit: int) -> int:
                 for entry in it:
                     seen += 1
                     if seen > _MAX_SCAN_ENTRIES:
-                        return limit + 1
+                        return total
                     st = entry.stat(follow_symlinks=False)
                     total += st.st_blocks * 512
                     if total > limit:
                         return total
-                    if entry.is_dir(follow_symlinks=False):
+                    if stat.S_ISDIR(st.st_mode):
+                        if st.st_uid == uid and st.st_mode & 0o700 != 0o700:
+                            with contextlib.suppress(OSError):
+                                os.chmod(entry.path, st.st_mode | 0o700)
                         stack.append(entry.path)
         except OSError:
-            return max(total, limit + 1)
+            continue
     return total
 
 
@@ -311,8 +323,11 @@ async def run_in_sandbox(policy: SandboxPolicy, argv: Sequence[str]) -> SandboxR
         _kill_group(proc)
         os.close(info_r)
         readers.cancel()
-        with contextlib.suppress(Exception, asyncio.CancelledError):
-            await asyncio.shield(asyncio.wait_for(proc.wait(), _KILL_GRACE_S))
+        with anyio.CancelScope(shield=True):
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await readers
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await asyncio.shield(asyncio.wait_for(proc.wait(), _KILL_GRACE_S))
         raise
     stdout, stderr = await readers
     duration = time.monotonic() - start

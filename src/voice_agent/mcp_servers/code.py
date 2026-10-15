@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import contextlib
 import errno
-import itertools
 import logging
 import os
 import re
@@ -17,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
 
+import anyio
 from mcp.server.fastmcp import FastMCP
 
 from voice_agent.config import ConfigError, PathsConfig, load_config
@@ -40,6 +40,8 @@ MAX_SITE_BYTES = 20 * 1024 * 1024
 MAX_SITE_DIRS = 100
 MAX_SITE_DEPTH = 8
 MAX_LIST_ENTRIES = 1000
+MAX_LIST_BYTES = 32 * 1024
+_TRUNC_MARK = "…[truncated"
 SITE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 
 log = logging.getLogger("voice_agent.mcp.code")
@@ -125,40 +127,58 @@ async def list_files(path: str = ".") -> list[str]:
         except NotADirectoryError:
             raise ValueError(f"not a directory: {path}") from None
         try:
+            names: list[str] = []
+            used = 0
+            truncated = False
             with os.scandir(fd) as it:
-                names = [
-                    f"{e.name}/" if e.is_dir(follow_symlinks=False) else e.name
-                    for e in itertools.islice(it, MAX_LIST_ENTRIES + 1)
-                ]
+                for e in it:
+                    shown = f"{e.name}/" if e.is_dir(follow_symlinks=False) else e.name
+                    used += len(shown.encode("utf-8", errors="replace")) + 1
+                    if len(names) >= MAX_LIST_ENTRIES or used > MAX_LIST_BYTES:
+                        truncated = True
+                        break
+                    names.append(f"./{shown}" if shown.startswith(_TRUNC_MARK) else shown)
         finally:
             os.close(fd)
-    truncated = len(names) > MAX_LIST_ENTRIES
-    result = sorted(names[:MAX_LIST_ENTRIES])
+    result = sorted(names)
     if truncated:
-        result.append(f"…[truncated: more than {MAX_LIST_ENTRIES} entries]")
+        result.append(f"{_TRUNC_MARK}: more entries than the listing limit]")
     return result
+
+
+def _media_unverifiable() -> ValueError:
+    return ValueError("refusing to run: the media folder cannot be verified")
 
 
 def _media_rel() -> str | None:
     media = _state.media_root
     if media is None:
         return None
-    lexical_media = Path(os.path.abspath(media))
-    candidates = (
-        (lexical_media, Path(os.path.abspath(_state.root))),
-        (lexical_media.resolve(), _state.root.resolve()),
-    )
-    for m, r in candidates:
-        if m.is_relative_to(r):
-            rel = m.relative_to(r)
+    if ".." in media.parts:
+        raise _media_unverifiable()
+    try:
+        lexical_media = Path(os.path.abspath(media))
+        lexical_root = Path(os.path.abspath(_state.root))
+        if lexical_media.is_relative_to(lexical_root):
+            rel = lexical_media.relative_to(lexical_root)
             if rel.parts:
                 return rel.as_posix()
+        real_media, real_root = lexical_media.resolve(), _state.root.resolve()
+    except (OSError, RuntimeError):
+        raise _media_unverifiable() from None
+    if real_media.is_relative_to(real_root):
+        rel = real_media.relative_to(real_root)
+        if rel.parts:
+            return rel.as_posix()
     return None
 
 
 def _hidden_has_symlink(real_root: Path, hidden: str) -> bool:
     parts = Path(hidden).parts
-    return any((real_root.joinpath(*parts[: i + 1])).is_symlink() for i in range(len(parts)))
+    try:
+        return any(real_root.joinpath(*parts[: i + 1]).is_symlink() for i in range(len(parts)))
+    except (OSError, RuntimeError):
+        raise _media_unverifiable() from None
 
 
 @mcp.tool()
@@ -186,8 +206,9 @@ async def run_python(
             raise ValueError(str(exc)) from None
     if result.disk_exceeded:
         raise ValueError(
-            f"sandbox folder is over the limit: {result.dir_bytes} bytes used, "
-            f"limit {policy.max_dir_bytes}; delete files and retry"
+            f"sandbox folder is over the limit: at least {result.dir_bytes} bytes used, "
+            f"limit {policy.max_dir_bytes}; shrink large files by overwriting them with "
+            "write_file (list_files shows what exists), then retry"
         )
     return {
         "returncode": result.returncode,
@@ -307,7 +328,15 @@ async def publish_site(subdir: str, name: str) -> dict[str, object]:
     if not SITE_NAME.fullmatch(name):
         raise ValueError("invalid site name: use 1-40 chars of a-z, 0-9 and '-', not starting '-'")
     async with _state.lock:
-        return await asyncio.to_thread(_publish, subdir, name)
+        task = asyncio.ensure_future(asyncio.to_thread(_publish, subdir, name))
+        try:
+            return await asyncio.shield(task)
+        except BaseException:
+            with anyio.CancelScope(shield=True):
+                await asyncio.wait({task})
+            if not task.cancelled():
+                task.exception()
+            raise
 
 
 def _publish(subdir: str, name: str) -> dict[str, object]:
@@ -380,6 +409,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     _state.root = (args.root or paths.sandbox_root).expanduser()
     _state.sites_root = paths.sites_root
     _state.media_root = paths.media_root.expanduser()
+    if ".." in _state.media_root.parts:
+        parser.error("media_root must not contain '..' components")
     _state.root.mkdir(parents=True, exist_ok=True)
     log.info("code server: root=%s", _state.root)
     mcp.run(transport="stdio")

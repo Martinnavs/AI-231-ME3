@@ -364,25 +364,62 @@ async def test_refuses_to_start_when_already_over_limit(
     assert not marker.exists()
 
 
-def test_dir_usage_tolerates_unreadable_and_caps_entries(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_dir_usage_counts_unreadable_dir_without_fake_bytes(tmp_path: Path) -> None:
     locked = tmp_path / "locked"
     locked.mkdir()
-    (locked / "f").write_text("x")
+    (locked / "f").write_bytes(b"x" * 20_000)
     locked.chmod(0)
     try:
-        if os.access(locked, os.R_OK):
-            pytest.skip("running as a user that ignores permissions")
-        used = runner._dir_usage(tmp_path, 1000)
+        used = runner._dir_usage(tmp_path, 10**9)
     finally:
         locked.chmod(0o700)
-    assert used > 1000
+    assert 20_000 <= used < 1_000_000  # repaired and measured, not limit + 1
+
+
+def test_dir_usage_unrepairable_subtree_and_entry_cap_are_not_over_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "d").mkdir()
+    real_scandir = os.scandir
+
+    def deny(path: object) -> object:
+        if str(path).endswith("/d"):
+            raise PermissionError(13, "denied", str(path))
+        return real_scandir(path)  # type: ignore[call-overload]
+
+    monkeypatch.setattr(runner.os, "scandir", deny)
+    assert runner._dir_usage(tmp_path, 10**9) < 10**9
+    monkeypatch.undo()
 
     for i in range(5):
         (tmp_path / f"f{i}").write_text("")
     monkeypatch.setattr(runner, "_MAX_SCAN_ENTRIES", 3)
-    assert runner._dir_usage(tmp_path, 10**9) > 10**9
+    assert runner._dir_usage(tmp_path, 10**9) < 10**9
+
+
+async def test_chmod_000_dir_does_not_lock_out_next_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _Fake(monkeypatch).command(monkeypatch, "mkdir -p d && echo hi > d/f && chmod 000 d")
+    monkeypatch.chdir(tmp_path)
+    try:
+        res = await run_in_sandbox(SandboxPolicy(root=tmp_path, max_dir_bytes=10_000_000), ["x"])
+        assert not res.disk_exceeded
+        res = await run_in_sandbox(SandboxPolicy(root=tmp_path, max_dir_bytes=10_000_000), ["x"])
+        assert not res.disk_exceeded
+    finally:
+        (tmp_path / "d").chmod(0o700)
+
+
+async def test_entry_cap_overflow_does_not_lock_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    for i in range(8):
+        (tmp_path / f"f{i}").write_text("")
+    monkeypatch.setattr(runner, "_MAX_SCAN_ENTRIES", 3)
+    _Fake(monkeypatch).command(monkeypatch, "echo ok")
+    res = await run_in_sandbox(SandboxPolicy(root=tmp_path, max_dir_bytes=10_000_000), ["x"])
+    assert not res.disk_exceeded and res.stdout.strip() == "ok"
 
 
 async def test_cancel_waits_for_process_death(
@@ -412,3 +449,45 @@ def test_command_has_fsize_limit() -> None:
     )
     i = cmd.index("prlimit")
     assert cmd[i + 1] == "--fsize=12345" and cmd[i + 2] == "bwrap"
+
+
+async def test_cancel_under_anyio_scope_still_waits_for_death(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, recwarn: pytest.WarningsRecorder
+) -> None:
+    import anyio
+
+    _Fake(monkeypatch).command(monkeypatch, "sleep 30")
+    procs: list[asyncio.subprocess.Process] = []
+    real_exec = asyncio.create_subprocess_exec
+    real_kill = runner._kill_group
+
+    async def spy(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        proc = await real_exec(*args, **kwargs)  # type: ignore[arg-type]
+        procs.append(proc)
+        return proc
+
+    def slow_kill(proc: asyncio.subprocess.Process) -> None:
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.5, real_kill, proc)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spy)
+    monkeypatch.setattr(runner, "_kill_group", slow_kill)
+    errors: list[dict[str, object]] = []
+    asyncio.get_running_loop().set_exception_handler(lambda _l, ctx: errors.append(ctx))
+
+    async def run() -> None:
+        with anyio.CancelScope() as scope:
+            holder.append(scope)
+            await run_in_sandbox(SandboxPolicy(root=tmp_path, timeout_s=30), ["x"])
+
+    holder: list[anyio.CancelScope] = []
+    task = asyncio.create_task(run())
+    await asyncio.sleep(0.3)
+    holder[0].cancel()
+    await task
+    assert procs[0].returncode is not None
+    import gc
+
+    gc.collect()
+    await asyncio.sleep(0)
+    assert not [e for e in errors if "never retrieved" in str(e.get("message", ""))]
