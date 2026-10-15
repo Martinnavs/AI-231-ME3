@@ -309,3 +309,124 @@ def test_echo_stdout(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None
     assert parsed[1]["event"] == "stage"
     assert parsed[1]["stage"] == "turn_done"
     assert parsed[2]["event"] == "log_closed"
+
+
+def test_emit_non_str_keys_dropped_not_raises(tmp_path: Path) -> None:
+    """R22: dict with non-string keys in data is dropped and counted, never raises in emit."""
+    log_path = tmp_path / "non_str_keys.jsonl"
+
+    with StageLogger(log_path, run_id="non_str_keys") as logger:
+        # Tuple key cannot be serialized by json.dumps even with default=str
+        logger.emit(Stage.TOOL_CALL, turn_id=1, bad_map={(1, 2): "val"})
+        assert logger.dropped == 1
+
+        # Subsequent valid emit succeeds
+        logger.emit(Stage.TURN_DONE, turn_id=1, ok="yes")
+
+    events, stats = read_events(log_path)
+    assert len(events) == 1
+    assert events[0].stage == Stage.TURN_DONE
+    assert stats.events == 1
+    assert stats.malformed == 0
+
+    lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    closing = json.loads(lines[-1])
+    assert closing["event"] == "log_closed"
+    assert closing["dropped"] == 1
+
+
+def test_emit_circular_data_dropped_not_raises(tmp_path: Path) -> None:
+    """R22: circular data structure in data is dropped and counted, never raises in emit."""
+    log_path = tmp_path / "circular.jsonl"
+
+    circular: dict[str, Any] = {}
+    circular["self"] = circular
+
+    with StageLogger(log_path, run_id="circular") as logger:
+        logger.emit(Stage.TOOL_CALL, turn_id=1, bad_cycle=circular)
+        assert logger.dropped == 1
+
+        logger.emit(Stage.TURN_DONE, turn_id=1, ok="yes")
+
+    events, stats = read_events(log_path)
+    assert len(events) == 1
+    assert events[0].stage == Stage.TURN_DONE
+    assert stats.events == 1
+    assert stats.malformed == 0
+
+    lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    closing = json.loads(lines[-1])
+    assert closing["event"] == "log_closed"
+    assert closing["dropped"] == 1
+
+
+def test_emit_failing_str_dropped_not_raises(tmp_path: Path) -> None:
+    """R22: object whose __str__ raises is dropped and counted, never raises in emit."""
+    log_path = tmp_path / "failing_str.jsonl"
+
+    class FailingStr:
+        def __str__(self) -> str:
+            raise RuntimeError("str failed")
+
+    with StageLogger(log_path, run_id="failing_str") as logger:
+        logger.emit(Stage.TOOL_CALL, turn_id=1, bad_obj=FailingStr())
+        assert logger.dropped == 1
+
+        logger.emit(Stage.TURN_DONE, turn_id=1, ok="yes")
+
+    events, stats = read_events(log_path)
+    assert len(events) == 1
+    assert events[0].stage == Stage.TURN_DONE
+
+
+def test_close_with_full_queue_and_stalled_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R22: close() does not hang indefinitely when queue is full and writer is stalled."""
+    log_path = tmp_path / "close_hang.jsonl"
+    write_paused = threading.Event()
+    first_write_started = threading.Event()
+    real_open = builtins.open
+
+    class PausingFile:
+        def __init__(self, f: Any) -> None:
+            self._f = f
+
+        def write(self, text: str) -> int:
+            first_write_started.set()
+            write_paused.wait()
+            return self._f.write(text)
+
+        def flush(self) -> None:
+            self._f.flush()
+
+        def close(self) -> None:
+            self._f.close()
+
+    def fake_open(file: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        f = real_open(file, mode, *args, **kwargs)
+        if Path(file) == log_path and "x" in mode:
+            return PausingFile(f)
+        return f
+
+    monkeypatch.setattr(builtins, "open", fake_open)
+
+    logger = StageLogger(log_path, run_id="close_hang_test", max_queue=2)
+    assert first_write_started.wait(timeout=2.0)
+
+    # Fill the queue (size 2) and drop subsequent emits
+    for i in range(10):
+        logger.emit(Stage.STT_FINAL, turn_id=1, count=i)
+
+    # Use a small close timeout so the test runs quickly
+    logger._close_timeout = 0.05
+
+    close_thread = threading.Thread(target=logger.close)
+    close_thread.start()
+    close_thread.join(timeout=0.5)
+
+    assert not close_thread.is_alive(), "close() hung while queue was full and writer was stalled"
+
+    # Clean up paused writer thread
+    write_paused.set()
+    close_thread.join(timeout=2.0)

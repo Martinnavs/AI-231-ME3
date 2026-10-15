@@ -51,6 +51,8 @@ class StageEvent:
 
 
 class StageLogger:
+    _CLOSE_TIMEOUT_S: float = 2.0
+
     def __init__(
         self,
         path: Path,
@@ -63,6 +65,7 @@ class StageLogger:
         self._run_id = run_id
         self._echo_stdout = echo_stdout
         self._max_queue = max_queue
+        self._close_timeout = self._CLOSE_TIMEOUT_S
 
         self._dropped = 0
         self._dropped_lock = threading.Lock()
@@ -121,7 +124,12 @@ class StageLogger:
             "t_wall": t_wall,
             "data": data,
         }
-        line = json.dumps(record, default=str)
+        try:
+            line = json.dumps(record, default=str)
+        except Exception:
+            with self._dropped_lock:
+                self._dropped += 1
+            return
 
         try:
             self._queue.put_nowait(line)
@@ -140,8 +148,18 @@ class StageLogger:
                 return
             self._closed = True
 
-        self._queue.put(None)
-        self._thread.join()
+        try:
+            self._queue.put(None, timeout=self._close_timeout)
+        except queue.Full:
+            with contextlib.suppress(Exception):
+                self._queue.get_nowait()
+                self._queue.task_done()
+                with self._dropped_lock:
+                    self._dropped += 1
+            with contextlib.suppress(Exception):
+                self._queue.put_nowait(None)
+
+        self._thread.join(timeout=self._close_timeout)
 
     def __enter__(self) -> Self:
         return self
