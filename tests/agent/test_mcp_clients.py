@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import sys
@@ -8,8 +9,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
 
-from voice_agent.agent.mcp_clients import McpClientManager, _expand_env, _render
+from voice_agent.agent.mcp_clients import (
+    MAX_OUTPUT_CHARS,
+    McpClientManager,
+    ToolRegistry,
+    ToolSpec,
+    _expand_env,
+    _render,
+)
 from voice_agent.config import McpServerSpec
 
 
@@ -216,3 +226,38 @@ def test_render_joins_text_and_summarizes_other_blocks() -> None:
         ]
     )
     assert _render(result) == "a\n[image omitted]\nb"
+
+
+class _FakeServer:
+    def __init__(self, result: object = None, exc: Exception | None = None) -> None:
+        self.result, self.exc = result, exc
+        self.lock = asyncio.Lock()
+
+    async def call(self, tool: str, arguments: object, timeout_s: float) -> object:
+        if self.exc:
+            raise self.exc
+        return self.result
+
+
+def _fake_registry(server: _FakeServer) -> ToolRegistry:
+    spec = ToolSpec("s__t", "s", "t", "", {})
+    return ToolRegistry({"s__t": spec}, {}, {"s": server})  # type: ignore[dict-item]
+
+
+async def test_mcp_request_timeout_maps_to_timed_out() -> None:
+    exc = McpError(ErrorData(code=408, message="Timed out while waiting"))
+    out = await _fake_registry(_FakeServer(exc=exc)).call("s__t", {})
+    assert (out.text, out.is_error) == ("timed out", True)
+
+
+async def test_call_output_is_capped() -> None:
+    block = SimpleNamespace(type="text", text="x" * (MAX_OUTPUT_CHARS * 4))
+    result = SimpleNamespace(content=[block], isError=False)
+    out = await _fake_registry(_FakeServer(result=result)).call("s__t", {})
+    assert len(out.text) < MAX_OUTPUT_CHARS + 100
+    assert out.text.endswith(f"[truncated {MAX_OUTPUT_CHARS * 3} chars]")
+
+
+def test_render_short_output_untouched() -> None:
+    block = SimpleNamespace(type="text", text="x" * MAX_OUTPUT_CHARS)
+    assert _render(SimpleNamespace(content=[block])) == "x" * MAX_OUTPUT_CHARS

@@ -110,3 +110,11 @@ no
 ### 2026-10-16 tech-lead: Review Feedback (main @ 92f3edb)
 - R1 [R1] seam with 08: default MCP env drops XDG_RUNTIME_DIR (fix lands in runner; E2E proof package G). R15 [R3] timeout race returns McpError text. R16 [R3] tool output uncapped.
 Full detail (root cause, evidence, fix): `handoff/REVIEW-main-92f3edb.md`. Not auto-fixed; retries need human approval.
+
+### 2026-10-16 developer: fix package D (R15, R16 render cap): DONE
+- R15: `ToolRegistry.call` maps `McpError` code 408 to "timed out". mcp 1.30 raises its read timeout with `httpx.codes.REQUEST_TIMEOUT` (408); `mcp.types.REQUEST_TIMEOUT` is commented out, so the review's constant doesn't exist. Used `HTTPStatus.REQUEST_TIMEOUT`.
+- R16: `_render` caps at `MAX_OUTPUT_CHARS` (16 KiB) and appends `[truncated N chars]`. Error outcomes were already capped at 500 chars.
+- Tests added (3, fail on old code): McpError 408 -> "timed out"; oversized output capped with marker; at-limit output untouched.
+- R1: no change needed in mcp_clients.py (fix is in runner `_scrubbed_env`, package A). Not touched.
+- R16 `list_files` entry cap remains package A.
+- Gate: make check green; full pytest 180 passed, 6 skipped.
