@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 04
-**Status:** ready-for-agent
+**Status:** done
 
 ## Files
 - `src/bench/truth.py`, `src/bench/signal.py` (shared DSP helpers: frame RMS in dBFS, envelopes, chirp)

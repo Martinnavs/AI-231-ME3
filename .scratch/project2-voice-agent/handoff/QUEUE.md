@@ -22,3 +22,4 @@ STOP LINE (needs the user): 05 and 10 (D1 unconfirmed; D3 Tavily edit to 10 pend
 - Secrets never printed. Fixes found by security-auditor are logged here, not applied unreviewed.
 
 ## Log
+- 13 merged (worker gate re-run clean, 45 passed). Note for review: speech_bounds hangover_ms is a no-op; build_truth_set gained voice kw.
