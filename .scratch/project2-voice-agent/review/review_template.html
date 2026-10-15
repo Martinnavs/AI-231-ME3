@@ -1,0 +1,345 @@
+<title>Project 2 Ticket Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: review console — fixed ticket rail on the left, one ticket at a time on the right, feedback control under each ticket header. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --ink: #17202c;
+  --muted: #5b6676;
+  --line: #d9dee5;
+  --accent: #1f5f8b;
+  --accent-soft: #e3eef6;
+  --code-bg: #eef1f4;
+  --ok: #1e7a4c; --ok-soft: #e1f2e8;
+  --warn: #9a5b00; --warn-soft: #fbefd9;
+  --ask: #6a3fa0; --ask-soft: #efe7f8;
+  --sec: #a8322d; --sec-soft: #f8e4e2;
+  --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161d; --surface: #182029; --ink: #e4e9ef; --muted: #98a3b2; --line: #2a3542;
+    --accent: #6fb2e0; --accent-soft: #1b3346; --code-bg: #1f2833;
+    --ok: #5cc98f; --ok-soft: #173826; --warn: #e3a64a; --warn-soft: #3a2a12;
+    --ask: #b994ea; --ask-soft: #2c2140; --sec: #ee8a83; --sec-soft: #3d1d1b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161d; --surface: #182029; --ink: #e4e9ef; --muted: #98a3b2; --line: #2a3542;
+  --accent: #6fb2e0; --accent-soft: #1b3346; --code-bg: #1f2833;
+  --ok: #5cc98f; --ok-soft: #173826; --warn: #e3a64a; --warn-soft: #3a2a12;
+  --ask: #b994ea; --ask-soft: #2c2140; --sec: #ee8a83; --sec-soft: #3d1d1b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--font-body); }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.brand { font-family: var(--font-display); font-weight: 800; font-stretch: 85%; font-size: 1.15rem; letter-spacing: .01em; }
+.brand small { font-family: var(--font-body); font-weight: 500; font-size: .8rem; color: var(--muted); margin-left: 6px; }
+.tally { display: flex; flex-wrap: wrap; gap: 6px; font-variant-numeric: tabular-nums; font-size: .82rem; }
+.chip { padding: 2px 9px; border-radius: 99px; background: var(--code-bg); color: var(--muted); white-space: nowrap; }
+.chip.approve { background: var(--ok-soft); color: var(--ok); }
+.chip.changes { background: var(--warn-soft); color: var(--warn); }
+.chip.question { background: var(--ask-soft); color: var(--ask); }
+.store-note { font-size: .8rem; color: var(--muted); margin-left: auto; }
+
+.shell { display: grid; grid-template-columns: 290px minmax(0, 1fr); max-width: 1320px; margin: 0 auto; }
+.rail { position: sticky; top: 52px; align-self: start; max-height: calc(100vh - 52px); overflow-y: auto; padding: 16px 10px 32px 16px; border-right: 1px solid var(--line); }
+.rail h4 { font: 600 .7rem/1 var(--font-body); text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 18px 8px 8px; }
+.nav-item { display: grid; grid-template-columns: 26px minmax(0, 1fr) 10px; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: .86rem; line-height: 1.3; }
+.nav-item:hover { background: var(--code-bg); }
+.nav-item.active { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.nav-num { font: 600 .78rem var(--font-mono); color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--line); }
+.dot.approve { background: var(--ok); border-color: var(--ok); }
+.dot.changes { background: var(--warn); border-color: var(--warn); }
+.dot.question { background: var(--ask); border-color: var(--ask); }
+.jump { display: none; }
+
+main { min-width: 0; padding-block: 28px 80px; padding-inline: 40px; }
+.panel { max-width: 900px; }
+.eyebrow { font: 600 .72rem/1 var(--font-body); text-transform: uppercase; letter-spacing: .1em; color: var(--accent); margin: 0 0 8px; }
+h1, h2, h3 { font-family: var(--font-display); font-stretch: 88%; text-wrap: balance; line-height: 1.15; }
+.panel > header h2, .panel > h1 { font-size: 2rem; font-weight: 800; margin: 0 0 12px; }
+.t-meta, .recap { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .86rem; color: var(--muted); }
+.t-meta b { color: var(--ink); font-weight: 600; margin-right: 4px; }
+.recap { margin-top: 10px; font-family: var(--font-mono); font-size: .78rem; gap: 6px; }
+.recap span { border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; }
+.recap b { color: var(--accent); }
+.badge { font-size: .74rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+.badge.sec { background: var(--sec-soft); color: var(--sec); }
+.badge.agent { background: var(--accent-soft); color: var(--accent); }
+
+.fb { margin: 20px 0 28px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 10px; }
+.fb[data-v="approve"] { border-color: var(--ok); }
+.fb[data-v="changes"] { border-color: var(--warn); }
+.fb[data-v="question"] { border-color: var(--ask); }
+.fb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fb-label { font-weight: 600; font-size: .85rem; margin-right: 4px; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg label { cursor: pointer; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: block; padding: 5px 12px; font-size: .84rem; border-right: 1px solid var(--line); background: var(--surface); }
+.seg label:last-child span { border-right: 0; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.seg input[value="approve"]:checked + span { background: var(--ok-soft); color: var(--ok); font-weight: 600; }
+.seg input[value="changes"]:checked + span { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.seg input[value="question"]:checked + span { background: var(--ask-soft); color: var(--ask); font-weight: 600; }
+.fb textarea { width: 100%; min-height: 72px; resize: vertical; font: .9rem/1.5 var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.btn { font: 600 .84rem var(--font-body); padding: 6px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--surface); cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.fb-status { font-size: .8rem; color: var(--muted); }
+
+.prose { overflow-wrap: anywhere; }
+.prose h2 { font-size: 1.25rem; font-weight: 700; margin: 30px 0 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.prose h3 { font-size: 1.05rem; font-weight: 700; margin: 22px 0 6px; color: var(--accent); }
+.prose p, .prose li { max-width: 72ch; }
+.prose code { font: .84em var(--font-mono); background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+.prose pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-size: .8rem; line-height: 1.5; }
+.prose pre code { background: none; padding: 0; font-size: inherit; }
+.tbl { overflow-x: auto; margin: 10px 0 16px; border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: .86rem; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+th { background: var(--code-bg); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.diagram { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 12px 0 18px; }
+.diagram pre.mermaid { background: none; border: 0; margin: 0; }
+
+.decision { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 18px; padding: 18px 0; border-top: 1px solid var(--line); }
+.decision h3 { margin: 0 0 6px; font-size: 1.15rem; }
+.decision p { margin: 0; }
+.decision .fb { margin: 0; }
+.t-foot { margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--line); }
+.next { font-weight: 600; text-decoration: none; }
+.sum-list { display: grid; gap: 8px; margin: 16px 0; }
+.sum-item { display: grid; grid-template-columns: 44px 120px minmax(0, 1fr); gap: 10px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: .88rem; }
+.sum-item .nav-num { padding-top: 2px; }
+.sum-note { white-space: pre-wrap; color: var(--muted); }
+#copy-area { width: 100%; min-height: 120px; font: .8rem var(--font-mono); margin-top: 8px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+
+@media (max-width: 860px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .jump { display: block; width: 100%; font: .9rem var(--font-body); padding: 8px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+  main { padding-inline: 16px; padding-block: 18px 60px; }
+  .decision { grid-template-columns: minmax(0, 1fr); }
+  .sum-item { grid-template-columns: 40px minmax(0, 1fr); }
+  .sum-item .sum-note { grid-column: 1 / -1; }
+  .store-note { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="top">
+  <span class="brand">Project 2 tickets<small>RECAP review · 17 tickets, 3 decisions</small></span>
+  <div class="tally" id="tally" aria-live="polite"></div>
+  <span class="store-note" id="store-note">Connecting to the feedback store…</span>
+  <select class="jump" id="jump" aria-label="Go to section"></select>
+</div>
+
+<div class="shell">
+  <nav class="rail" aria-label="Sections">
+    <h4>Start here</h4>
+    <a class="nav-item" href="#overview" data-id="overview"><span class="nav-num">◎</span><span class="nav-title">Design overview</span><span></span></a>
+    <a class="nav-item" href="#decisions" data-id="decisions"><span class="nav-num">D</span><span class="nav-title">Decisions to confirm</span><span class="dot" data-dot="decisions"></span></a>
+    <h4>Tickets, in run order</h4>
+    {{NAV}}
+    <h4>Wrap up</h4>
+    <a class="nav-item" href="#summary" data-id="summary"><span class="nav-num">Σ</span><span class="nav-title">Review summary</span><span></span></a>
+  </nav>
+
+  <main>
+    <section class="panel" id="overview">
+      <p class="eyebrow">Project 2 · full-duplex voice agent on a Raspberry Pi</p>
+      <h1>Design overview</h1>
+      <p>These are the 17 RECAP tickets one Sonnet agent will run in order. Each ticket carries its own Edges, Contracts, Assumptions and Proof. Mark each ticket <b>Approve</b>, <b>Needs changes</b> or <b>Question</b> and add a note; your feedback saves as you go and Claude reads it back from this page.</p>
+      <p><a href="#decisions">Start with the three decisions</a>, then work through the tickets from <a href="#t01">01</a>.</p>
+      <div class="prose">{{DESIGN}}</div>
+      <div class="prose"><h2>Ticket index</h2>{{PLAN}}</div>
+    </section>
+
+    <section class="panel" id="decisions" hidden>
+      <p class="eyebrow">Before ticket 05</p>
+      <h1>Decisions to confirm</h1>
+      <p>D1 blocks tickets 05 and 10: the agent stops there until it's confirmed. D2 and D3 are proposals the tickets already assume.</p>
+      {{DECISIONS}}
+      <div class="t-foot"><a class="next" href="#t01">Next: 01 Project scaffold →</a></div>
+    </section>
+
+    {{PANELS}}
+
+    <section class="panel" id="summary" hidden>
+      <p class="eyebrow">Wrap up</p>
+      <h1>Review summary</h1>
+      <p>Everything you've marked so far. When you're done, tell Claude in the terminal that the review is ready; it reads the saved feedback directly. If saving isn't available in your view, copy the text below and paste it into the chat instead.</p>
+      <div class="sum-list" id="sum-list"></div>
+      <button class="btn ghost" id="copy-btn" type="button">Copy feedback as text</button>
+      <span class="fb-status" id="copy-status"></span>
+      <textarea id="copy-area" readonly aria-label="Feedback as text"></textarea>
+    </section>
+  </main>
+</div>
+
+<script>
+const ITEMS = {{META}};
+const LABELS = { approve: "Approve", changes: "Needs changes", question: "Question" };
+const DEC_LABELS = { approve: "Confirm", changes: "Change it", question: "Question" };
+const state = {};          // id -> {verdict, note, updatedAt}
+const dirty = new Set();   // ids with unsaved local edits
+let db = null, canWrite = true, userId = null;
+
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+function buildWidgets() {
+  for (const box of $$(".fb[data-fb]")) {
+    const id = box.dataset.fb;
+    const isDec = id.startsWith("D");
+    const labels = isDec ? DEC_LABELS : LABELS;
+    box.innerHTML = `
+      <div class="fb-row"><span class="fb-label">Your verdict</span>
+        <span class="seg" role="radiogroup" aria-label="Verdict for ${id}">
+          ${Object.entries(labels).map(([v, l]) => `<label><input type="radio" name="v-${id}" id="v-${id}-${v}" value="${v}"><span>${l}</span></label>`).join("")}
+        </span></div>
+      <textarea id="note-${id}" placeholder="${isDec ? "Optional: what should change, or what you'd pick instead" : "Optional: what should change or what's unclear"}" aria-label="Note for ${id}"></textarea>
+      <div class="fb-row"><button class="btn" type="button" id="save-${id}">Save</button><span class="fb-status" id="status-${id}">Not reviewed yet</span></div>`;
+    $$("input", box).forEach(r => r.addEventListener("change", () => { dirty.add(id); box.dataset.v = r.value; setStatus(id, "Unsaved"); }));
+    $(`#note-${id}`).addEventListener("input", () => { dirty.add(id); setStatus(id, "Unsaved"); });
+    $(`#save-${id}`).addEventListener("click", () => save(id));
+  }
+}
+
+function readWidget(id) {
+  const box = $(`.fb[data-fb="${id}"]`);
+  const checked = box && $("input:checked", box);
+  return { verdict: checked ? checked.value : null, note: box ? $(`#note-${id}`).value.trim() : "" };
+}
+
+function setStatus(id, text) { const el = $(`#status-${id}`); if (el) el.textContent = text; }
+
+function fill(id) {
+  const box = $(`.fb[data-fb="${id}"]`);
+  if (!box || dirty.has(id)) return;
+  const s = state[id];
+  $$("input", box).forEach(r => { r.checked = !!s && r.value === s.verdict; });
+  $(`#note-${id}`).value = s?.note || "";
+  box.dataset.v = s?.verdict || "";
+  setStatus(id, s?.updatedAt ? `Saved ${new Date(s.updatedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "Not reviewed yet");
+}
+
+function current(id) { return dirty.has(id) ? readWidget(id) : (state[id] || { verdict: null, note: "" }); }
+
+function refreshSummary() {
+  const counts = { approve: 0, changes: 0, question: 0, none: 0 };
+  for (const it of ITEMS) {
+    const v = current(it.id).verdict;
+    counts[v || "none"]++;
+    const dot = $(`[data-dot="${it.id}"]`);
+    if (dot) dot.className = "dot " + (v || "");
+  }
+  const decV = ["D1", "D2", "D3"].map(d => current(d).verdict);
+  const dd = $('[data-dot="decisions"]');
+  dd.className = "dot " + (decV.every(Boolean) ? (decV.includes("changes") ? "changes" : decV.includes("question") ? "question" : "approve") : "");
+  $("#tally").innerHTML = `<span class="chip approve">${counts.approve} approved</span><span class="chip changes">${counts.changes} need changes</span><span class="chip question">${counts.question} questions</span><span class="chip">${counts.none} not reviewed</span>`;
+
+  const list = $("#sum-list");
+  list.replaceChildren();
+  const lines = ["# Project 2 ticket review feedback", ""];
+  for (const it of ITEMS) {
+    const c = current(it.id);
+    if (!c.verdict && !c.note) continue;
+    const labels = it.id.startsWith("D") ? DEC_LABELS : LABELS;
+    const row = document.createElement("a");
+    row.className = "sum-item"; row.href = "#" + (it.id.startsWith("D") ? "decisions" : it.id);
+    row.style.textDecoration = "none"; row.style.color = "inherit";
+    const n = document.createElement("span"); n.className = "nav-num"; n.textContent = it.num;
+    const v = document.createElement("span"); v.className = "chip " + (c.verdict || ""); v.textContent = c.verdict ? labels[c.verdict] : "Note only";
+    const t = document.createElement("span"); t.textContent = it.title;
+    const note = document.createElement("span"); note.className = "sum-note"; note.textContent = c.note;
+    const wrap = document.createElement("span"); wrap.append(t); if (c.note) { wrap.append(document.createElement("br"), note); }
+    row.append(n, v, wrap);
+    list.append(row);
+    lines.push(`- **${it.num} ${it.title}**: ${c.verdict ? labels[c.verdict] : "note"}${c.note ? " — " + c.note.replace(/\n/g, " ") : ""}`);
+  }
+  if (!list.children.length) list.innerHTML = `<p class="fb-status">Nothing marked yet. Open a ticket and choose a verdict.</p>`;
+  $("#copy-area").value = lines.join("\n");
+}
+
+async function save(id) {
+  const w = readWidget(id);
+  if (!w.verdict && !w.note) { setStatus(id, "Choose a verdict or write a note first"); return; }
+  if (!db || !canWrite) {
+    setStatus(id, "Kept on this page only. Copy it from the Review summary");
+    refreshSummary(); return;
+  }
+  const btn = $(`#save-${id}`); btn.disabled = true; setStatus(id, "Saving…");
+  const body = { verdict: w.verdict, note: w.note, updatedAt: new Date().toISOString(), ...(userId ? { by: userId } : {}) };
+  try {
+    await db.doc("feedback/" + id).set(body);
+    dirty.delete(id); state[id] = body; fill(id);
+  } catch (e) {
+    if (e && e.code === "invalid_argument") { canWrite = false; setStatus(id, "You can't save feedback on this page. Copy it from the Review summary"); }
+    else setStatus(id, "Couldn't save. Try again in a moment");
+  } finally { btn.disabled = false; refreshSummary(); }
+}
+
+function show(id) {
+  const target = document.getElementById(id) && document.getElementById(id).classList.contains("panel") ? id : "overview";
+  $$(".panel").forEach(p => { p.hidden = p.id !== target; });
+  $$(".nav-item").forEach(a => a.classList.toggle("active", a.dataset.id === target));
+  $("#jump").value = target;
+  if (target === "summary") refreshSummary();
+  window.scrollTo(0, 0);
+}
+
+function buildJump() {
+  const opts = [["overview", "Design overview"], ["decisions", "Decisions to confirm"],
+    ...ITEMS.filter(i => !i.id.startsWith("D")).map(i => [i.id, `${i.num} · ${i.title}`]), ["summary", "Review summary"]];
+  $("#jump").innerHTML = opts.map(([v, l]) => `<option value="${v}"></option>`).join("");
+  $$("#jump option").forEach((o, i) => { o.textContent = opts[i][1]; });
+  $("#jump").addEventListener("change", e => { location.hash = e.target.value; });
+}
+
+$("#copy-btn").addEventListener("click", () => {
+  const text = $("#copy-area").value;
+  const done = () => { $("#copy-status").textContent = "Copied"; };
+  try {
+    navigator.clipboard.writeText(text).then(done, () => { $("#copy-area").select(); $("#copy-status").textContent = "Selected. Press Ctrl+C or Cmd+C to copy"; });
+  } catch { $("#copy-area").select(); $("#copy-status").textContent = "Selected. Press Ctrl+C or Cmd+C to copy"; }
+});
+
+buildWidgets();
+buildJump();
+refreshSummary();
+window.addEventListener("hashchange", () => show(location.hash.slice(1)));
+show(location.hash.slice(1) || "overview");
+
+(async () => {
+  const note = $("#store-note");
+  try {
+    db = window.claude ? await window.claude.use("db") : null;
+    const user = window.claude ? await window.claude.use("user") : null;
+    if (user) {
+      try { userId = await user.id(); } catch {}
+      try { const w = await user.can("data.write"); if (w === false) canWrite = false; } catch {}
+    }
+  } catch { db = null; }
+  if (!db) { note.textContent = "Saving isn't available here. Use Copy on the Review summary"; return; }
+  note.textContent = canWrite ? "Feedback saves to this page" : "Read-only: you can see feedback but not save it";
+  if (!canWrite) $$(".fb .btn").forEach(b => { b.disabled = true; });
+  db.collection("feedback").onSnapshot(snap => {
+    for (const d of snap.docs) { state[d.id] = d.data(); fill(d.id); }
+    refreshSummary();
+  }, () => { note.textContent = "Lost the connection to the feedback store. Reload to reconnect"; });
+})();
+</script>

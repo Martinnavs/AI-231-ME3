@@ -1,0 +1,49 @@
+home_dashboard_url = "http://127.0.0.1:8000"
+sites_host = "raspberrypi.local"
+sites_port = 8080
+location = "Manila"
+timezone = "Asia/Manila"
+
+[audio]
+sample_rate_in = 16000
+sample_rate_out = 16000
+
+[turn]
+vad_stop_secs = 0.2
+endpointing = "stt"
+vad_fallback_stop_secs = 0.8
+vad_turn_stop_secs = 0.5
+min_barge_in_ms = 250
+barge_in_duck_db = -15.0
+barge_in_fade_ms = 15
+speculative_llm = false
+speculative_silence_ms = 180
+
+[agent]
+fast_model = "claude-haiku-4-5"
+slow_model = "claude-sonnet-5-5"
+history_turns = 6
+stt_backend = "deepgram"
+tts_backend = "cartesia"
+fast_tool_prefixes = ["home__", "media__", "assistant__"]
+hidden_tools = ["media__duck", "assistant__due_events"]
+
+[paths]
+sandbox_root = "~/agent_sandbox"
+media_root = "~/agent_sandbox/media"
+music_root = "~/Music"
+sites_root = "~/agent_sites"
+state_dir = "~/.local/state/voice_agent"
+log_dir = "./out/logs"
+
+[mcp_servers.speech]
+command = "uv"
+args = ["run", "python", "-m", "voice_agent.mcp_servers.speech"]
+
+[mcp_servers.home]
+command = "uv"
+args = ["run", "python", "-m", "voice_agent.mcp_servers.home"]
+
+[mcp_servers.code]
+command = "uv"
+args = ["run", "python", "-m", "voice_agent.mcp_servers.code"]

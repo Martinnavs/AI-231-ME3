@@ -1,0 +1,12 @@
+.env
+.venv/
+out/
+.scratch/vendor/
+agent_sandbox/
+*.wav
+!tests/fixtures/**/*.wav
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
