@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 13 (truth schema), 02 (stage log), 03 (health log)
-**Status:** ready-for-agent
+**Status:** done
 
 ## Files
 - `src/bench/analyze.py`, `src/bench/report.py`
@@ -114,9 +114,9 @@ None
 None new.
 
 ## Acceptance Criteria
-- [ ] `python -m bench.analyze score …` and `calibrate …` work on synthetic recordings
-- [ ] `docs/BENCHMARK.md` "Analysis" section: T0/T4 definitions, margins, statuses, what each report number means
-- [ ] All Proof rows green; gate suite green
+- [x] `python -m bench.analyze score …` and `calibrate …` work on synthetic recordings
+- [x] `docs/BENCHMARK.md` "Analysis" section: T0/T4 definitions, margins, statuses, what each report number means
+- [x] All Proof rows green; gate suite green
 
 ## Non-Goals
 - Capturing audio (ticket 15)
@@ -130,3 +130,13 @@ no
 - `docs/BENCHMARK.md`, `docs/EVENT-LOG.md`
 
 ## Execution Log
+
+### 2026-10-15 developer: DONE
+- Assumptions verified: A1 `scipy.signal.correlate` method="fft" with 0.5 s chirp at 48 kHz / -20 dB SNR locates offset within 0 samples → verified; A2 12 dB margin with 30 ms hold on quiet floor (-60 dBFS ±3 dB fluctuation) gives zero sustained runs (max RMS -55.8 dBFS vs thresh -45.9 dBFS) → verified by synthetic noise and P3.
+- Proof: P1 ✅ P2 ✅ P3 ✅ P4 ✅ P5 ✅ P6 ✅ P7 ✅ P8 ✅ P9 ✅ (command: `uv run pytest -q tests/bench/test_analyze.py tests/bench/test_report.py` → 11 passed)
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (101 passed, 0 skipped)
+- Files: src/bench/analyze.py, src/bench/report.py, docs/BENCHMARK.md, tests/bench/synth_recording.py, tests/bench/test_analyze.py, tests/bench/test_report.py
+- Deviations: none
+- Commit: see git log (14: Benchmark analysis — align, T0/T4, barge-in, p50/p95, report)
+- Notes for reviewer: none
+
