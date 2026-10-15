@@ -44,7 +44,7 @@ class Stage(StrEnum):
     DELEGATION_FINISHED = "delegation_finished"
     TTS_REQUEST = "tts_request"
     TTS_FIRST_CHUNK = "tts_first_chunk"
-    FILLER_PLAYED = "filler_played"           # data: {"clip": str, "duration_ms": int}
+    FILLER_PLAYED = "filler_played"           # data: {"clip": str, "duration_ms": int, "kind": "delegate"|"stall"|"notice"}
     AUDIO_OUT_FIRST = "audio_out_first"       # first bot frame handed to the output transport
     BARGE_IN_DETECTED = "barge_in_detected"
     BARGE_IN_MUTE = "barge_in_mute"           # bot output actually stopped/flushed
