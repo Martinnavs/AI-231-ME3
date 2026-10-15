@@ -27,3 +27,4 @@ STOP LINE (needs the user): 05 and 10 (D1 unconfirmed; D3 Tavily edit to 10 pend
 - 02 merged (agy; full suite green). 14, 07, 08 dispatched.
 - security-auditor on 06: no High; 2 Med (R2-1 TOCTOU, R2-2 decompression size). Fix-request logged in ticket 06; developer dispatched (attempt 1). PARKED for the human: config default `media_root` lives inside `sandbox_root` (config.py, ticket 01 contract), which makes R2-1 exploitable once 08's sandbox can write there; also R5-8 (disk cap), R5-9 (mcp floor). Ticket 05 got a new requirement for R4-7.
 - 08 merged (119 passed, 5 skipped). The 5 bwrap isolation tests are pi-marked and UNRUN: sandbox confinement is unverified until the Pi checkpoint. security-auditor over 08 pending.
+- 06 security fixes merged (attempt 1 of 2 sufficed; new tests failed pre-fix 10/17, pass post-fix). Re-audit of the fix itself not yet run: do it with the tech-lead review.
