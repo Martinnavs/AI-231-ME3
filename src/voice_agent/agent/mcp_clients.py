@@ -9,6 +9,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
+from http import HTTPStatus
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
@@ -20,7 +21,10 @@ from voice_agent.config import McpServerSpec
 
 log = logging.getLogger(__name__)
 
+# mcp's session raises its read timeout as McpError(code=408), not a JSON-RPC code
+_REQUEST_TIMEOUT = int(HTTPStatus.REQUEST_TIMEOUT)
 DEFAULT_TIMEOUT_S = 30.0
+MAX_OUTPUT_CHARS = 16 * 1024
 TOOL_TIMEOUTS_S: Mapping[str, float] = {"code__run_python": 130.0}
 _ENV_REF = re.compile(r"\$\{([^}]*)\}")
 _CLOSED_NAMES = {"ClosedResourceError", "BrokenResourceError", "EndOfStream"}
@@ -71,10 +75,14 @@ def _reason(exc: BaseException) -> str:
 
 
 def _render(result: Any) -> str:
-    return "\n".join(
+    text = "\n".join(
         block.text if block.type == "text" else f"[{block.type} omitted]"
         for block in result.content
     )
+    if len(text) > MAX_OUTPUT_CHARS:
+        dropped = len(text) - MAX_OUTPUT_CHARS
+        text = f"{text[:MAX_OUTPUT_CHARS]}\n[truncated {dropped} chars]"
+    return text
 
 
 class _Server:
@@ -217,6 +225,8 @@ class ToolRegistry:
                 except TimeoutError:
                     return out("timed out", True)
                 except Exception as exc:
+                    if isinstance(exc, McpError) and exc.error.code == _REQUEST_TIMEOUT:
+                        return out("timed out", True)
                     if not _is_dead(exc):
                         return out(f"{type(exc).__name__}: {exc}"[:500], True)
                 else:
