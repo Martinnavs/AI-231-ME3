@@ -14,4 +14,4 @@ PROMPT="You are agy, a worker agent. Your worktree is $WT (branch agy/$NN, based
 3. When finished (DONE, BLOCKED or PARTIAL), write $MSG with: status line, Proof checkmarks, commit SHA, 'details in ticket $NN'. Write it last, via a .tmp file then mv.
 If you hit a material deviation, stop and write the BLOCKED message instead of guessing."
 echo "$PROMPT" > "$H/to-agy/$NN-claude-task.md"
-exec agy -p "$PROMPT" --dangerously-skip-permissions --print-timeout 3000 > "$H/logs/agy-$NN.log" 2>&1
+exec agy -p "$PROMPT" --dangerously-skip-permissions --print-timeout 50m > "$H/logs/agy-$NN.log" 2>&1

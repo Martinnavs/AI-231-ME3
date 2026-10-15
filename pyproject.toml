@@ -3,7 +3,12 @@ name = "voice-agent"
 version = "0.1.0"
 description = "Full-duplex voice agent on a Raspberry Pi"
 requires-python = ">=3.12,<3.14"
-dependencies = ["python-dotenv>=1.0"]
+dependencies = [
+    "numpy>=2.5.4",
+    "python-dotenv>=1.0",
+    "scipy>=1.18.1",
+    "soundfile>=0.14.0",
+]
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6", "mypy>=1.11", "pre-commit>=3.8"]
@@ -37,3 +42,7 @@ markers = [
   "live: calls paid or authenticated APIs (needs VOICE_AGENT_LIVE=1)",
   "pi: needs a real Raspberry Pi (needs VOICE_AGENT_PI=1)",
 ]
+
+[[tool.mypy.overrides]]
+module = ["soundfile", "scipy.*"]
+ignore_missing_imports = true
