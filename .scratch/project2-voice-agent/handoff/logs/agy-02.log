@@ -1,0 +1,9 @@
+root agent idle; waiting up to 50m0s for 1 background task(s)
+I have started running the gate suite to check the current baseline in the worktree and will proceed once it finishes.
+Waiting for gate suite baseline run to complete.
+Waiting for baseline check to complete.
+Waiting for background task to complete.
+Waiting for gate suite task to finish.
+Waiting for pytest to finish.
+Waiting for task completion.
+Waiting for background test run to complete.
