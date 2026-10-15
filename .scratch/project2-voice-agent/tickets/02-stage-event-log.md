@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 01
-**Status:** ready-for-agent
+**Status:** done
 
 ## Files
 - `src/voice_agent/telemetry/__init__.py`, `src/voice_agent/telemetry/events.py`
@@ -104,8 +104,8 @@ None
 None (stdlib only).
 
 ## Acceptance Criteria
-- [ ] Contracts implemented exactly; `docs/EVENT-LOG.md` lists every stage with one line on when it fires
-- [ ] All Proof rows green; gate suite green
+- [x] Contracts implemented exactly; `docs/EVENT-LOG.md` lists every stage with one line on when it fires
+- [x] All Proof rows green; gate suite green
 
 ## Non-Goals
 - No log rotation, no network shipping of logs
@@ -119,3 +119,11 @@ no
 - Producer of `docs/EVENT-LOG.md`, consumed by tickets 11, 12, 14
 
 ## Execution Log
+
+### 2026-10-15 agy: DONE
+- Assumptions verified: A1 `test_emit_is_cheap` measures median < 50 µs on dev host (actual: 5.4 µs) → passed; A2 `python3 -c 'import time; print(time.get_clock_info("monotonic"))'` → implementation='clock_gettime(CLOCK_MONOTONIC)', monotonic=True, resolution=1e-09, documented consistent across threads in process and noted in docs/EVENT-LOG.md
+- Proof: P1 ✅ P2 ✅ P3 ✅ P4 ✅ P5 ✅ (command: `uv run pytest -q tests/telemetry/test_events.py` → 11 passed)
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (37 passed, 1 warning)
+- Files: src/voice_agent/telemetry/__init__.py, src/voice_agent/telemetry/events.py, docs/EVENT-LOG.md, tests/telemetry/test_events.py
+- Deviations: none
+- Notes for reviewer: none
