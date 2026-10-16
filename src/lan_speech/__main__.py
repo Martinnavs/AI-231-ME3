@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from lan_speech.engines import SherpaSTTEngine, SupertonicTTSEngine
-from lan_speech.models import verify_all
+from lan_speech.models import required_dirs, verify_all
 from lan_speech.server import LanSpeechServer
 
 logging.basicConfig(
@@ -32,6 +32,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     ap.add_argument(
         "--tts-threads", type=int, default=2, help="Supertonic intra-op threads (default: 2)"
+    )
+    ap.add_argument(
+        "--stt-model",
+        choices=["kroko", "zipformer"],
+        default="kroko",
+        help="Streaming STT model (default: kroko; zipformer is the older LibriSpeech model)",
     )
     ap.add_argument("--stt-threads", type=int, default=2, help="Sherpa STT threads (default: 2)")
     ap.add_argument(
@@ -56,7 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--stt-int8",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Use int8 quantized models for STT (default: True)",
+        help="int8 model files for --stt-model zipformer (kroko has only one variant)",
     )
     ap.add_argument(
         "--insecure-loopback",
@@ -66,7 +72,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     # 1. Verify model files; exit 2 naming the file if missing or corrupted
-    problems = verify_all(args.models)
+    problems = verify_all(args.models, required_dirs(args.stt_model))
     if problems:
         for p in problems:
             print(f"error: {p}", file=sys.stderr)
@@ -78,6 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             models_dir=args.models,
             threads=args.stt_threads,
             int8=args.stt_int8,
+            model=args.stt_model,
             rule2_trailing_silence=args.endpoint_silence,
         )
         tts = SupertonicTTSEngine(

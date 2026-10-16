@@ -68,9 +68,19 @@ NOISE = [
 ]
 
 
+SPELLING = {
+    "cosy": "cozy",
+    "neighbourhood": "neighborhood",
+    "colour": "color",
+    "favourite": "favorite",
+    "grey": "gray",
+    "centre": "center",
+}
+
+
 def norm_words(text: str) -> list[str]:
-    text = text.lower().replace("'", "").replace("’", "")
-    return re.sub(r"[^a-z0-9]+", " ", text).split()
+    text = text.lower().replace("'", "").replace("\u2019", "")
+    return [SPELLING.get(w, w) for w in re.sub(r"[^a-z0-9]+", " ", text).split()]
 
 
 def word_edits(ref: Sequence[str], hyp: Sequence[str]) -> int:
@@ -90,6 +100,16 @@ def pct(xs: Sequence[float], q: float) -> float:
 def dbfs(x: np.ndarray) -> float:
     rms = float(np.sqrt(np.mean(np.square(x.astype(np.float64))))) / 32768.0
     return 20 * np.log10(max(rms, 1e-6))
+
+
+def highpass_blocks(x: np.ndarray, zi: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """100 Hz causal high-pass, so mains hum and desk rumble do not count as noise or speech."""
+    from scipy.signal import butter, sosfilt
+
+    sos = butter(4, 100, "highpass", fs=SR, output="sos")
+    state = np.zeros((sos.shape[0], 2)) if zi is None else zi
+    y, state = sosfilt(sos, x.astype(np.float64), zi=state)
+    return y, state
 
 
 def write_wav(path: Path, pcm: np.ndarray) -> None:
@@ -179,6 +199,7 @@ def record_auto(device: int | None, floor_db: float) -> tuple[np.ndarray, str]:
     gate = VoiceGate(floor_db)
     kept: list[np.ndarray] = []
     state = "waiting"
+    filt: np.ndarray | None = None
     with sd.RawInputStream(
         samplerate=SR,
         channels=1,
@@ -190,7 +211,8 @@ def record_auto(device: int | None, floor_db: float) -> tuple[np.ndarray, str]:
         while state in ("waiting", "speaking"):
             block = np.frombuffer(blocks.get(), dtype=np.int16)
             kept.append(block)
-            state = gate.feed(dbfs(block))
+            filtered, filt = highpass_blocks(block, filt)
+            state = gate.feed(dbfs(filtered))
     if gate.first_loud is None:
         return np.zeros(0, dtype=np.int16), state
     start = max(gate.first_loud - 4, 0)
@@ -237,8 +259,11 @@ def cmd_record(args: argparse.Namespace) -> int:
     print("Room check: stay silent for 3 seconds after pressing Enter.")
     input("  Enter to start > ")
     quiet = record_until(lambda: time.sleep(3.0), args.device)
-    floor_db = dbfs(quiet)
-    print(f"  noise floor {floor_db:.0f} dBFS (below -55 is quiet, above -40 is noisy)")
+    floor_db = dbfs(highpass_blocks(quiet)[0][SR // 2 :])
+    print(
+        f"  noise floor {dbfs(quiet):.0f} dBFS raw, {floor_db:.0f} dBFS above 100 Hz "
+        "(below -55 is quiet, above -40 is noisy)"
+    )
     if floor_db > -40:
         print("  WARNING: very noisy room or high input gain - results will be harder.")
     print(f"\n{len(wanted)} clips. Speak at your normal distance, as you would to the assistant.")
@@ -300,7 +325,7 @@ def candidates(threads: int) -> dict[str, Callable[[], Any]]:
             z, f"encoder-{st}", f"decoder-{st}", f"joiner-{st}", threads
         ),
         "kroko": lambda: transducer(
-            "stt-candidates/kroko-en", "encoder.onnx", "decoder.onnx", "joiner.onnx", threads
+            "kroko-en", "encoder.onnx", "decoder.onnx", "joiner.onnx", threads
         ),
         "nemo-fc-480ms": lambda: transducer(
             "stt-candidates/nemo-fc-480ms",

@@ -128,3 +128,25 @@ def test_hands_free_record_loop_writes_trimmed_clips(
         pcm = sc.read_wav(tmp_path / "clips" / f"{r['id']}.wav")
         assert 2.0 < len(pcm) / sc.SR < 3.6
         assert np.abs(pcm).max() > 3000
+
+
+def test_highpass_removes_hum_but_keeps_speech_band(sc: types.ModuleType) -> None:
+    t = np.arange(16000) / sc.SR
+    hum = 3000 * np.sin(2 * np.pi * 50 * t)
+    voice = 3000 * np.sin(2 * np.pi * 1000 * t)
+    hum_out = sc.highpass_blocks(hum)[0][4000:]
+    voice_out = sc.highpass_blocks(voice)[0][4000:]
+    assert sc.dbfs(hum_out) < sc.dbfs(hum) - 20
+    assert abs(sc.dbfs(voice_out) - sc.dbfs(voice)) < 1.0
+
+
+def test_filter_state_carries_across_blocks(sc: types.ModuleType) -> None:
+    x = np.random.default_rng(0).normal(0, 1000, 3200)
+    whole = sc.highpass_blocks(x)[0]
+    first, zi = sc.highpass_blocks(x[:1600])
+    second, _ = sc.highpass_blocks(x[1600:], zi)
+    assert np.allclose(whole, np.concatenate([first, second]))
+
+
+def test_spelling_variants_are_not_errors(sc: types.ModuleType) -> None:
+    assert sc.norm_words("A cosy neighbourhood.") == sc.norm_words("a cozy neighborhood")

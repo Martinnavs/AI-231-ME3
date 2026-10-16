@@ -7,11 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SHERPA_DIR = "sherpa-zipformer-en-2023-06-26"
+KROKO_DIR = "kroko-en"
 KOKORO_DIR = "kokoro-v1.0"
 SUPERTONIC_DIR = "supertonic-3"
 
 _SHERPA_URL = (
     "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/"
+)
+_KROKO_URL = (
+    "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06"
+    "/resolve/572aaf4e2e0c603c3fc2a574d096e755a178faa1/"
 )
 _KOKORO_GH = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 _KOKORO_HF = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/"
@@ -21,6 +26,11 @@ LICENSES: dict[str, str] = {
     SHERPA_DIR: (
         "Apache-2.0 — k2-fsa/icefall streaming Zipformer trained on LibriSpeech "
         "(model card: huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26)"
+    ),
+    KROKO_DIR: (
+        "CC-BY-SA per the Banafo/Kroko-ASR model card (community models). The repo's LICENSE "
+        "file is empty and its license field says 'other', so the terms are not spelled out; "
+        "used locally for a class project, model files are not redistributed"
     ),
     KOKORO_DIR: (
         "Apache-2.0 — hexgrad/Kokoro-82M weights and voices "
@@ -43,6 +53,26 @@ class ModelFile:
 _STEM = "epoch-99-avg-1-chunk-16-left-128"
 
 MANIFEST: tuple[ModelFile, ...] = (
+    ModelFile(
+        f"{KROKO_DIR}/tokens.txt",
+        _KROKO_URL + "tokens.txt",
+        "396dbeb5f4858875690716084f54e90d339679d0ba3e6b5b584f3d7589254d2d",
+    ),
+    ModelFile(
+        f"{KROKO_DIR}/encoder.onnx",
+        _KROKO_URL + "encoder.onnx",
+        "d4881c57449d581e0770fd53fa66c2fdc6cd167d92ece7c715e603defc96d9d4",
+    ),
+    ModelFile(
+        f"{KROKO_DIR}/decoder.onnx",
+        _KROKO_URL + "decoder.onnx",
+        "455ba38466fce8d5a57e7db68a323b684079ca4d9e1dd93a740d9b2429aae3b1",
+    ),
+    ModelFile(
+        f"{KROKO_DIR}/joiner.onnx",
+        _KROKO_URL + "joiner.onnx",
+        "d406f616736350e2a7df3e39398b78eb2fc1a2ca6973a19d3853fa3227e25b52",
+    ),
     ModelFile(
         f"{SHERPA_DIR}/tokens.txt",
         _SHERPA_URL + "tokens.txt",
@@ -203,5 +233,17 @@ def verify(models: Path, entry: ModelFile) -> str | None:
     return None
 
 
-def verify_all(models: Path) -> list[str]:
-    return [p for e in MANIFEST if (p := verify(models, e))]
+STT_MODELS = {"kroko": KROKO_DIR, "zipformer": SHERPA_DIR}
+
+
+def required_dirs(stt_model: str) -> frozenset[str]:
+    """Model folders the server needs: the chosen STT model and Supertonic."""
+    return frozenset({STT_MODELS[stt_model], SUPERTONIC_DIR})
+
+
+def verify_all(models: Path, dirs: frozenset[str] | None = None) -> list[str]:
+    return [
+        p
+        for e in MANIFEST
+        if (dirs is None or e.path.split("/", 1)[0] in dirs) and (p := verify(models, e))
+    ]
