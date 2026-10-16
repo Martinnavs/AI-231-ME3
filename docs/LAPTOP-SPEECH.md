@@ -174,3 +174,7 @@ The server binds to `127.0.0.1` by default and exposes WebSocket and HTTP endpoi
 - Max text length: 2000 characters per `speak` (status 413).
 - Max concurrent connections: 4 (5th connection receives status 503 and is closed).
 
+
+## Phase 3 — STT model: Kroko (2026-10-16)
+
+The server's speech recognizer is now Kroko, chosen on real microphone speech: 9.8% word error rate against 15.5% for the earlier LibriSpeech Zipformer, about 35 ms after speech ends, 1.2x slowdown while Supertonic runs. `--stt-model zipformer` restores the old one. See `docs/STT-COMPARE.md` for the comparison and `docs/DOC-CHAT.md` for running the chat client. The Phase 2 table above was measured with the older Zipformer.

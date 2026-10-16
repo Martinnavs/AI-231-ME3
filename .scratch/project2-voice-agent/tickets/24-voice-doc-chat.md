@@ -120,3 +120,11 @@ no (client only; it reads a token from env and must not print it).
 - `--llm qwen` wired one-shot (no history, thinking off, 160 tokens, 30 s, fallback to the retrieved passage with `llm_error`). Verified against a local fake OpenAI endpoint only; the live call needs `ONIT_API_KEY` and was not made.
 - Open: earlier latency table in `docs/DOC-CHAT.md` was measured before the trim and counts first byte, not first audible sound.
 
+
+### 2026-10-16 follow-up (human-directed): Qwen backend revised for testing
+- All three input modes (text, wav, mic) now share one turn function; each turn prints a timing line (`stt | retrieval | llm first token | llm | tts first audio | answer starts N ms after you stopped`) and logs `llm_first_token_ms`.
+- `--stream` speaks Qwen's reply sentence by sentence (a sentence is released when the next starts; initials and decimals are not split; `<think>` text never spoken). Playback moved to a background `Player` so the next sentence synthesizes during playback.
+- New options: `--llm-model`, `--llm-timeout`, `--llm-max-tokens`, `--llm-temperature`, `--system-prompt FILE`; prompts are built as messages (no template variables), `{context}` is substituted literally.
+- Credentials: key and address come from `~/.secrets/onit/{api_key,host_address}.txt` (then env, then opencode config); `python -m doc_chat.qwen` is a connectivity check that prints only ok or a reason (401, unreachable, timeout, 404). Never prints a value. The earlier failures were `OpenAIAuthenticationError` (HTTP 401) in about 60 ms: server reachable, env key rejected.
+- Verified against local fake OpenAI endpoints (non-streaming and SSE streaming); **not** against the real Qwen server (no key access from the agent). Left for the human: `python -m doc_chat.qwen`, then the commands in `docs/DOC-CHAT.md` § Testing Qwen.
+- Docs rewritten: `docs/DOC-CHAT.md`; STT decision: `docs/STT-COMPARE.md`.

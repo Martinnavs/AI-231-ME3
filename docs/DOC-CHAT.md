@@ -1,95 +1,127 @@
-# Voice Doc-Chat Latency Evaluation
+# Voice doc-chat
 
-This document describes the voice doc-chat retrieval harness (`doc_chat`) and reports the end-to-end voice loop latency (speech in → text → answer retrieval → speech out) measured through the LAN speech server on the laptop CPU.
+A small voice assistant that runs on the laptop: you speak (or type), it finds the answer in a folder of documents or asks Qwen, and the answer is spoken back. Its purpose is to **feel and measure the latency of the voice loop** (speech in, text, answer, speech out), not to be a smart assistant.
 
-## How to Run
-
-### 1. Start the Speech Server
-In one terminal, start the speech server on loopback:
-```bash
-uv run --group laptop python -m lan_speech --host 127.0.0.1 --port 8765 --insecure-loopback
 ```
-Or with token authentication:
-```bash
-export LAN_SPEECH_TOKEN="your-secret-token"
-uv run --group laptop python -m lan_speech --host 127.0.0.1 --port 8765
+mic ──▶ lan_speech /stt (Kroko) ──▶ question ──▶ retrieval and/or Qwen ──▶ lan_speech /tts (Supertonic) ──▶ speakers
 ```
 
-### 2. Run Voice Doc-Chat
-Run over pre-rendered audio files (WAV inputs):
+## Quick start
+
+Two terminals, both from the repo root.
+
 ```bash
-uv run --group laptop python -m doc_chat \
-    --server ws://127.0.0.1:8765 \
-    --wav out/laptop_bench/renders/*.wav \
-    --docs docs/ \
-    --out out/doc_chat/ \
-    --log out/doc_chat/turns.jsonl
-```
-
-Run with interactive text query (skipping STT):
-```bash
-uv run --group laptop python -m doc_chat \
-    --server ws://127.0.0.1:8765 \
-    --text "What is the audio configuration?" \
-    --docs docs/
-```
-
-Run with microphone and live audio playback (requires sounddevice):
-```bash
-uv run --group laptop python -m doc_chat \
-    --server ws://127.0.0.1:8765 \
-    --mic \
-    --play \
-    --docs docs/
-```
-
-## Timing Fields
-
-Each turn logs a JSON record to `--log` with client-measured timestamps using `time.perf_counter()`:
-- `stt_final_ms`: Time from the last audio sample sent to the final transcript received.
-- `retrieval_ms`: Time spent in BM25 retrieval and markdown stripping / answer extraction.
-- `tts_first_audio_ms`: Time from `speak` message sent to the first binary audio chunk received from the server.
-- `tts_total_ms`: Time from `speak` message sent until the `done` message is received.
-- `speech_end_to_first_audio_ms`: Time from the last audio sample sent to the first TTS byte received: the user-perceived turnaround latency.
-- `cancel_to_silence_ms`: Time from `cancel` message sent to playback stopped / confirmation (null unless cancelled).
-
-## Talking with the microphone
-
-Start the server (a shorter `--endpoint-silence` ends your turn sooner; the default is 1.2 s):
-```bash
+# 1. the speech server (loads Kroko + Supertonic; wait for /healthz)
 uv run --group laptop python -m lan_speech --insecure-loopback --endpoint-silence 0.7
-```
-Then, once `curl http://127.0.0.1:8765/healthz` answers:
-```bash
+curl http://127.0.0.1:8765/healthz        # {"ok": true, "stt": "sherpa-kroko", "tts": "supertonic-3"}
+
+# 2. the chat client
 uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter
 ```
-Speak a question and pause. The terminal shows `hearing:` while you talk, then `you:` and `bot:` lines, and the answer is spoken. The loop repeats until you say "quit" or press Ctrl-C.
 
-- It is half-duplex: the mic is closed while the answer plays, so use speakers or headphones without worrying about echo. Barge-in is not supported in mic mode.
-- In mic mode `speech_end_to_first_audio_ms` runs from the moment the end-of-turn transcript arrived, so the server's trailing-silence wait (`--endpoint-silence`) is on top of it, and `stt_final_ms` is null.
+Speak a question and pause. The terminal shows what it heard, the answer, and a timing line, and the answer is spoken. Say "quit" or press Ctrl-C to stop.
 
-## Answering with Qwen
+Models are fetched with `uv run python scripts/fetch_laptop_models.py --server-only` (it verifies SHA-256 and prints licenses). The server refuses to start, naming the file, if one is missing or corrupt.
 
-By default the answer is the best-matching passage. To have Qwen answer instead, add `--llm qwen`:
+## Inputs
+
+| Flag | What it does |
+|---|---|
+| `--mic` | Hands-free conversation loop from the default microphone. Half-duplex: the mic is closed while the answer plays (no echo, but no barge-in). |
+| `--text "question"` | One typed question; skips speech recognition. |
+| `--wav a.wav b.wav` | Replays recordings as if spoken, paced in real time. |
+| `--play` | Play the answer through the speakers (playback runs in the background, so the next sentence can already be synthesizing). |
+| `--out DIR` | Also save each answer as `turnNN.wav`. |
+
+## Where answers come from
+
+| Mode | Command part | What happens |
+|---|---|---|
+| Passage (default) | `--docs DIR` | BM25 keyword search over the `.md`/`.txt` files in `DIR`; the best-matching passage, trimmed to `--max-words` (40), is the answer. No model involved. |
+| Qwen over documents | `--docs DIR --llm qwen` | The top 2 passages go to Qwen as context; Qwen writes a short spoken answer. |
+| Pure Qwen chat | `--llm qwen --no-docs` | No retrieval; the question goes straight to Qwen. |
+
+Every question is a fresh one-shot call: no conversation history is kept.
+
+## Testing Qwen
+
+**1. Credentials.** The key is read from `~/.secrets/onit/api_key.txt` and the server address from `~/.secrets/onit/host_address.txt` (falling back to env `ONIT_API_KEY` / `ONIT_BASE_URL`, then opencode's `upd-ai` provider; a bare `host:port` becomes `http://host:port/v1`). The model id comes from `--llm-model`, env `ONIT_MODEL` or opencode's config. `ONIT_SECRETS_DIR` points at another folder. Nothing here ever prints a key or an address.
+
+**2. Connectivity check** (needs no speech server):
+
 ```bash
-uv run --group laptop python -m doc_chat.qwen    # connectivity check: prints only ok / the failure reason
-uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter --llm qwen
+uv run --group laptop python -m doc_chat.qwen
 ```
-Credentials are read at runtime and never printed. The API key comes from `~/.secrets/onit/api_key.txt` (then env `ONIT_API_KEY`), the server address from `~/.secrets/onit/host_address.txt` (then env `ONIT_BASE_URL`, then opencode's `upd-ai` provider; a bare `host:port` becomes `http://host:port/v1`), and the model id from env `ONIT_MODEL` or opencode's `upd-ai` provider. `ONIT_SECRETS_DIR` points to a different directory.
 
-- **One shot, no memory:** every question is a fresh call with just a system prompt, the top 2 retrieved passages as context, and the question.
-- Thinking is switched off (`enable_thinking: false`), replies are capped at 160 tokens and 30 s, and the answer is cut to `--max-words` at a sentence end.
-- If the call fails (timeout, bad key, server down) the retrieved passage is spoken instead and the turn log records `llm_error`.
-- Each turn log line gains `llm_ms`, and the summary prints an `llm_ms` row. `speech_end_to_first_audio_ms` includes it.
-- Not covered by automated tests against the real server: that needs your key. Tests use a local fake OpenAI-compatible endpoint.
+It sends one tiny request and prints `qwen check ok (N ms)` or the reason it failed:
 
-### Pure Qwen chat (no documents)
+| Message | Meaning |
+|---|---|
+| `rejected the API key (HTTP 401)` | the key in `api_key.txt` is not accepted |
+| `could not connect to the server address` | wrong address, or not reachable from this network (VPN?) |
+| `the server did not answer in time` | slow or overloaded server; raise `--llm-timeout` |
+| `path or model not found (HTTP 404)` | wrong model id (try `--llm-model`) or the address already points past `/v1` |
+| `qwen backend not configured` | a file or value is missing |
 
-Add `--no-docs` to skip retrieval and send each question straight to Qwen:
+**3. One typed question** (needs the speech server for the spoken answer):
+
+```bash
+uv run --group laptop python -W ignore -m doc_chat --text "Why is the sky blue?" --llm qwen --no-docs --play
+```
+
+**4. Talk to it**, first waiting for the whole reply, then streaming it, and compare the timing lines:
+
 ```bash
 uv run --group laptop python -W ignore -m doc_chat --mic --play --llm qwen --no-docs
+uv run --group laptop python -W ignore -m doc_chat --mic --play --llm qwen --no-docs --stream
 ```
-It is still one shot per question with no history. The prompt asks for at most two short spoken sentences, `--docs` is ignored, and the turn log shows `retrieval_ms` as 0 and `source` as null. It needs `--llm qwen`, otherwise it exits with code 2. If the call fails the assistant says "Sorry, I couldn't reach the language model." and logs `llm_error`. `--max-words` (default 40) still caps the spoken reply; raise it for longer answers.
+
+With `--stream`, Qwen's reply is cut into sentences as it arrives and each sentence is spoken as soon as it is complete, so the first words come back while the rest is still being written. Without it, nothing is spoken until the whole reply has arrived. A sentence is released once the next one starts, so "J.K. Rowling" or "3.14" are never split in the middle.
+
+### Options
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--llm qwen` | off | needed for everything below |
+| `--no-docs` | off | skip retrieval |
+| `--stream` | off | speak sentence by sentence |
+| `--llm-model ID` | from config | model id |
+| `--llm-timeout S` | 30 | seconds before giving up |
+| `--llm-max-tokens N` | 160 | reply length cap (also bounded by `--max-words`) |
+| `--llm-temperature T` | 0.2 | |
+| `--max-words N` | 40 | spoken answer is cut at a sentence end below this |
+| `--system-prompt FILE` | built in | replaces the system prompt; with documents, `{context}` marks where the passages go (appended if missing) |
+
+The built-in prompt asks for at most two short, plain spoken sentences with no markdown, lists or emoji. Thinking mode is switched off (`enable_thinking: false`), and any `<think>` text that still arrives is dropped and never spoken.
+
+If Qwen fails, the turn does not crash: with documents the retrieved passage is spoken instead; without them a short apology is. Either way the screen shows `[llm failed - <reason>]` and the log records `llm_error`.
+
+## Reading the timing line
+
+```
+you:  Why is the sky blue?
+bot:  Sunlight scatters off air, and blue light scatters the most.
+  [stt 41 ms | retrieval 0 ms | llm first token 620 ms | llm 1180 ms | tts first audio 330 ms | answer starts 980 ms after you stopped]
+```
+
+| Field | Meaning |
+|---|---|
+| `stt` | time from your last sound to the final transcript (WAV mode; null in mic mode) |
+| `retrieval` | document search (shown only when above 0) |
+| `llm first token` | time until Qwen's first word arrived (`--stream` only) |
+| `llm` | total time Qwen took (with `--stream`, until its last sentence was handed to speech) |
+| `tts first audio` | from sending the first sentence to the first audio coming back |
+| `answer starts … after you stopped` | the delay you actually feel. In mic mode it is measured from the moment the end-of-turn transcript arrived, so the server's trailing-silence wait (`--endpoint-silence`) comes on top. |
+
+Each turn is also appended to `out/doc_chat/turns.jsonl` (`--log` to change) with these fields: `turn, question, answer_words, stt_final_ms, retrieval_ms, llm_ms, llm_first_token_ms, llm_error, tts_first_audio_ms, tts_total_ms, speech_end_to_first_audio_ms, source`. A latency summary (p50/p95) prints on exit.
+
+## Speech recognition
+
+The server uses **Kroko** (`sherpa-onnx` streaming Zipformer, English) by default. On 24 sentences of real microphone speech it made about half as many mistakes as the previous LibriSpeech Zipformer (word error rate 9.8% against 15.5%), runs at 0.04x real time (about 45 ms after you stop talking), slows only 1.2x while speech synthesis runs, and writes capitals and punctuation. Details and the other candidates are in `docs/STT-COMPARE.md`. The old model is still available with `--stt-model zipformer`.
+
+- **End of turn:** the server ends your turn after `--endpoint-silence` seconds of quiet (default 1.2). 0.7 feels snappier; too low cuts you off mid-sentence.
+- **Silence matters:** Kroko drops a word that starts exactly at sample 0 or ends exactly at the last sample. A live microphone always has quiet around speech; replayed WAVs get a 0.5 s lead-in and the server adds 1.5 s of trailing silence when asked to finalize.
+- **License:** Kroko's community weights are CC-BY-SA per the model card, but the Hugging Face repo's `LICENSE` file is empty and its license field says "other". Fine for local class use; the model files are not redistributed.
 
 ## How speech is chunked and paced
 
@@ -105,19 +137,25 @@ Supertonic pads every chunk with 0.3–0.6 s of silence, which made gaps of abou
 
 Measured gaps include about 80 ms of edge margin on top. Speech becomes audible about 0.5 s after the request instead of about 0.9 s.
 
-## Latency Results (40 Synthetic Turns)
+## Troubleshooting
 
-- **Hardware:** HP EliteBook 840 G8, Intel Core i5-1145G7 (4C/8T)
-- **Power Configuration:** Connected to AC power, `powerprofilesctl` set to `performance` via `scripts/power_mode.sh max`
-- **Speech Server:** Sherpa-ONNX Zipformer (int8) + Supertonic 3 (total_steps=4, 2 threads, clause chunking) over WebSocket loopback (`127.0.0.1:8765`)
-- **Caveat on Input Audio:** The input consists of **synthetic TTS audio** (40 pre-rendered turns from `bench/turns/v1.json` rendered via Kokoro/Supertonic in `out/laptop_bench/renders/*.wav`).
+| Symptom | Likely cause |
+|---|---|
+| `speech server unavailable` | the server is not running or not finished loading; check `curl http://127.0.0.1:8765/healthz` |
+| `install the laptop group for --mic/--play` | run through `uv run --group laptop` |
+| `--no-docs and --stream need --llm qwen` | add `--llm qwen` |
+| Wrong words | check the room and mic level with `scripts/stt_compare.py record`; mic distance and gain matter more than the model |
+| Long pause before the answer starts | read the timing line: a large `llm` or `llm first token` means Qwen is the slow part; try `--stream` |
 
-| Timing Field | p50 (ms) | p95 (ms) | Description |
-|---|---|---|---|
-| `stt_final_ms` | 28.6 | 37.4 | Final transcript after last audio frame |
-| `retrieval_ms` | 0.4 | 0.5 | BM25 retrieval over document corpus |
-| `tts_first_audio_ms` | 310.9 | 416.6 | First TTS audio chunk from speak request |
-| `tts_total_ms` | 1135.3 | 2244.5 | Full utterance synthesis |
-| `speech_end_to_first_audio_ms` | 343.7 | 445.4 | End of user speech to first audible answer |
+## Earlier measurement (previous STT model)
 
-The user-perceived voice turnaround latency (`speech_end_to_first_audio_ms`) achieves a p50 of **343.7 ms** and p95 of **445.4 ms**, comfortably beating typical 1-second conversational responsiveness targets.
+Measured with the previous Zipformer and before the chunk silence was trimmed; kept for comparison only. 40 synthetic turns, AC power with `scripts/power_mode.sh max`, Supertonic 4 steps and 2 threads, over loopback. "Answer starts" counts when the first audio bytes arrived, which was about 0.4 s before speech was actually audible.
+
+| Timing field | p50 (ms) | p95 (ms) |
+|---|---|---|
+| `stt_final_ms` | 28.6 | 37.4 |
+| `retrieval_ms` | 0.4 | 0.5 |
+| `tts_first_audio_ms` | 310.9 | 416.6 |
+| `speech_end_to_first_audio_ms` | 343.7 | 445.4 |
+
+The input was synthetic speech rendered by Kokoro, so it says little about recognition accuracy.

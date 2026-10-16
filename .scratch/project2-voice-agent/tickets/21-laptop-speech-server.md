@@ -160,3 +160,10 @@ yes (a network listener with auth): security-auditor pass after Phase 2.
   - Extracted shared model manifests and `verify_all()` into `src/lan_speech/models.py` so both `fetch_laptop_models.py` and server startup share a single source of truth without module import errors during mypy checks.
 - Commit: 6559d52
 - Notes for reviewer: Phase 2 implemented per human amendment. Supertonic 3 with mandatory clause chunking achieves p50 320 ms latency through the real WebSocket server over loopback. Default environment remains light and unaffected.
+
+### 2026-10-16 follow-up (human-directed): STT model changed to Kroko
+- Human chose Kroko after comparing five streaming models on their own voice (24 sentences, 387 words): word error rate 9.8% against 15.5% for the Zipformer in use, 35 ms after speech ends, 1.2x slowdown while TTS runs. Full table and findings in `docs/STT-COMPARE.md`.
+- `lan_speech.models` is now the single manifest (Kroko pinned at HF revision `572aaf4e…`, four files with SHA-256); `scripts/fetch_laptop_models.py` imports it. The server verifies only the chosen STT model plus Supertonic (`required_dirs`); new flag `--stt-model kroko|zipformer` (default kroko).
+- `finalize` now pads 1.5 s of silence (Kroko dropped last words with 0.66 s); WAV replay adds a 0.5 s lead-in.
+- License caveat (A2): Banafo's model card says community models are CC-BY-SA, but the repo's `LICENSE` file is empty and its license field is "other". Recorded in `LICENSES`; the human accepted Kroko knowing this. Model files are not redistributed.
+- Gate: ruff, format, mypy clean; full pytest 301 passed with the laptop group, 261 passed on the default install (no extra packages).
