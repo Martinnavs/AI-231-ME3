@@ -33,10 +33,7 @@ def normalize(text: str) -> list[str]:
 def test_live_engines_roundtrip() -> None:
     """Supertonic synthesizes 'turn on the lights', sherpa transcribes it, WER <= 0.2."""
     models_dir = Path("models")
-    if (
-        not (models_dir / "supertonic-3").is_dir()
-        or not (models_dir / "sherpa-zipformer-en-2023-06-26").is_dir()
-    ):
+    if not (models_dir / "supertonic-3").is_dir() or not (models_dir / "kroko-en").is_dir():
         pytest.skip("Model files missing in models/")
 
     from lan_speech.engines import SherpaSTTEngine, SupertonicTTSEngine

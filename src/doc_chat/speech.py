@@ -8,7 +8,8 @@ import os
 import sys
 import time
 import wave
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,18 @@ async def connect_ws(url: str, token: str | None = None) -> Any:
         sys.exit(2)
 
 
+WAV_LEAD_IN_S = 0.5
+
+
+@dataclass(frozen=True)
+class SpokenTurn:
+    pcm: bytes
+    first_audio_ms: float
+    total_ms: float
+    speech_end_to_first_ms: float
+    sentences: list[str]
+
+
 class DocChatSpeechClient:
     """Manages STT and TTS WebSocket sessions."""
 
@@ -130,8 +143,10 @@ class DocChatSpeechClient:
                 arr = arr.reshape(-1, channels).mean(axis=1).astype(np.int16)
             pcm_data = arr.tobytes()
 
-        # Send start
+        # Send start, then a short lead-in of silence: the streaming models drop a word that
+        # begins right at sample 0, which a live microphone stream never does
         await self._stt_ws.send(StartMessage(sample_rate=rate).to_json())
+        await self._stt_ws.send(b"\x00\x00" * int(rate * WAV_LEAD_IN_S))
 
         chunk_bytes = int(rate * (chunk_ms / 1000.0) * 2)
         total_len = len(pcm_data)
@@ -280,6 +295,49 @@ class DocChatSpeechClient:
         finally:
             if self._active_speak_task is asyncio.current_task():
                 self._active_speak_task = None
+
+    async def speak_sentences(
+        self,
+        sentences: Iterable[str],
+        voice: str | None = "F1",
+        t_speech_end: float | None = None,
+        on_chunk: Callable[[bytes], None] | None = None,
+        on_sentence: Callable[[str], None] | None = None,
+    ) -> SpokenTurn:
+        """Speak sentences one after another as the iterable produces them.
+
+        The iterable may block (it is a live LLM stream), so it is advanced in a worker thread.
+        Each sentence is sent as soon as the previous one has finished synthesizing, which is much
+        faster than playback, so a player fed through `on_chunk` hears no gap.
+        """
+        iterator = iter(sentences)
+        done = object()
+
+        def advance() -> object:
+            return next(iterator, done)
+
+        loop = asyncio.get_running_loop()
+        t0 = time.perf_counter()
+        parts: list[bytes] = []
+        spoken: list[str] = []
+        first_audio_ms = 0.0
+        speech_end_to_first = 0.0
+        while (sentence := await loop.run_in_executor(None, advance)) is not done:
+            assert isinstance(sentence, str)
+            if on_sentence is not None:
+                on_sentence(sentence)
+            pcm, first_ms, _total, to_first = await self.speak_text(
+                sentence,
+                voice=voice,
+                t_speech_end=t_speech_end if not spoken else None,
+                on_chunk=on_chunk,
+            )
+            if not spoken:
+                first_audio_ms, speech_end_to_first = first_ms, to_first
+            parts.append(pcm)
+            spoken.append(sentence)
+        total_ms = (time.perf_counter() - t0) * 1000.0
+        return SpokenTurn(b"".join(parts), first_audio_ms, total_ms, speech_end_to_first, spoken)
 
     async def cancel_current(self) -> float:
         """Send cancel for current context and return cancel_to_silence_ms."""

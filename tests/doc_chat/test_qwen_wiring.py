@@ -148,7 +148,7 @@ def test_no_docs_requires_qwen(capsys: pytest.CaptureFixture[str]) -> None:
     from doc_chat.__main__ import main
 
     assert main(["--text", "hi", "--no-docs"]) == 2
-    assert "--no-docs needs --llm qwen" in capsys.readouterr().err
+    assert "--no-docs and --stream need --llm qwen" in capsys.readouterr().err
 
 
 def _fake_endpoint(seen: list[dict[str, Any]]) -> HTTPServer:

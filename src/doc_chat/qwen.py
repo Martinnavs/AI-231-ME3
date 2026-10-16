@@ -65,21 +65,41 @@ def _first_model_id(models: object) -> str | None:
     return None
 
 
-def build_qwen_chat_model() -> BaseChatModel:
+def build_qwen_chat_model(
+    model: str | None = None,
+    timeout: float = 30.0,
+    max_tokens: int = 160,
+    temperature: float = 0.2,
+) -> BaseChatModel:
     api_key = _read_secret_file("api_key.txt") or os.environ.get("ONIT_API_KEY")
     provider = _opencode_provider()
     options = provider.get("options")
     config_url = options.get("baseURL") if isinstance(options, dict) else None
     address = _read_secret_file("host_address.txt") or os.environ.get("ONIT_BASE_URL") or config_url
-    model_id = os.environ.get("ONIT_MODEL") or _first_model_id(provider.get("models"))
+    model_id = model or os.environ.get("ONIT_MODEL") or _first_model_id(provider.get("models"))
 
     if not api_key or not address or not model_id:
         print(_NOT_CONFIGURED, file=sys.stderr)
         sys.exit(2)
-    return make_chat_model(normalize_base_url(str(address)), api_key, model_id)
+    return make_chat_model(
+        normalize_base_url(str(address)),
+        api_key,
+        model_id,
+        timeout=timeout,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
 
 
-def make_chat_model(base_url: str, api_key: str, model_id: str) -> BaseChatModel:
+def make_chat_model(
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    *,
+    timeout: float = 30.0,
+    max_tokens: int = 160,
+    temperature: float = 0.2,
+) -> BaseChatModel:
     from langchain_openai import ChatOpenAI
     from pydantic import SecretStr
 
@@ -87,9 +107,9 @@ def make_chat_model(base_url: str, api_key: str, model_id: str) -> BaseChatModel
         base_url=base_url,
         api_key=SecretStr(api_key),
         model=model_id,
-        temperature=0.2,
-        max_completion_tokens=160,
-        timeout=30,
+        temperature=temperature,
+        max_completion_tokens=max_tokens,
+        timeout=timeout,
         max_retries=0,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
@@ -105,7 +125,7 @@ def describe_failure(exc: BaseException) -> str:
     if isinstance(status, int):
         return f"{name}: server answered HTTP {status}"
     if "Timeout" in name:
-        return f"{name}: no answer within 30 s"
+        return f"{name}: the server did not answer in time (raise --llm-timeout)"
     if "Connection" in name:
         return f"{name}: could not connect to the server address"
     return name

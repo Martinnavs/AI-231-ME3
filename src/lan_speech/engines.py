@@ -12,10 +12,12 @@ from lan_speech.protocol import VoiceItem
 logger = logging.getLogger(__name__)
 
 SHERPA_DIR = "sherpa-zipformer-en-2023-06-26"
+KROKO_DIR = "kroko-en"
 SHERPA_STEM = "epoch-99-avg-1-chunk-16-left-128"
 SUPERTONIC_DIR = "supertonic-3"
 
 
+FINALIZE_TAIL_S = 1.5
 _TRIM_THRESHOLD = 0.01
 _TRIM_MARGIN_S = 0.04
 
@@ -81,7 +83,7 @@ class SherpaSTTStream:
     def finalize(self) -> str:
         import numpy as np
 
-        tail = np.zeros(int(0.66 * 16000), dtype=np.float32)
+        tail = np.zeros(int(FINALIZE_TAIL_S * 16000), dtype=np.float32)
         self._stream.accept_waveform(16000, tail)
         self._stream.input_finished()
         while self._rec.is_ready(self._stream):
@@ -97,7 +99,7 @@ class SherpaSTTStream:
 
 
 class SherpaSTTEngine:
-    """sherpa-onnx streaming Zipformer STT engine."""
+    """sherpa-onnx streaming transducer STT engine (Kroko or the LibriSpeech Zipformer)."""
 
     def __init__(
         self,
@@ -107,16 +109,25 @@ class SherpaSTTEngine:
         rule1_trailing_silence: float = 2.4,
         rule2_trailing_silence: float = 1.2,
         rule3_utterance_length: float = 20.0,
+        model: str = "kroko",
     ) -> None:
         import sherpa_onnx
 
-        d = Path(models_dir) / SHERPA_DIR
-        sfx = ".int8.onnx" if int8 else ".onnx"
+        if model not in ("kroko", "zipformer"):
+            raise ValueError(f"unknown STT model: {model}")
+        self._model = model
+        if model == "kroko":
+            d = Path(models_dir) / KROKO_DIR
+            files = {"encoder": "encoder.onnx", "decoder": "decoder.onnx", "joiner": "joiner.onnx"}
+        else:
+            d = Path(models_dir) / SHERPA_DIR
+            sfx = ".int8.onnx" if int8 else ".onnx"
+            files = {k: f"{k}-{SHERPA_STEM}{sfx}" for k in ("encoder", "decoder", "joiner")}
         self._rec = sherpa_onnx.OnlineRecognizer.from_transducer(
             tokens=str(d / "tokens.txt"),
-            encoder=str(d / f"encoder-{SHERPA_STEM}{sfx}"),
-            decoder=str(d / f"decoder-{SHERPA_STEM}{sfx}"),
-            joiner=str(d / f"joiner-{SHERPA_STEM}{sfx}"),
+            encoder=str(d / files["encoder"]),
+            decoder=str(d / files["decoder"]),
+            joiner=str(d / files["joiner"]),
             num_threads=threads,
             sample_rate=16000,
             feature_dim=80,
@@ -130,7 +141,7 @@ class SherpaSTTEngine:
 
     @property
     def name(self) -> str:
-        return "sherpa-zipformer"
+        return f"sherpa-{self._model}"
 
     def create_stream(self, sample_rate: int = 16000) -> STTStream:
         stream = self._rec.create_stream()
