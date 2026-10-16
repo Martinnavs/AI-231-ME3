@@ -33,7 +33,7 @@ One engine, two consumers: the Pipecat processors (live loop) and the speech MCP
 
 ## Adding a backend
 
-1. Subclass `Transcriber`/`TranscriptionStream` or `Synthesizer` in `src/audio_engine/backends/<name>.py`. ABCs, not Protocols: a missing method fails at instantiation. Do heavy and vendor imports inside the class or its methods.
+1. Subclass `Transcriber`/`TranscriptionStream` or `Synthesizer` in a flat module `src/audio_engine/<name>.py` (there is no `backends/` package; `fake.py` is the existing example, and ticket 05 adds `deepgram.py`, `cartesia.py` and the shared `_ws.py`). ABCs, not Protocols: a missing method fails at instantiation. Do heavy and vendor imports inside the class or its methods.
 2. Return float32 numpy for batch methods and S16LE bytes for streams. Honour `cancel()` within one chunk.
-3. Register by import path in `audio_engine/__init__.py` (`register_synthesizer("name", "audio_engine.backends.name:NameSynthesizer")`).
+3. Register by import path so the vendor module loads lazily: `register_synthesizer("name", "audio_engine.<name>:NameSynthesizer")`. Vendor backends are registered in `audio_engine/registry.py` (ticket 05's choice); today only `fake` exists and it is registered with the class itself in `audio_engine/__init__.py`. Always pass the import-path string, never the class, so no vendor SDK is imported at package import. The speech MCP server also expects vendor errors to be `audio_engine._ws.SpeechBackendError` (optionally with an integer `status`) so it can report them without leaking the message; see `MCP-SERVERS.md`.
 4. Test with the fake-style pattern: monkeypatch the vendor client, cover the happy path, cancel, empty text and error mapping. No live calls outside tests marked `live`.

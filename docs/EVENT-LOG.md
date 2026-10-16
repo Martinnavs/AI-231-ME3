@@ -9,6 +9,9 @@ The stage event log captures timestamped pipeline lifecycle transitions and stag
 Key operational characteristics:
 - **Non-blocking audio path:** `StageLogger.emit()` serializes events and enqueues them to a bounded in-memory queue (`max_queue=10_000` by default). It never blocks the caller.
 - **Drop on full queue:** If disk I/O stalls and the queue fills, subsequent events are dropped and counted in the `dropped` counter.
+- **Never raises on bad data:** `emit()` raises only `ValueError` for an unknown stage. If the record cannot be serialized (a `data` value that makes `json.dumps(..., default=str)` fail, such as a circular structure or a dict with tuple keys), the event is dropped and counted in `dropped`; nothing is raised into the audio path. Non-string scalar keys (int, float, bool, None) are coerced by JSON and are fine.
+- **One writer per file:** the file is opened with exclusive creation (`"x"`), so opening a `StageLogger` on a path that already exists raises `FileExistsError`. Parent directories are created. Use a new path (for example one per `run_id`) for every run.
+- **Close is bounded and idempotent:** `close()` (also `__exit__`) marks the logger closed, queues a sentinel, then waits for the writer thread. Both steps have a 2 s timeout, so it cannot hang on a stalled disk. If the queue is full when closing, the oldest queued line is discarded (counted in `dropped`) to make room for the sentinel. If the writer is still stuck after the timeout, `close()` returns anyway and the footer may be missing; the writer is a daemon thread. A second `close()` is a no-op. Calling `emit()` after `close()` does not write anything and increments `dropped`.
 - **Crash tolerance:** Readers skip malformed or truncated trailing lines (e.g. from an abrupt process termination).
 
 ## Timestamp Semantics
@@ -49,21 +52,25 @@ Emitted during turn processing:
 - `event`: Literal `"stage"`.
 - `run_id`: Run ID matching the log header.
 - `stage`: Stage identifier string (one of the closed set of `Stage` enum values).
-- `turn_id`: Integer turn counter.
+- `turn_id`: Integer. **Definition pending decision H2** (see "`turn_id` definition" below). The logger only stores the value it is given.
 - `t_mono_ns`: Monotonic timestamp at emit.
 - `t_wall`: Wall-clock timestamp at emit.
 - `data`: Arbitrary JSON object containing stage-specific metadata. Non-JSON values are coerced using `default=str`.
 
 ### 3. File Footer (`log_closed`)
 
-Written when `StageLogger.close()` is called and all queued events have been flushed:
+Written by the writer thread after `StageLogger.close()` releases it and the queued events have been written (see "Close is bounded" above for when it can be missing):
 
 ```json
 {"event": "log_closed", "dropped": 0}
 ```
 
 - `event`: Literal `"log_closed"`.
-- `dropped`: Total number of events dropped during the run due to a full queue.
+- `dropped`: Total number of events dropped during the run (full queue, unserializable data, emitted after close, or discarded at close).
+
+## `turn_id` definition
+
+**Pending decision H2.** What a `turn_id` counts, and how the benchmark analysis matches stage-log turns to rig trials, is not decided yet. Do not assume `turn_id` equals a trial index: a pipeline that numbers every turn it opens (barge-ins, false interruptions, a second turn after a pause takeover) will not line up with trial numbers. This section will be filled in when H2 is resolved.
 
 ## Stage Registry
 
