@@ -157,7 +157,7 @@ def test_llm_failure_falls_back_to_retrieved_text() -> None:
     )
     ans = chain.invoke("Who is Harry?")
     assert ans.text == "Harry is a wizard."
-    assert ans.llm_error == "TimeoutError"
+    assert ans.llm_error is not None and ans.llm_error.startswith("TimeoutError")
 
 
 def test_truncate_does_not_split_on_initials() -> None:

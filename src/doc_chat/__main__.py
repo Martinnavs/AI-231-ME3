@@ -36,6 +36,11 @@ def save_wav(file_path: Path, pcm_data: bytes, sample_rate: int) -> None:
         wf.writeframes(pcm_data)
 
 
+def _warn_llm(ans: Answer) -> None:
+    if ans.llm_error:
+        print(f"  [llm failed - {ans.llm_error}]", file=sys.stderr, flush=True)
+
+
 async def async_main(args: argparse.Namespace) -> int:
     if args.mic or args.play:
         try:
@@ -86,6 +91,7 @@ async def async_main(args: argparse.Namespace) -> int:
 
             try:
                 ans: Answer = await chain.ainvoke(question)
+                _warn_llm(ans)
                 answer_words = len(ans.text.split()) if ans.text else 0
                 retrieval_ms = ans.retrieval_ms
                 source = ans.source
@@ -172,6 +178,8 @@ async def async_main(args: argparse.Namespace) -> int:
                         continue
 
                     ans = await chain.ainvoke(question)
+
+                    _warn_llm(ans)
                     answer_words = len(ans.text.split()) if ans.text else 0
                     retrieval_ms = ans.retrieval_ms
                     source = ans.source
@@ -244,6 +252,7 @@ async def async_main(args: argparse.Namespace) -> int:
                 if question.lower().strip(" .!?") in {"quit", "exit", "goodbye", "stop"}:
                     break
                 ans = await chain.ainvoke(question)
+                _warn_llm(ans)
                 print(f"bot:  {ans.text}", flush=True)
                 out_stream = None
                 on_chunk = None
