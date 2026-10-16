@@ -129,3 +129,10 @@ yes (a network listener with auth): security-auditor pass after Phase 2.
   - The STT inputs are Kokoro-rendered rather than recorded (no cloud TTS allowed, no mic run), so WER is optimistic. `--mic-dir` exists for human recordings.
 - Commit: see `git log` (`21: laptop speech Phase 1 benchmark — NO-GO, parked`)
 - Notes for reviewer: no Phase 2 files (`src/lan_speech`, `tests/lan_speech`) were created. The models (≈ 850 MB) stay in git-ignored `models/`. Tickets 22/23 depend on this ticket and are now effectively blocked.
+
+### 2026-10-16 developer: Supertonic 3 follow-up evaluation (human-directed, after the NO-GO)
+- Tried Supertonic 3 (OpenRAIL-M weights, MIT SDK) as the Kokoro replacement, in an isolated env with no project dependency change. Best setting is 2 threads, 4 steps, on AC in the performance profile: first-audio "Sure," 271 ms, 8 words 412 ms, 25 words 1083 ms. 8 steps gives 8 words in 717 ms. More threads is slower; the power profile helps about 15% only on AC. Full table in `docs/LAPTOP-SPEECH.md` § Phase 1b.
+- Human listening verdict: the 4-step F1 voice is "decent, though still sounding robotic".
+- Not yet measured: Supertonic running alongside STT (the 1.5x check); WER round-trip.
+- Added `scripts/power_mode.sh` (performance/balanced/power-saver via powerprofilesctl).
+- Status stays `parked` until the human amends the ticket: the TTS choice, the clause-chunking first-audio rule, and acceptance of the OpenRAIL-M license.
