@@ -165,6 +165,57 @@ class DocChatSpeechClient:
         stt_final_ms = (t_final - t_speech_end) * 1000.0
         return transcript_text, stt_final_ms, t_speech_end
 
+    async def listen_mic(
+        self,
+        on_partial: Callable[[str], None] | None = None,
+        block_ms: int = 100,
+    ) -> tuple[str, float]:
+        """Stream the default microphone until the server ends a non-empty turn.
+
+        Returns (transcript, t_final) where t_final is when the end-of-turn transcript arrived.
+        """
+        if self._stt_ws is None:
+            raise RuntimeError("STT socket not connected")
+        import sounddevice as sd
+
+        rate = 16000
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[bytes] = asyncio.Queue()
+
+        def on_audio(indata: Any, frames: int, time_info: Any, status: Any) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, bytes(indata))
+
+        async def pump() -> None:
+            while True:
+                await self._stt_ws.send(await queue.get())
+
+        await self._stt_ws.send(StartMessage(sample_rate=rate).to_json())
+        with sd.RawInputStream(
+            samplerate=rate,
+            channels=1,
+            dtype="int16",
+            blocksize=rate * block_ms // 1000,
+            callback=on_audio,
+        ):
+            pump_task = asyncio.create_task(pump())
+            try:
+                while True:
+                    raw = await self._stt_ws.recv()
+                    if isinstance(raw, bytes):
+                        continue
+                    parsed = parse_message(raw)
+                    if isinstance(parsed, TranscriptMessage):
+                        if parsed.end_of_turn and parsed.text.strip():
+                            return parsed.text.strip(), time.perf_counter()
+                        if on_partial is not None and parsed.text.strip():
+                            on_partial(parsed.text.strip())
+                    elif isinstance(parsed, ErrorMessage):
+                        raise RuntimeError(f"STT error: {parsed.reason}")
+            finally:
+                pump_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pump_task
+
     async def speak_text(
         self,
         text: str,

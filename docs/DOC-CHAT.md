@@ -53,6 +53,22 @@ Each turn logs a JSON record to `--log` with client-measured timestamps using `t
 - `speech_end_to_first_audio_ms`: Time from the last audio sample sent to the first TTS byte received: the user-perceived turnaround latency.
 - `cancel_to_silence_ms`: Time from `cancel` message sent to playback stopped / confirmation (null unless cancelled).
 
+## Talking with the microphone
+
+Start the server (a shorter `--endpoint-silence` ends your turn sooner; the default is 1.2 s):
+```bash
+uv run --group laptop python -m lan_speech --insecure-loopback --endpoint-silence 0.7
+```
+Then, once `curl http://127.0.0.1:8765/healthz` answers:
+```bash
+uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter
+```
+Speak a question and pause. The terminal shows `hearing:` while you talk, then `you:` and `bot:` lines, and the answer is spoken. The loop repeats until you say "quit" or press Ctrl-C.
+
+- It is half-duplex: the mic is closed while the answer plays, so use speakers or headphones without worrying about echo. Barge-in is not supported in mic mode.
+- In mic mode `speech_end_to_first_audio_ms` runs from the moment the end-of-turn transcript arrived, so the server's trailing-silence wait (`--endpoint-silence`) is on top of it, and `stt_final_ms` is null.
+- Pick another input device with the `SD_DEVICE` style defaults of your system (list them with `python -m sounddevice`).
+
 ## Latency Results (40 Synthetic Turns)
 
 - **Hardware:** HP EliteBook 840 G8, Intel Core i5-1145G7 (4C/8T)
