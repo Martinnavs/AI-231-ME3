@@ -17,6 +17,8 @@ laptop = [
     "kokoro-onnx>=0.6.1",
     "sherpa-onnx>=1.13.8",
     "sherpa-onnx-core==1.13.8",
+    "supertonic>=1.3.1",
+    "websockets>=17.2",
 ]
 
 [build-system]
@@ -24,7 +26,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/voice_agent", "src/audio_engine", "src/bench"]
+packages = ["src/voice_agent", "src/audio_engine", "src/bench", "src/lan_speech"]
 
 [tool.ruff]
 line-length = 100
@@ -37,7 +39,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.mypy]
 strict = true
 mypy_path = "src"
-packages = ["voice_agent", "audio_engine", "bench"]
+packages = ["voice_agent", "audio_engine", "bench", "lan_speech"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,5 +52,18 @@ markers = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["soundfile", "scipy.*"]
+module = [
+    "soundfile",
+    "scipy.*",
+    "sherpa_onnx",
+    "sherpa_onnx.*",
+    "supertonic",
+    "supertonic.*",
+    "kokoro_onnx",
+    "kokoro_onnx.*",
+    "onnxruntime",
+    "onnxruntime.*",
+    "websockets",
+    "websockets.*",
+]
 ignore_missing_imports = true
