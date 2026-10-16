@@ -134,37 +134,143 @@ def level_note(pcm: np.ndarray) -> str:
     )
 
 
+class VoiceGate:
+    """Decides when a spoken clip starts and ends from 100 ms block levels (dBFS)."""
+
+    def __init__(self, floor_db: float, end_silence_s: float = 1.0, max_s: float = 40.0) -> None:
+        self.start_db = max(floor_db + 12.0, -45.0)
+        self.stop_db = max(floor_db + 7.0, -50.0)
+        self.end_blocks = round(end_silence_s / 0.1)
+        self.max_blocks = round(max_s / 0.1)
+        self.wait_blocks = 120
+        self.n = 0
+        self.loud_run = 0
+        self.quiet_run = 0
+        self.first_loud: int | None = None
+        self.last_loud = 0
+
+    def feed(self, level_db: float) -> str:
+        """Returns 'waiting', 'speaking', 'done' or 'timeout'."""
+        self.n += 1
+        if self.first_loud is None:
+            self.loud_run = self.loud_run + 1 if level_db > self.start_db else 0
+            if self.loud_run >= 2:
+                self.first_loud = self.n - 2
+                self.last_loud = self.n
+                return "speaking"
+            return "timeout" if self.n >= self.wait_blocks else "waiting"
+        if level_db > self.stop_db:
+            self.quiet_run = 0
+            self.last_loud = self.n
+        else:
+            self.quiet_run += 1
+        if self.quiet_run >= self.end_blocks or self.n >= self.max_blocks:
+            return "done"
+        return "speaking"
+
+
+def record_auto(device: int | None, floor_db: float) -> tuple[np.ndarray, str]:
+    """Record one clip, stopping by itself ~1 s after you stop talking."""
+    import queue
+
+    import sounddevice as sd
+
+    blocks: queue.Queue[bytes] = queue.Queue()
+    gate = VoiceGate(floor_db)
+    kept: list[np.ndarray] = []
+    state = "waiting"
+    with sd.RawInputStream(
+        samplerate=SR,
+        channels=1,
+        dtype="int16",
+        blocksize=1600,
+        device=device,
+        callback=lambda indata, n, t, st: blocks.put(bytes(indata)),
+    ):
+        while state in ("waiting", "speaking"):
+            block = np.frombuffer(blocks.get(), dtype=np.int16)
+            kept.append(block)
+            state = gate.feed(dbfs(block))
+    if gate.first_loud is None:
+        return np.zeros(0, dtype=np.int16), state
+    start = max(gate.first_loud - 4, 0)
+    end = min(gate.last_loud + 8, len(kept))
+    return np.concatenate(kept[start:end]), state
+
+
+def capitalized_names(sentence: str) -> list[str]:
+    words = re.findall(r"[A-Za-z']+", sentence)
+    return sorted({w.lower().replace("'", "") for w in words[1:] if w[0].isupper() and w != "I"})
+
+
+def build_items(args: argparse.Namespace) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if args.script:
+        from lan_speech.protocol import split_sentences
+
+        for sentence in split_sentences(Path(args.script).read_text(encoding="utf-8")):
+            items.append(
+                {"kind": "script", "text": sentence, "entities": capitalized_names(sentence)}
+            )
+    else:
+        for text, ents in DOMAIN:
+            items.append({"kind": "domain", "text": text, "entities": ents})
+        for text in CHAT:
+            items.append({"kind": "chat", "text": text, "entities": []})
+    if not args.no_noise:
+        for text in NOISE:
+            items.append({"kind": "noise", "text": "", "instruction": text, "entities": []})
+    for i, item in enumerate(items, 1):
+        item["id"] = f"{i:02d}"
+    return items
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    refs_path = AUDIO_DIR / "refs.json"
+    if args.only:
+        items = json.loads(refs_path.read_text(encoding="utf-8"))
+        wanted = {f"{int(x):02d}" for x in args.only}
+    else:
+        items = build_items(args)
+        wanted = {item["id"] for item in items}
     print("Room check: stay silent for 3 seconds after pressing Enter.")
     input("  Enter to start > ")
     quiet = record_until(lambda: time.sleep(3.0), args.device)
-    print(f"  noise floor {dbfs(quiet):.0f} dBFS (below -55 is quiet, above -40 is noisy)\n")
-
-    items: list[dict[str, Any]] = []
-    for text, ents in DOMAIN:
-        items.append({"kind": "domain", "text": text, "entities": ents})
-    for text in CHAT:
-        items.append({"kind": "chat", "text": text, "entities": []})
-    for text in NOISE:
-        items.append({"kind": "noise", "text": "", "instruction": text, "entities": []})
-
-    print(f"{len(items)} clips. Speak naturally at your normal distance from the laptop.")
-    print("For sentences: press Enter, read the line, press Enter again to stop.\n")
+    floor_db = dbfs(quiet)
+    print(f"  noise floor {floor_db:.0f} dBFS (below -55 is quiet, above -40 is noisy)")
+    if floor_db > -40:
+        print("  WARNING: very noisy room or high input gain - results will be harder.")
+    print(f"\n{len(wanted)} clips. Speak at your normal distance, as you would to the assistant.")
+    if args.manual:
+        print("Each clip: press Enter, read the line, press Enter again to stop.\n")
+    else:
+        print("Hands-free: read each sentence as soon as it appears; it stops by itself after")
+        print("about a second of quiet, then shows the next one. Ctrl-C to abort.\n")
     for i, item in enumerate(items, 1):
-        item["id"] = f"{i:02d}"
+        if item["id"] not in wanted:
+            continue
         path = AUDIO_DIR / f"{item['id']}.wav"
-        if item["kind"] == "noise":
-            print(f"[{i}/{len(items)}] {item['instruction']} ({NOISE_CLIP_S:.0f} s)")
-            input("  Enter to start > ")
+        noise = item["kind"] == "noise"
+        label = item["instruction"] if noise else f'Read aloud:  "{item["text"]}"'
+        print(f"[{i}/{len(items)}] {label}")
+        if noise:
+            input(f"  Enter to start ({NOISE_CLIP_S:.0f} s) > ")
             pcm = record_until(lambda: time.sleep(NOISE_CLIP_S), args.device)
-        else:
-            print(f'[{i}/{len(items)}] Read aloud:  "{item["text"]}"')
+            note = ""
+        elif args.manual:
             input("  Enter to start > ")
             pcm = record_until(lambda: input("  recording... Enter to stop > "), args.device)
+            note = ""
+        else:
+            print("  listening...", flush=True)
+            pcm, state = record_auto(args.device, floor_db)
+            note = "  <-- NO SPEECH HEARD, redo with --only" if state == "timeout" else ""
         write_wav(path, pcm)
-        print(f"  saved {path.name}: {len(pcm) / SR:.1f} s, {level_note(pcm)}\n")
-    (AUDIO_DIR / "refs.json").write_text(json.dumps(items, indent=1), encoding="utf-8")
+        print(f"  saved {path.name}: {len(pcm) / SR:.1f} s, {level_note(pcm)}{note}\n")
+        if not noise and not args.manual:
+            time.sleep(0.8)
+    refs_path.write_text(json.dumps(items, indent=1), encoding="utf-8")
     print("Done. Next: uv run --group laptop python scripts/stt_compare.py run")
     return 0
 
@@ -372,6 +478,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     rec = sub.add_parser("record")
     rec.add_argument("--device", type=int, default=None, help="sounddevice input device index")
+    rec.add_argument("--script", help="text file: read its sentences aloud, one clip each")
+    rec.add_argument("--no-noise", action="store_true", help="skip the silence/typing clips")
+    rec.add_argument("--manual", action="store_true", help="Enter to start and stop each clip")
+    rec.add_argument("--only", nargs="+", help="re-record just these clip numbers")
     rn = sub.add_parser("run")
     rn.add_argument("--only", nargs="+", help="candidate names")
     rn.add_argument("--threads", type=int, default=2)
