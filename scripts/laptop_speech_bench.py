@@ -1,14 +1,17 @@
-"""Phase 1 gate for ticket 21: laptop-CPU STT/TTS feasibility.
+"""Laptop speech server STT/TTS feasibility and server benchmark (ticket 21).
 
-Run: uv run --group laptop python scripts/laptop_speech_bench.py
+Run: uv run --group laptop python scripts/laptop_speech_bench.py [--tts supertonic] [--via-server]
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
+import contextlib
 import json
 import platform
 import re
+import socket
 import subprocess
 import threading
 import time
@@ -21,11 +24,23 @@ import numpy as np
 import numpy.typing as npt
 import onnxruntime as ort
 import sherpa_onnx
-from fetch_laptop_models import KOKORO_DIR, SHERPA_DIR, verify_all
+from fetch_laptop_models import KOKORO_DIR, SHERPA_DIR, SUPERTONIC_DIR, verify_all
 from kokoro_onnx import Kokoro
 
 from audio_engine import AudioClip
 from audio_engine.wav import read_wav, resample, write_wav
+from lan_speech.engines import SherpaSTTEngine, SupertonicTTSEngine
+from lan_speech.protocol import (
+    DoneMessage,
+    FinalizeMessage,
+    SpeakMessage,
+    StartMessage,
+    TranscriptMessage,
+    parse_message,
+    split_clauses,
+    unpack_tts_audio,
+)
+from lan_speech.server import LanSpeechServer
 
 SR = 16000
 CHUNK_S = 0.1
@@ -100,6 +115,12 @@ def pct(xs: Sequence[float], q: float) -> float:
     return float(np.percentile(np.asarray(xs, dtype=np.float64), q)) if xs else float("nan")
 
 
+def find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
 def make_recognizer(models: Path, threads: int, int8: bool) -> sherpa_onnx.OnlineRecognizer:
     d = models / SHERPA_DIR
     sfx = ".int8.onnx" if int8 else ".onnx"
@@ -126,22 +147,40 @@ def make_kokoro(models: Path, threads: int, int8: bool) -> Kokoro:
     return Kokoro.from_session(sess, str(d / "voices-v1.0.bin"))
 
 
-def split_clauses(text: str) -> list[str]:
-    parts = [p.strip() for p in re.split(r"(?<=[,;:.!?])\s+", text)]
-    return [p for p in parts if p]
+def make_supertonic(models: Path, threads: int, steps: int) -> Any:
+    from supertonic import TTS
+
+    return TTS(
+        model="supertonic-3",
+        model_dir=models / SUPERTONIC_DIR,
+        auto_download=False,
+        intra_op_num_threads=threads,
+        inter_op_num_threads=1,
+    )
 
 
-def synth_stream(tts: Kokoro, text: str, voice: str) -> Iterator[Samples]:
+def synth_stream_kokoro(tts: Kokoro, text: str, voice: str) -> Iterator[Samples]:
     for clause in split_clauses(text):
         audio, _ = tts.create(clause, voice=voice, lang="en-us")
         yield audio.astype(np.float32)
 
 
-def render_utterances(spec: Path, tts: Kokoro, cache: Path) -> list[Utterance]:
+def synth_stream_supertonic(
+    tts: Any, text: str, voice: str, steps: int
+) -> Iterator[tuple[Samples, int]]:
+    style = tts.get_voice_style(voice)
+    sr = int(tts.sample_rate)
+    for clause in split_clauses(text):
+        wav, _ = tts.synthesize(clause, voice_style=style, total_steps=steps, lang="en")
+        yield wav.squeeze(0).astype(np.float32), sr
+
+
+def render_utterances(spec: Path, models: Path, cache: Path) -> list[Utterance]:
     turns = json.loads(spec.read_text(encoding="utf-8"))["turns"]
     texts = [t["text"] for t in turns if t["kind"] == "turn"]
     cache.mkdir(parents=True, exist_ok=True)
     out = []
+    tts = None
     for i, text in enumerate(texts):
         uid = f"turn{i:02d}"
         voice = RENDER_VOICES[i % len(RENDER_VOICES)]
@@ -149,6 +188,8 @@ def render_utterances(spec: Path, tts: Kokoro, cache: Path) -> list[Utterance]:
         if path.exists():
             clip = read_wav(path)
         else:
+            if tts is None:
+                tts = make_kokoro(models, threads=4, int8=False)
             audio, sr = tts.create(text, voice=voice, lang="en-us")
             clip = resample(AudioClip(audio.astype(np.float32), sr), SR)
             write_wav(path, clip)
@@ -204,26 +245,174 @@ def run_stt(rec: sherpa_onnx.OnlineRecognizer, utts: Sequence[Utterance]) -> Stt
     return res
 
 
-def run_tts(tts: Kokoro, texts: Sequence[str], voice: str, runs: int) -> TtsResult:
+def run_tts(
+    tts: Any,
+    tts_type: str,
+    texts: Sequence[str],
+    voice: str,
+    runs: int,
+    steps: int = 4,
+) -> TtsResult:
     res = TtsResult()
     for _ in range(runs):
         for text in texts:
             t0 = time.perf_counter()
             first = True
-            for audio in synth_stream(tts, text, voice):
-                if first:
-                    res.first_ms.append((time.perf_counter() - t0) * 1000)
-                    first = False
-                res.audio_s += len(audio) / 24000
+            if tts_type == "supertonic":
+                for audio, sr in synth_stream_supertonic(tts, text, voice, steps):
+                    if first:
+                        res.first_ms.append((time.perf_counter() - t0) * 1000)
+                        first = False
+                    res.audio_s += len(audio) / sr
+            else:
+                for audio in synth_stream_kokoro(tts, text, voice):
+                    if first:
+                        res.first_ms.append((time.perf_counter() - t0) * 1000)
+                        first = False
+                    res.audio_s += len(audio) / 24000
             res.compute_s += time.perf_counter() - t0
     return res
+
+
+async def run_stt_via_server(port: int, utts: Sequence[Utterance]) -> SttResult:
+    from websockets.asyncio.client import connect
+
+    res = SttResult()
+    chunk = round(CHUNK_S * SR)
+    tail_pcm = b"\x00\x00" * round(TAIL_PAD_S * SR)
+
+    uri = f"ws://127.0.0.1:{port}/stt"
+    async with connect(uri, reconnect_delays=None) as ws:
+        await ws.send(StartMessage(sample_rate=SR).to_json())
+
+        for u in utts:
+            t0 = time.perf_counter()
+            n_chunks = (len(u.samples) + chunk - 1) // chunk
+            for k in range(n_chunks):
+                due = t0 + (k + 1) * CHUNK_S
+                delay = due - time.perf_counter()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                chunk_samples = u.samples[k * chunk : (k + 1) * chunk]
+                pcm = (np.clip(chunk_samples, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
+                await ws.send(pcm)
+
+            t_last = time.perf_counter()
+            await ws.send(tail_pcm)
+            await ws.send(FinalizeMessage().to_json())
+
+            hyp = ""
+            while True:
+                raw = await ws.recv()
+                msg = parse_message(raw)
+                if isinstance(msg, TranscriptMessage) and msg.is_final:
+                    t_final = time.perf_counter()
+                    hyp = msg.text
+                    res.final_ms.append((t_final - t_last) * 1000)
+                    res.compute_s += t_final - t_last
+                    break
+
+            res.audio_s += len(u.samples) / SR
+            ref_w, hyp_w = _normalize(u.text), _normalize(hyp)
+            res.edits += word_edits(ref_w, hyp_w)
+            res.ref_words += len(ref_w)
+            res.hyps.append((u.id, u.text, hyp))
+    return res
+
+
+async def run_tts_via_server(
+    port: int,
+    texts: Sequence[str],
+    voice: str,
+    runs: int,
+) -> TtsResult:
+    from websockets.asyncio.client import connect
+
+    res = TtsResult()
+    uri = f"ws://127.0.0.1:{port}/tts"
+    ctx = 0
+
+    async with connect(uri, reconnect_delays=None) as ws:
+        ready_raw = await ws.recv()
+        ready = parse_message(ready_raw)
+        sr = ready.sample_rate if hasattr(ready, "sample_rate") else 44100
+
+        for _ in range(runs):
+            for text in texts:
+                ctx += 1
+                t0 = time.perf_counter()
+                await ws.send(SpeakMessage(context=ctx, text=text, voice=voice).to_json())
+                first = True
+                while True:
+                    raw = await ws.recv()
+                    if isinstance(raw, bytes):
+                        if first:
+                            res.first_ms.append((time.perf_counter() - t0) * 1000)
+                            first = False
+                        _chunk_ctx, pcm = unpack_tts_audio(raw)
+                        res.audio_s += len(pcm) / (sr * 2)
+                    else:
+                        msg = parse_message(raw)
+                        if isinstance(msg, DoneMessage) and msg.context == ctx:
+                            break
+                res.compute_s += time.perf_counter() - t0
+    return res
+
+
+async def run_concurrent_via_server(
+    port: int,
+    utts: Sequence[Utterance],
+    voice: str,
+) -> tuple[SttResult, TtsResult]:
+    tts_res = TtsResult()
+    stop_event = asyncio.Event()
+
+    async def speaker_loop() -> None:
+        from websockets.asyncio.client import connect
+
+        uri = f"ws://127.0.0.1:{port}/tts"
+        ctx = 1000
+        async with connect(uri, reconnect_delays=None) as ws:
+            ready_raw = await ws.recv()
+            ready = parse_message(ready_raw)
+            sr = ready.sample_rate if hasattr(ready, "sample_rate") else 44100
+
+            i = 0
+            while not stop_event.is_set():
+                text = TTS_LONG[i % len(TTS_LONG)]
+                ctx += 1
+                t0 = time.perf_counter()
+                await ws.send(SpeakMessage(context=ctx, text=text, voice=voice).to_json())
+                first = True
+                while True:
+                    raw = await ws.recv()
+                    if isinstance(raw, bytes):
+                        if first:
+                            tts_res.first_ms.append((time.perf_counter() - t0) * 1000)
+                            first = False
+                        _chunk_ctx, pcm = unpack_tts_audio(raw)
+                        tts_res.audio_s += len(pcm) / (sr * 2)
+                    else:
+                        msg = parse_message(raw)
+                        if isinstance(msg, DoneMessage) and msg.context == ctx:
+                            break
+                tts_res.compute_s += time.perf_counter() - t0
+                i += 1
+
+    speaker_task = asyncio.create_task(speaker_loop())
+    stt_res = await run_stt_via_server(port, utts)
+    stop_event.set()
+    speaker_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        await speaker_task
+    return stt_res, tts_res
 
 
 def stt_summary(r: SttResult) -> dict[str, float]:
     return {
         "final_p50_ms": pct(r.final_ms, 50),
         "final_p95_ms": pct(r.final_ms, 95),
-        "rtf": r.compute_s / r.audio_s,
+        "rtf": r.compute_s / max(r.audio_s, 1e-6),
         "wer": r.edits / max(r.ref_words, 1),
         "n": float(len(r.final_ms)),
     }
@@ -233,7 +422,7 @@ def tts_summary(r: TtsResult) -> dict[str, float]:
     return {
         "first_p50_ms": pct(r.first_ms, 50),
         "first_p95_ms": pct(r.first_ms, 95),
-        "rtf": r.compute_s / r.audio_s,
+        "rtf": r.compute_s / max(r.audio_s, 1e-6),
         "n": float(len(r.first_ms)),
     }
 
@@ -279,11 +468,13 @@ def gate(alone: dict[str, Any], both: dict[str, Any]) -> dict[str, bool]:
     }
 
 
-def run_concurrent(
+def run_concurrent_standalone(
     rec: sherpa_onnx.OnlineRecognizer,
-    tts: Kokoro,
+    tts: Any,
+    tts_type: str,
     utts: Sequence[Utterance],
     voice: str,
+    steps: int = 4,
 ) -> tuple[SttResult, TtsResult]:
     tts_res = TtsResult()
     stop = threading.Event()
@@ -291,7 +482,7 @@ def run_concurrent(
     def speaker() -> None:
         i = 0
         while not stop.is_set():
-            part = run_tts(tts, [TTS_LONG[i % len(TTS_LONG)]], voice, 1)
+            part = run_tts(tts, tts_type, [TTS_LONG[i % len(TTS_LONG)]], voice, 1, steps)
             tts_res.first_ms += part.first_ms
             tts_res.compute_s += part.compute_s
             tts_res.audio_s += part.audio_s
@@ -332,14 +523,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--spec", type=Path, default=Path("bench/turns/v1.json"))
     ap.add_argument("--out", type=Path, default=Path("out/laptop_bench"))
     ap.add_argument("--mic-dir", type=Path, default=None)
+    ap.add_argument("--tts", choices=["supertonic", "kokoro"], default="supertonic")
+    ap.add_argument("--via-server", action="store_true", help="Benchmark through the real server")
     ap.add_argument("--stt-threads", type=int, default=2)
-    ap.add_argument("--tts-threads", type=int, default=4)
-    ap.add_argument("--stt-int8", action="store_true")
-    ap.add_argument("--tts-int8", action="store_true")
-    ap.add_argument("--voice", default="af_heart")
+    ap.add_argument("--tts-threads", type=int, default=None)
+    ap.add_argument("--tts-steps", type=int, default=4)
+    ap.add_argument("--stt-int8", action=argparse.BooleanOptionalAction, default=True)
+    ap.add_argument("--tts-int8", action=argparse.BooleanOptionalAction, default=False)
+    ap.add_argument("--voice", default=None)
     ap.add_argument("--tts-runs", type=int, default=5)
     ap.add_argument("--tag", default="default")
     args = ap.parse_args(argv)
+
+    if args.tts_threads is None:
+        args.tts_threads = 2 if args.tts == "supertonic" else 4
+
+    if args.voice is None:
+        args.voice = "F1" if args.tts == "supertonic" else "af_heart"
 
     problems = verify_all(args.models)
     if problems:
@@ -347,26 +547,90 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"model check failed: {p}")
         return 2
 
-    rec = make_recognizer(args.models, args.stt_threads, args.stt_int8)
-    tts = make_kokoro(args.models, args.tts_threads, args.tts_int8)
-    render_tts = make_kokoro(args.models, args.tts_threads, int8=False)
-    utts = render_utterances(args.spec, render_tts, args.out / "renders")
+    utts = render_utterances(args.spec, args.models, args.out / "renders")
     if args.mic_dir:
         utts += load_mic_utterances(args.mic_dir)
 
-    run_tts(tts, TTS_SHORT[:1], args.voice, 1)
-    run_stt(rec, utts[:1])
+    if args.via_server:
+        port = find_free_port()
+        stt_eng = SherpaSTTEngine(
+            models_dir=args.models,
+            threads=args.stt_threads,
+            int8=args.stt_int8,
+        )
+        tts_eng = SupertonicTTSEngine(
+            model_dir=args.models / SUPERTONIC_DIR,
+            total_steps=args.tts_steps,
+            intra_op_threads=args.tts_threads,
+            default_voice=args.voice,
+        )
+        server = LanSpeechServer(
+            stt_engine=stt_eng,
+            tts_engine=tts_eng,
+            host="127.0.0.1",
+            port=port,
+            insecure_loopback=True,
+        )
 
-    stt_alone = run_stt(rec, utts)
-    tts_alone = TtsResult()
-    for texts in (TTS_SHORT, TTS_LONG):
-        part = run_tts(tts, texts, args.voice, args.tts_runs)
-        tts_alone.first_ms += part.first_ms
-        tts_alone.compute_s += part.compute_s
-        tts_alone.audio_s += part.audio_s
-    tts_short = tts_summary(run_tts(tts, TTS_SHORT, args.voice, args.tts_runs))
-    tts_long = tts_summary(run_tts(tts, TTS_LONG, args.voice, args.tts_runs))
-    stt_both, tts_both = run_concurrent(rec, tts, utts, args.voice)
+        async def run_bench_server() -> tuple[
+            SttResult, TtsResult, dict[str, float], dict[str, float], SttResult, TtsResult
+        ]:
+            await server.start()
+            try:
+                # Warmup
+                await run_tts_via_server(port, TTS_SHORT[:1], args.voice, 1)
+                await run_stt_via_server(port, utts[:1])
+
+                stt_al = await run_stt_via_server(port, utts)
+                tts_al = TtsResult()
+                for texts in (TTS_SHORT, TTS_LONG):
+                    part = await run_tts_via_server(port, texts, args.voice, args.tts_runs)
+                    tts_al.first_ms += part.first_ms
+                    tts_al.compute_s += part.compute_s
+                    tts_al.audio_s += part.audio_s
+
+                short_res = await run_tts_via_server(port, TTS_SHORT, args.voice, args.tts_runs)
+                tts_sh = tts_summary(short_res)
+                long_res = await run_tts_via_server(port, TTS_LONG, args.voice, args.tts_runs)
+                tts_lg = tts_summary(long_res)
+
+                stt_b, tts_b = await run_concurrent_via_server(port, utts, args.voice)
+                return stt_al, tts_al, tts_sh, tts_lg, stt_b, tts_b
+            finally:
+                await server.stop()
+
+        (
+            stt_alone,
+            tts_alone,
+            tts_short,
+            tts_long,
+            stt_both,
+            tts_both,
+        ) = asyncio.run(run_bench_server())
+    else:
+        rec = make_recognizer(args.models, args.stt_threads, args.stt_int8)
+        if args.tts == "supertonic":
+            tts = make_supertonic(args.models, args.tts_threads, args.tts_steps)
+        else:
+            tts = make_kokoro(args.models, args.tts_threads, args.tts_int8)
+
+        run_tts(tts, args.tts, TTS_SHORT[:1], args.voice, 1, args.tts_steps)
+        run_stt(rec, utts[:1])
+
+        stt_alone = run_stt(rec, utts)
+        tts_alone = TtsResult()
+        for texts in (TTS_SHORT, TTS_LONG):
+            part = run_tts(tts, args.tts, texts, args.voice, args.tts_runs, args.tts_steps)
+            tts_alone.first_ms += part.first_ms
+            tts_alone.compute_s += part.compute_s
+            tts_alone.audio_s += part.audio_s
+        short_res = run_tts(tts, args.tts, TTS_SHORT, args.voice, args.tts_runs, args.tts_steps)
+        tts_short = tts_summary(short_res)
+        long_res = run_tts(tts, args.tts, TTS_LONG, args.voice, args.tts_runs, args.tts_steps)
+        tts_long = tts_summary(long_res)
+        stt_both, tts_both = run_concurrent_standalone(
+            rec, tts, args.tts, utts, args.voice, args.tts_steps
+        )
 
     report: dict[str, Any] = {
         "tag": args.tag,
@@ -381,7 +645,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     checks = gate(report["alone"], report["both"])
     report["gate"] = checks
-    report["decision"] = "GO" if all(checks.values()) else "NO-GO"
+    # P10 concurrency miss is recorded, not fatal. P9 first_p50 <= 400 is gate.
+    p9_ok = report["alone"]["tts"]["first_p50_ms"] <= GATE["tts_first_p50_ms"]
+    stt_ok = (
+        report["alone"]["stt"]["final_p50_ms"] <= GATE["stt_final_p50_ms"]
+        and report["alone"]["stt"]["wer"] <= GATE["stt_wer"]
+    )
+    report["decision"] = "GO" if (p9_ok and stt_ok) else "NO-GO"
+
     args.out.mkdir(parents=True, exist_ok=True)
     out = args.out / f"results-{args.tag}.json"
     out.write_text(json.dumps(report, indent=1, default=asdict), encoding="utf-8")

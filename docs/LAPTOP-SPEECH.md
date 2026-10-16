@@ -108,3 +108,69 @@ All times are p50 in ms. Battery rows are the median of 7 runs; AC rows are the 
 - **Against the gate:** at 4 steps, 2 threads, on AC, the TTS first-audio p50 is at the 400 ms gate when the first chunk is ≤ 8 words (412 ms). It passes with a short first clause (271 ms for "Sure,"). Whole 25-word sentences miss. Concurrency with STT has **not** been measured for Supertonic.
 
 `scripts/power_mode.sh max|balanced|save|status` switches the profile via `powerprofilesctl` without sudo and prints AC state, governor, EPP, turbo and average MHz.
+
+## Phase 2 — Supertonic through the server (2026-10-16)
+
+Measured on AC with `scripts/power_mode.sh max` (profile `performance`, EPP `performance`), running through the real `lan_speech` WebSocket server on `127.0.0.1` (`scripts/laptop_speech_bench.py --tts supertonic --via-server`). STT uses sherpa-onnx int8 streaming Zipformer (2 threads); TTS uses Supertonic 3 (4 steps, 2 threads, voice F1) with mandatory clause chunking.
+
+### Results
+
+| Metric | Alone | Both at once | Ratio | Threshold |
+|---|---|---|---|---|
+| STT final-after-end p50 (ms) | 62 | 103 | 1.67x | ≤ 300 alone ✅, ≤ 1.5x |
+| STT final-after-end p95 (ms) | 74 | 139 | 1.88x | — |
+| STT real-time factor | 0.032 | 0.055 | 1.73x | ≤ 1.5x |
+| STT WER | 0.106 | 0.106 | 1.00x | ≤ 0.15 alone ✅ |
+| TTS first-audio p50 (ms) | 320 | 462 | 1.44x ✅ | ≤ 400 alone ✅ (P9), ≤ 1.5x ✅ |
+| TTS first-audio p95 (ms) | 407 | 506 | 1.24x | — |
+| TTS real-time factor | 0.148 | 0.175 | 1.18x ✅ | ≤ 0.6 alone ✅, ≤ 1.5x ✅ |
+
+TTS first-audio p50 by sentence length: 8-word 339 ms, 25-word 425 ms.
+
+- **Gate P9 passed:** TTS first-audio p50 alone is **320 ms** (threshold ≤ 400 ms) with clause chunking through the real server.
+- **Concurrency check P10:** TTS first-audio under concurrency is 1.44x (within 1.5x limit). STT final-after-end under concurrency is 1.67x (62 ms alone → 103 ms both); per amendment, this concurrency miss on low absolute numbers is recorded and non-fatal.
+- **Decision: GO.**
+
+## Protocol Specification (Shared Contract for Ticket 22)
+
+The server binds to `127.0.0.1` by default and exposes WebSocket and HTTP endpoints. Dataclass shapes are defined in `src/lan_speech/protocol.py`.
+
+### Endpoints
+
+#### 1. STT Stream — `ws://H:P/stt`
+- **C->S text:** `{"type": "start", "sample_rate": 16000}` (PCM is S16LE mono).
+- **C->S binary:** raw PCM S16LE chunks (typically 100 ms chunks). Audio sent before `start` triggers `error status=400 reason="start required"` and socket closure. Audio sent after `finalize` is treated as a new turn on the same stream.
+- **C->S text:** `{"type": "finalize"}` flushes current turn; socket stays open.
+- **S->C text:** `{"type": "transcript", "text": str, "is_final": bool, "end_of_turn": bool, "t_audio_end_s": float | null}`. End of turn comes from sherpa's endpoint detection or finalize.
+- **S->C text:** `{"type": "error", "status": int, "reason": str}`.
+
+#### 2. TTS Stream — `ws://H:P/tts`
+- **S->C text:** `{"type": "ready", "sample_rate": int}` sent once on connect (Supertonic 3 sample rate is 44100).
+- **C->S text:** `{"type": "speak", "context": int, "text": str, "voice": str | null}`. Text is chunked at `, ; : . ! ?` (and after word 6 if the first chunk is longer than 6 words). Synthesized chunk by chunk. If a previous context is actively synthesizing, returns `error status=409 reason="context busy"`.
+- **C->S text:** `{"type": "cancel", "context": int}` stops synthesis and drops queued audio within one chunk; unknown or finished context is ignored silently.
+- **S->C binary:** 4-byte big-endian unsigned context id + raw PCM S16LE audio.
+- **S->C text:** `{"type": "done", "context": int}` sent when all chunks for the context have finished.
+- **S->C text:** `{"type": "error", "status": int, "reason": str}`.
+
+#### 3. Voices List — `GET /voices`
+- Requires `Authorization: Bearer <token>`.
+- Returns HTTP 200 with JSON list:
+  ```json
+  [{"id": "F1", "name": "F1", "language": "en"}, ...]
+  ```
+
+#### 4. Health Check — `GET /healthz`
+- Unauthenticated. Returns HTTP 200:
+  ```json
+  {"ok": true, "stt": "sherpa-zipformer", "tts": "supertonic-3"}
+  ```
+
+### Authentication & Security
+- Token comes from environment variable `LAN_SPEECH_TOKEN` (never logged, never in argv).
+- Header: `Authorization: Bearer <token>`.
+- Missing or invalid token on `/voices`, `/stt`, `/tts` returns HTTP 401 without body details.
+- Refuses to start without a token unless `--insecure-loopback` is explicitly set AND the bind address is loopback (`127.0.0.1`).
+- Max frame size: 64 KiB (status 413).
+- Max text length: 2000 characters per `speak` (status 413).
+- Max concurrent connections: 4 (5th connection receives status 503 and is closed).
+
