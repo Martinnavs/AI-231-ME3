@@ -2,7 +2,19 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 04 (done). Does NOT need D1. Phase 2 needs the Phase 1 GO decision recorded in the Execution Log.
-**Status:** parked (Phase 1 NO-GO 2026-10-16; see Execution Log)
+**Status:** ready-for-agent — Phase 2 as amended below (human override of the Kokoro NO-GO, 2026-10-16)
+
+> **Amendment 2026-10-16 (human-approved; read it before the original Action, which it overrides where they differ).**
+> - **GO by human override.** The human chose to build Phase 2 using Supertonic 3 for TTS instead of Kokoro, and accepted the Supertonic 3 model's **OpenRAIL-M** license for this class project. Kokoro is not required; do not build a Kokoro engine.
+> - **TTS engine:** Supertonic 3 via the `supertonic` Python SDK. Construct it as `TTS(model="supertonic-3", model_dir=<models>/supertonic-3, auto_download=False, intra_op_num_threads=2, inter_op_num_threads=1)`. Use `total_steps=4` and default voice `F1`; the output sample rate is `tts.sample_rate`, and the `ready` message reports it. Server flags: `--tts-steps` (default 4), `--tts-threads` (default 2), `--stt-threads` (default 2), `--stt-int8` (default on).
+> - **Model files:** extend `scripts/fetch_laptop_models.py` with the Supertonic 3 files from `huggingface.co/Supertone/supertonic-3`: everything under `onnx/` and `voice_styles/`, plus `config.json` and `LICENSE`, placed in `models/supertonic-3/` in the layout the SDK's `model_dir` expects. Pin each file's SHA-256, and update `LICENSES` to say OpenRAIL-M. The server verifies with `verify_all` at startup and exits 2 naming the file. Model paths must never appear in client-facing errors.
+> - **Clause chunking is mandatory.** Split each `speak` text at `, ; : . ! ?`. If the first chunk is longer than 6 words, split it again at the first word boundary after word 6. Synthesize and send chunk by chunk. Check `cancel` between chunks and before every send, so cancel takes effect within one chunk.
+> - **Revised first-audio gate (P9):** on AC with `scripts/power_mode.sh max`, TTS first-audio p50 ≤ 400 ms with chunking, measured through the real server over WebSocket on 127.0.0.1.
+> - **Concurrency check (P10):** TTS first-audio and STT final-after-end, each measured while the other runs, stay within 1.5x of their alone values. A miss is **recorded, not fatal**: write the numbers and keep going.
+> - **Benchmark:** extend `scripts/laptop_speech_bench.py` with `--tts supertonic` (new default) so it reuses the same method, and write P9/P10 as a "Phase 2 — Supertonic through the server" table in `docs/LAPTOP-SPEECH.md`. Run `scripts/power_mode.sh max` before and `scripts/power_mode.sh balanced` after.
+> - **Typing and tests without the laptop group:** add `lan_speech` to `[tool.mypy] packages` and the hatch wheel packages. Add mypy `ignore_missing_imports` overrides for `sherpa_onnx`, `supertonic`, `kokoro_onnx` and `onnxruntime`. `engines.py` must import the engine libraries lazily, inside the real-engine constructors, so `protocol.py`, `server.py` and the fakes import without the `laptop` group. `websockets` goes in the **`laptop` group only**; `tests/lan_speech/test_server.py` starts with `pytest.importorskip("websockets")`. Run this ticket's Proof with `uv run --group laptop pytest -q tests/lan_speech`; P8 (plain `uv sync`, then `make check && uv run pytest -q`) must still pass, with those server tests skipping.
+> - **Live test P7:** same intent as the original. Supertonic synthesizes "turn on the lights", sherpa transcribes it, WER ≤ 0.2. It stays marked `live` and is left for the human.
+> - **Guardrails:** `.scratch/project2-voice-agent/AGY-GUARDRAILS.md` applies and overrides `RUNNER.md` where stricter.
 
 ## Why
 The professor allows any ASR/TTS (paid or open) as long as TTS is interruptible, but "no model on the Pi except VAD" still holds. A speech server on the user's laptop (same LAN as the Pi, later maybe a wired link) is a dev harness now and a possible deployed backend later. The cloud adapters (ticket 05) stay the graded path; this ticket never replaces them.
@@ -89,13 +101,15 @@ GET /healthz -> {"ok":true,"stt":str,"tts":str}             # engine names only
 | P6 | `test_disconnect_leaves_no_tasks` | same |
 | P7 | `test_live_engines_roundtrip` (`live`, human-run): Kokoro synthesizes "turn on the lights", sherpa transcribes it back, WER ≤ 0.2 | `VOICE_AGENT_LIVE=1 uv run --group laptop pytest -q -m live tests/lan_speech/test_live_engines.py` — leave for the human |
 | P8 | default install stays light (A5) and the Pi gate suite passes without the `laptop` group | `uv sync && make check && uv run pytest -q` |
+| P9 | (amendment) TTS first-audio p50 ≤ 400 ms through the real server, AC + `power_mode.sh max`, clause chunking | `uv run --group laptop python scripts/laptop_speech_bench.py --tts supertonic --via-server` → table in `docs/LAPTOP-SPEECH.md` |
+| P10 | (amendment) concurrent STT/TTS within 1.5x of alone, recorded either way | same run |
 
 ## Unknowns
 - Exact model names/URLs and checksums: choose at build time, record in `fetch_laptop_models.py` and the doc.
 - Whether the laptop's CPU meets the GO thresholds: that is the point of Phase 1.
 
 ## Dependencies/license
-`sherpa-onnx` (Apache-2.0), `kokoro-onnx` (MIT; model weights Apache-2.0, verify per A2), `websockets` (BSD-3, already planned). `laptop` dependency group only.
+`sherpa-onnx` + `sherpa-onnx-core` (Apache-2.0), `kokoro-onnx` (MIT; Phase 1 only), `supertonic` (SDK MIT; **model weights OpenRAIL-M, accepted by the human 2026-10-16**), `websockets` (BSD-3). `laptop` dependency group only.
 
 ## Acceptance Criteria
 - [ ] Phase 1 results and a GO/NO-GO decision are recorded in `docs/LAPTOP-SPEECH.md` and the Execution Log
