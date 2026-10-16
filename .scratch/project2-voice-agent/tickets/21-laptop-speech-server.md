@@ -2,7 +2,7 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 04 (done). Does NOT need D1. Phase 2 needs the Phase 1 GO decision recorded in the Execution Log.
-**Status:** ready-for-agent (run on the HP EliteBook 840 G8, not on the Pi)
+**Status:** parked (Phase 1 NO-GO 2026-10-16; see Execution Log)
 
 ## Why
 The professor allows any ASR/TTS (paid or open) as long as TTS is interruptible, but "no model on the Pi except VAD" still holds. A speech server on the user's laptop (same LAN as the Pi, later maybe a wired link) is a dev harness now and a possible deployed backend later. The cloud adapters (ticket 05) stay the graded path; this ticket never replaces them.
@@ -115,3 +115,17 @@ yes (a network listener with auth): security-auditor pass after Phase 2.
 - `.scratch/project2-voice-agent/RUNNER.md`, `docs/AUDIO-ENGINE.md`, `bench/turns/v1.json`
 
 ## Execution Log
+
+### 2026-10-16 developer: DONE (Phase 1) — NO-GO, ticket parked
+- Decision: **NO-GO**. TTS first-audio p50 was 1023 ms (fp32) and 871 ms (int8 tuning pass) against a ≤ 400 ms limit; under concurrency TTS first-audio was 1.72x / 1.74x (limit 1.5x). STT passed: final-after-end p50 57 / 48 ms, WER 0.118, RTF 0.13 / 0.11. Full tables are in `docs/LAPTOP-SPEECH.md`. HP EliteBook 840 G8, i5-1145G7 4C/8T, **on battery**, governor powersave, EPP balance_performance.
+- Cause: Kokoro has a fixed cost of about 400 ms per call, plus RTF about 0.45 on the first clause, so clause splitting cannot reach 400 ms. Re-running on AC is a human call, not extra tuning.
+- Assumptions verified: A1 `uv run --group laptop python -c "import sherpa_onnx, kokoro_onnx"` → ok, CPU providers only (after pinning sherpa-onnx-core, see Deviations); A2 HF/GitHub license APIs → Zipformer Apache-2.0, Kokoro-82M Apache-2.0, sherpa-onnx Apache-2.0, kokoro-onnx MIT; A3 read `sherpa_onnx/online_recognizer.py` → `enable_endpoint_detection` + rule1/2/3 + `is_endpoint` (quoted in doc); A4 read `kokoro_onnx/__init__.py` → `create_stream` batches at 510 phonemes only, so the bench splits clauses itself; A5 `uv sync && uv pip list | grep -iE "sherpa|kokoro|onnx"` → nothing.
+- Proof: P1 ✅ (`grep -n "GO" docs/LAPTOP-SPEECH.md`). P2–P7 n/a (Phase 2 not built, per NO-GO edge). P8 ✅ default install light; gate suite green.
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (241 passed, 7 skipped, 2 xfailed)
+- Files: `scripts/laptop_speech_bench.py`, `scripts/fetch_laptop_models.py`, `docs/LAPTOP-SPEECH.md`, `pyproject.toml` (`laptop` group), `uv.lock`, `.gitignore` (`models/`)
+- Deviations:
+  - Added `sherpa-onnx-core==1.13.8` to the `laptop` group. uv resolves sherpa-onnx from sdist metadata, which drops this required wheel and leaves `libonnxruntime.so` missing. Same project and license as sherpa-onnx.
+  - Kokoro fp32 is fetched from HF `onnx-community/Kokoro-82M-v1.0-ONNX` because the GitHub release stalled at about 10 KB/s. kokoro-onnx loads it unchanged.
+  - The STT inputs are Kokoro-rendered rather than recorded (no cloud TTS allowed, no mic run), so WER is optimistic. `--mic-dir` exists for human recordings.
+- Commit: see `git log` (`21: laptop speech Phase 1 benchmark — NO-GO, parked`)
+- Notes for reviewer: no Phase 2 files (`src/lan_speech`, `tests/lan_speech`) were created. The models (≈ 850 MB) stay in git-ignored `models/`. Tickets 22/23 depend on this ticket and are now effectively blocked.
