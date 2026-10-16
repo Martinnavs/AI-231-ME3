@@ -61,7 +61,7 @@ def _first_model_id(models: object) -> str | None:
         model_id = first.get("id") if isinstance(first, dict) else None
         return str(model_id) if model_id else None
     if isinstance(models, dict) and models:
-        return next(iter(models))
+        return str(next(iter(models)))
     return None
 
 
