@@ -15,8 +15,14 @@ dependencies = [
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6", "mypy>=1.11", "pre-commit>=3.8"]
 laptop = [
     "kokoro-onnx>=0.6.1",
+    "langchain-community>=0.4.2",
+    "langchain-core>=1.6.11",
+    "langchain-openai>=1.7.2",
+    "langchain-text-splitters>=1.1.3",
+    "rank-bm25>=0.2.2",
     "sherpa-onnx>=1.13.8",
     "sherpa-onnx-core==1.13.8",
+    "sounddevice>=0.5.6",
     "supertonic>=1.3.1",
     "websockets>=17.2",
 ]
@@ -26,7 +32,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/voice_agent", "src/audio_engine", "src/bench", "src/lan_speech"]
+packages = ["src/voice_agent", "src/audio_engine", "src/bench", "src/lan_speech", "src/doc_chat"]
 
 [tool.ruff]
 line-length = 100
@@ -38,8 +44,9 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.mypy]
 strict = true
+warn_unused_ignores = false
 mypy_path = "src"
-packages = ["voice_agent", "audio_engine", "bench", "lan_speech"]
+packages = ["voice_agent", "audio_engine", "bench", "lan_speech", "doc_chat"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -65,5 +72,16 @@ module = [
     "onnxruntime.*",
     "websockets",
     "websockets.*",
+    "sounddevice",
+    "sounddevice.*",
+    "rank_bm25",
+    "rank_bm25.*",
+    "langchain_community.*",
+    "langchain_core",
+    "langchain_core.*",
+    "langchain_text_splitters",
+    "langchain_text_splitters.*",
+    "langchain_openai",
+    "langchain_openai.*",
 ]
 ignore_missing_imports = true
