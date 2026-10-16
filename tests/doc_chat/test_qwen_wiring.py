@@ -81,3 +81,71 @@ def test_one_shot_request_shape_and_reply_cleanup() -> None:
         assert "Harry is a wizard." in req["messages"][0]["content"]
         assert "#" not in req["messages"][0]["content"]
     assert second.llm_error is None
+
+
+def test_chat_without_docs_sends_only_the_question() -> None:
+    from doc_chat.chain import build_chat_chain
+
+    seen: list[dict[str, Any]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            seen.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            payload = json.dumps(
+                {
+                    "id": "x",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "m",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {"role": "assistant", "content": "Paris. It is lovely."},
+                        }
+                    ],
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    httpd = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        llm = make_chat_model(f"http://127.0.0.1:{httpd.server_address[1]}/v1", "k", "fake/Qwen")
+        chain = build_chat_chain(llm, max_words=40)
+        a1 = chain.invoke("What is the capital of France?")
+        chain.invoke("And Spain?")
+    finally:
+        httpd.shutdown()
+
+    assert a1.text == "Paris. It is lovely."
+    assert a1.source is None and a1.retrieval_ms == 0.0 and a1.llm_ms is not None
+    assert len(seen) == 2
+    for req in seen:
+        assert [m["role"] for m in req["messages"]] == ["system", "user"]
+        assert "context" not in req["messages"][0]["content"].lower()
+        assert req["chat_template_kwargs"] == {"enable_thinking": False}
+    assert seen[1]["messages"][1]["content"] == "And Spain?"
+
+
+def test_chat_without_docs_reports_llm_failure() -> None:
+    from doc_chat.chain import build_chat_chain
+
+    llm = make_chat_model("http://127.0.0.1:9/v1", "k", "fake/Qwen")
+    ans = build_chat_chain(llm).invoke("Hello?")
+    assert ans.llm_error is not None
+    assert "couldn't reach" in ans.text
+
+
+def test_no_docs_requires_qwen(capsys: pytest.CaptureFixture[str]) -> None:
+    from doc_chat.__main__ import main
+
+    assert main(["--text", "hi", "--no-docs"]) == 2
+    assert "--no-docs needs --llm qwen" in capsys.readouterr().err

@@ -83,6 +83,14 @@ The server URL and model id are read at runtime from `~/.config/opencode/opencod
 - Each turn log line gains `llm_ms`, and the summary prints an `llm_ms` row. `speech_end_to_first_audio_ms` includes it.
 - Not covered by automated tests against the real server: that needs your key. Tests use a local fake OpenAI-compatible endpoint.
 
+### Pure Qwen chat (no documents)
+
+Add `--no-docs` to skip retrieval and send each question straight to Qwen:
+```bash
+uv run --group laptop python -W ignore -m doc_chat --mic --play --llm qwen --no-docs
+```
+It is still one shot per question with no history. The prompt asks for at most two short spoken sentences, `--docs` is ignored, and the turn log shows `retrieval_ms` as 0 and `source` as null. It needs `--llm qwen`, otherwise it exits with code 2. If the call fails the assistant says "Sorry, I couldn't reach the language model." and logs `llm_error`. `--max-words` (default 40) still caps the spoken reply; raise it for longer answers.
+
 ## How speech is chunked and paced
 
 The server speaks an answer chunk by chunk, in order. A chunk ends at `, ; : . ! ?` followed by a space or the end of the text, optionally with a closing quote or bracket (so `."` ends a sentence). A period after initials or an abbreviation (`J.K.`, `Dr.`, `Mr.`, `e.g.`) is not a boundary, so "J.K. Rowling" is read as one. A first chunk over 6 words is split after word 6 so audio starts sooner.
