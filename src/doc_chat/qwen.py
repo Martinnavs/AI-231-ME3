@@ -51,6 +51,10 @@ def build_qwen_chat_model() -> BaseChatModel:
         print("qwen backend not configured", file=sys.stderr)
         sys.exit(2)
 
+    return make_chat_model(base_url, api_key, model_id)
+
+
+def make_chat_model(base_url: str, api_key: str, model_id: str) -> BaseChatModel:
     from langchain_openai import ChatOpenAI
     from pydantic import SecretStr
 
@@ -58,5 +62,9 @@ def build_qwen_chat_model() -> BaseChatModel:
         base_url=base_url,
         api_key=SecretStr(api_key),
         model=model_id,
-        temperature=0.0,
+        temperature=0.2,
+        max_completion_tokens=160,
+        timeout=30,
+        max_retries=0,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )

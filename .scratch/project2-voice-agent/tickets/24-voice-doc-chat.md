@@ -112,3 +112,11 @@ no (client only; it reads a token from env and must not print it).
 - Deviations: none
 - Commit: 96e2ea6
 - Notes for reviewer: Latency measured over 40 synthetic turns against in-process LAN speech server on AC power with max performance profile. User-perceived latency (`speech_end_to_first_audio_ms`) achieved p50 = 343.7 ms and p95 = 445.4 ms.
+
+### 2026-10-16 follow-up (human-directed, after review): mic, ports, parsing, Qwen
+- `--mic` was never implemented in the DONE entry above; added `listen_mic` and a half-duplex loop (commit `ac2f746`). `--endpoint-silence` flag added to the server. Default port aligned to 8765 (`b4dfacb`). BM25 tokenizer added because STT output is uppercase (`3886a18`).
+- Sentence detection now ignores initials/abbreviations (`J.K.`, `Dr.`) and treats `."` as a sentence end; shared by the TTS chunker and answer truncation.
+- Supertonic's per-chunk edge silence (0.3–0.6 s) is trimmed; pauses are explicit: comma 0.12 s, `; :` 0.26 s, `. ! ?` 0.40 s (`--comma-pause`, `--sentence-pause`). Audible speech starts about 0.4 s earlier than the earlier first-byte figures implied.
+- `--llm qwen` wired one-shot (no history, thinking off, 160 tokens, 30 s, fallback to the retrieved passage with `llm_error`). Verified against a local fake OpenAI endpoint only; the live call needs `ONIT_API_KEY` and was not made.
+- Open: earlier latency table in `docs/DOC-CHAT.md` was measured before the trim and counts first byte, not first audible sound.
+

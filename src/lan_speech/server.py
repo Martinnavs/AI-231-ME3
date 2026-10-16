@@ -12,6 +12,8 @@ from typing import Any
 
 from lan_speech.engines import STTEngine, STTStream, TTSEngine
 from lan_speech.protocol import (
+    COMMA_PAUSE_S,
+    SENTENCE_PAUSE_S,
     CancelMessage,
     DoneMessage,
     ErrorMessage,
@@ -23,7 +25,7 @@ from lan_speech.protocol import (
     TranscriptMessage,
     pack_tts_audio,
     parse_message,
-    split_clauses,
+    split_speech_chunks,
 )
 
 logger = logging.getLogger("lan_speech.server")
@@ -58,7 +60,11 @@ class LanSpeechServer:
         port: int = 8765,
         token: str | None = None,
         insecure_loopback: bool = False,
+        comma_pause_s: float = COMMA_PAUSE_S,
+        sentence_pause_s: float = SENTENCE_PAUSE_S,
     ) -> None:
+        self.comma_pause_s = comma_pause_s
+        self.sentence_pause_s = sentence_pause_s
         self.stt_engine = stt_engine
         self.tts_engine = tts_engine
         self.host = host
@@ -201,9 +207,9 @@ class LanSpeechServer:
         cancelled_contexts: set[int] = set()
 
         async def synthesize_worker(ctx: int, text: str, voice: str | None) -> None:
-            chunks = split_clauses(text)
+            chunks = split_speech_chunks(text, self.comma_pause_s, self.sentence_pause_s)
             try:
-                for chunk in chunks:
+                for chunk, pause_s in chunks:
                     if ctx in cancelled_contexts:
                         break
                     pcm_bytes = await asyncio.to_thread(
@@ -211,6 +217,7 @@ class LanSpeechServer:
                     )
                     if ctx in cancelled_contexts:
                         break
+                    pcm_bytes += b"\x00\x00" * round(pause_s * self.tts_engine.sample_rate)
                     frame = pack_tts_audio(ctx, pcm_bytes)
                     await ws.send(frame)
                 if ctx not in cancelled_contexts:

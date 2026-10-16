@@ -16,6 +16,10 @@ SHERPA_STEM = "epoch-99-avg-1-chunk-16-left-128"
 SUPERTONIC_DIR = "supertonic-3"
 
 
+_TRIM_THRESHOLD = 0.01
+_TRIM_MARGIN_S = 0.04
+
+
 class STTDecodeResult(NamedTuple):
     text: str
     is_final: bool
@@ -181,6 +185,10 @@ class SupertonicTTSEngine:
             text, voice_style=style, total_steps=self._total_steps, lang="en"
         )
         clipped = np.clip(wav.squeeze(0), -1.0, 1.0)
+        voiced = np.flatnonzero(np.abs(clipped) > _TRIM_THRESHOLD)
+        if voiced.size:
+            margin = round(_TRIM_MARGIN_S * self.sample_rate)
+            clipped = clipped[max(voiced[0] - margin, 0) : voiced[-1] + margin]
         pcm_bytes = (clipped * 32767.0).astype(np.int16).tobytes()
         return bytes(pcm_bytes)
 

@@ -35,6 +35,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     ap.add_argument("--stt-threads", type=int, default=2, help="Sherpa STT threads (default: 2)")
     ap.add_argument(
+        "--comma-pause",
+        type=float,
+        default=0.12,
+        help="Seconds of silence after a comma chunk (default: 0.12)",
+    )
+    ap.add_argument(
+        "--sentence-pause",
+        type=float,
+        default=0.40,
+        help="Seconds of silence after . ! ? (default: 0.40); ; and : use the midpoint",
+    )
+    ap.add_argument(
         "--endpoint-silence",
         type=float,
         default=1.2,
@@ -85,6 +97,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             insecure_loopback=args.insecure_loopback,
+            comma_pause_s=args.comma_pause,
+            sentence_pause_s=args.sentence_pause,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

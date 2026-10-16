@@ -83,7 +83,7 @@ async def async_main(args: argparse.Namespace) -> int:
             stt_final_ms = None
 
             try:
-                ans: Answer = chain.invoke(question)
+                ans: Answer = await chain.ainvoke(question)
                 answer_words = len(ans.text.split()) if ans.text else 0
                 retrieval_ms = ans.retrieval_ms
                 source = ans.source
@@ -115,6 +115,8 @@ async def async_main(args: argparse.Namespace) -> int:
                     "answer_words": answer_words,
                     "stt_final_ms": stt_final_ms,
                     "retrieval_ms": round(retrieval_ms, 2),
+                    "llm_ms": None if ans.llm_ms is None else round(ans.llm_ms, 2),
+                    "llm_error": ans.llm_error,
                     "tts_first_audio_ms": round(first_audio, 2),
                     "tts_total_ms": round(total_ms, 2),
                     "speech_end_to_first_audio_ms": round(speech_to_first, 2),
@@ -167,7 +169,7 @@ async def async_main(args: argparse.Namespace) -> int:
                         turn_records.append(rec)
                         continue
 
-                    ans = chain.invoke(question)
+                    ans = await chain.ainvoke(question)
                     answer_words = len(ans.text.split()) if ans.text else 0
                     retrieval_ms = ans.retrieval_ms
                     source = ans.source
@@ -199,6 +201,8 @@ async def async_main(args: argparse.Namespace) -> int:
                         "answer_words": answer_words,
                         "stt_final_ms": round(stt_final_ms, 2),
                         "retrieval_ms": round(retrieval_ms, 2),
+                        "llm_ms": None if ans.llm_ms is None else round(ans.llm_ms, 2),
+                        "llm_error": ans.llm_error,
                         "tts_first_audio_ms": round(first_audio, 2),
                         "tts_total_ms": round(total_ms, 2),
                         "speech_end_to_first_audio_ms": round(speech_to_first, 2),
@@ -237,7 +241,7 @@ async def async_main(args: argparse.Namespace) -> int:
                 print(f"\ryou:  {question}{' ' * 40}", flush=True)
                 if question.lower().strip(" .!?") in {"quit", "exit", "goodbye", "stop"}:
                     break
-                ans = chain.invoke(question)
+                ans = await chain.ainvoke(question)
                 print(f"bot:  {ans.text}", flush=True)
                 out_stream = None
                 on_chunk = None
@@ -265,6 +269,8 @@ async def async_main(args: argparse.Namespace) -> int:
                     "answer_words": len(ans.text.split()),
                     "stt_final_ms": None,
                     "retrieval_ms": round(ans.retrieval_ms, 2),
+                    "llm_ms": None if ans.llm_ms is None else round(ans.llm_ms, 2),
+                    "llm_error": ans.llm_error,
                     "tts_first_audio_ms": round(first_audio, 2),
                     "tts_total_ms": round(total_ms, 2),
                     "speech_end_to_first_audio_ms": round(speech_to_first, 2),
@@ -301,6 +307,7 @@ async def async_main(args: argparse.Namespace) -> int:
         for name, vals in [
             ("stt_final_ms", stt_vals),
             ("retrieval_ms", ret_vals),
+            ("llm_ms", [r["llm_ms"] for r in valid if r.get("llm_ms") is not None]),
             ("tts_first_audio_ms", tts_first_vals),
             ("tts_total_ms", tts_tot_vals),
             ("speech_end_to_first_audio_ms", sp_first_vals),
