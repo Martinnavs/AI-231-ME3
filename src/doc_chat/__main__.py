@@ -226,6 +226,55 @@ async def async_main(args: argparse.Namespace) -> int:
                     log_file.flush()
                     turn_records.append(rec)
 
+        elif args.mic:
+            turn_idx = 0
+            print("Listening... speak, then pause. Say 'quit' or press Ctrl-C to stop.", flush=True)
+            while True:
+                turn_idx += 1
+                question, t_speech_end = await client.listen_mic(
+                    on_partial=lambda t: print(f"\r  hearing: {t[:70]:<70}", end="", flush=True)
+                )
+                print(f"\ryou:  {question}{' ' * 40}", flush=True)
+                if question.lower().strip(" .!?") in {"quit", "exit", "goodbye", "stop"}:
+                    break
+                ans = chain.invoke(question)
+                print(f"bot:  {ans.text}", flush=True)
+                out_stream = None
+                on_chunk = None
+                if args.play:
+                    import sounddevice as sd
+
+                    out_stream = sd.RawOutputStream(
+                        samplerate=client.tts_sample_rate, channels=1, dtype="int16"
+                    )
+                    out_stream.start()
+                    on_chunk = out_stream.write
+                try:
+                    pcm, first_audio, total_ms, speech_to_first = await client.speak_text(
+                        ans.text, voice=args.voice, t_speech_end=t_speech_end, on_chunk=on_chunk
+                    )
+                finally:
+                    if out_stream is not None:
+                        out_stream.stop()
+                        out_stream.close()
+                if out_dir is not None:
+                    save_wav(out_dir / f"turn{turn_idx:02d}.wav", pcm, client.tts_sample_rate)
+                rec = {
+                    "turn": turn_idx,
+                    "question": question,
+                    "answer_words": len(ans.text.split()),
+                    "stt_final_ms": None,
+                    "retrieval_ms": round(ans.retrieval_ms, 2),
+                    "tts_first_audio_ms": round(first_audio, 2),
+                    "tts_total_ms": round(total_ms, 2),
+                    "speech_end_to_first_audio_ms": round(speech_to_first, 2),
+                    "cancel_to_silence_ms": None,
+                    "source": ans.source,
+                }
+                log_file.write(json.dumps(rec) + "\n")
+                log_file.flush()
+                turn_records.append(rec)
+
     except (KeyboardInterrupt, asyncio.CancelledError):
         # Ctrl-C mid-TTS: send cancel, close sockets, flush jsonl; no traceback (Edge 50)
         await client.cancel_current()

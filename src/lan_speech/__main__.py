@@ -35,6 +35,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     ap.add_argument("--stt-threads", type=int, default=2, help="Sherpa STT threads (default: 2)")
     ap.add_argument(
+        "--endpoint-silence",
+        type=float,
+        default=1.2,
+        help="Seconds of trailing silence after speech that ends a turn (default: 1.2)",
+    )
+    ap.add_argument(
         "--stt-int8",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -60,6 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             models_dir=args.models,
             threads=args.stt_threads,
             int8=args.stt_int8,
+            rule2_trailing_silence=args.endpoint_silence,
         )
         tts = SupertonicTTSEngine(
             model_dir=args.models / "supertonic-3",
