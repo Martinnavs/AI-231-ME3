@@ -12,3 +12,5 @@ __pycache__/
 .pytest_cache/
 .claude/worktrees/
 models/
+bench/mic_turns/
+out/stt_compare/
