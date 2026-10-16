@@ -2,7 +2,7 @@
 
 **Repo:** the agy worktree (branch `agy/laptop-speech`)
 **Blocked by:** 21 Phase 2 committed on this branch. That is the producer: import the real `src/lan_speech/protocol.py` and test against the real server with fake engines, never against the ticket's prose (Operating Principle 11).
-**Status:** ready-for-agent after 21 Phase 2
+**Status:** done
 
 ## Why
 The goal is to feel and measure the voice loop's latency (speech in → text → answer → speech out) on the laptop speech server, not to build a smart assistant. A generic retrieval chat over a folder of documents gives realistic, variable-length answers without any LLM call. Answers are the retrieved text itself, returned as primitive LangChain outputs (`Document` page content passed through a `Runnable`). An optional Qwen path is scaffolded for later but never called in this ticket.
@@ -86,10 +86,10 @@ The wire protocol comes from `lan_speech.protocol` and is never redefined here.
 `langchain-core`, `langchain-community`, `langchain-text-splitters`, `langchain-openai` (MIT), `rank-bm25` (Apache-2.0), `sounddevice` (MIT). All go in the `laptop` group only.
 
 ## Acceptance Criteria
-- [ ] P1–P6, P8, P9 green; P7 written and left for the human
-- [ ] `docs/DOC-CHAT.md` has the run instructions and the latency table, with the synthetic-audio caveat
-- [ ] No LLM/API call was made; no secret value appears in code, logs, docs or test output
-- [ ] Pi install unchanged
+- [x] P1–P6, P8, P9 green; P7 written and left for the human
+- [x] `docs/DOC-CHAT.md` has the run instructions and the latency table, with the synthetic-audio caveat
+- [x] No LLM/API call was made; no secret value appears in code, logs, docs or test output
+- [x] Pi install unchanged
 
 ## Non-Goals
 - No real LLM answers in this ticket (Qwen is a scaffold), no embeddings or vector DB, no conversation memory
@@ -103,3 +103,12 @@ no (client only; it reads a token from env and must not print it).
 - `.scratch/project2-voice-agent/AGY-GUARDRAILS.md` (overrides), `.scratch/project2-voice-agent/RUNNER.md`, `docs/LAPTOP-SPEECH.md` (protocol section), `src/lan_speech/protocol.py`
 
 ## Execution Log
+
+### 2026-10-16 developer: DONE
+- Assumptions verified: A1 `uv run --group laptop python -c "from langchain_community.retrievers import BM25Retriever; import langchain_openai, sounddevice"` → ok; `uv sync && uv pip list | grep -i langchain` → nothing in default env; A2 `uv run --group laptop python -c "import sounddevice as sd; print(sd.query_devices())"` → PortAudio found on laptop (ALSA/JACK devices present); A3 LangChain import paths checked (`RecursiveCharacterTextSplitter`, `Document`, `Runnable`, `BM25Retriever`, `ChatOpenAI`, `StrOutputParser`).
+- Proof: P1 ✅ (`tests/doc_chat/test_corpus.py`) P2 ✅ P3 ✅ P6 ✅ (`tests/doc_chat/test_chain.py`) P4 ✅ P5 ✅ (`tests/doc_chat/test_session.py`) P7 ⏭️ (marked `live`, left for human in `tests/doc_chat/test_qwen_live.py`) P8 ✅ (40-turn latency table in `docs/DOC-CHAT.md`) P9 ✅ (Pi default env passes `uv sync && make check && uv run pytest -q` → 244 passed, 13 skipped, 2 xfailed) (commands: `uv run --group laptop pytest -q tests/doc_chat` → 10 passed, 1 skipped)
+- Gate suite: ruff ✅ format ✅ mypy ✅ full pytest ✅ (260 passed, 9 skipped, 2 xfailed)
+- Files: `src/doc_chat/__init__.py`, `src/doc_chat/corpus.py`, `src/doc_chat/chain.py`, `src/doc_chat/speech.py`, `src/doc_chat/__main__.py`, `src/doc_chat/qwen.py`, `docs/DOC-CHAT.md`, `tests/doc_chat/test_corpus.py`, `tests/doc_chat/test_chain.py`, `tests/doc_chat/test_session.py`, `tests/doc_chat/test_qwen_live.py`, `pyproject.toml`, `uv.lock`
+- Deviations: none
+- Commit: 96e2ea6
+- Notes for reviewer: Latency measured over 40 synthetic turns against in-process LAN speech server on AC power with max performance profile. User-perceived latency (`speech_end_to_first_audio_ms`) achieved p50 = 343.7 ms and p95 = 445.4 ms.
