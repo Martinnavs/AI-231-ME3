@@ -58,9 +58,59 @@ def load_and_split_corpus(
 
 
 _STOPWORDS = frozenset(
-    "a an and are as at be by can did do does for from has have how i in is it its me of on or "
-    "tell that the their then there this to was were what when where which who whom whose why "
-    "will with you your about give say".split()
+    [
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "can",
+        "did",
+        "do",
+        "does",
+        "for",
+        "from",
+        "has",
+        "have",
+        "how",
+        "i",
+        "in",
+        "is",
+        "it",
+        "its",
+        "me",
+        "of",
+        "on",
+        "or",
+        "tell",
+        "that",
+        "the",
+        "their",
+        "then",
+        "there",
+        "this",
+        "to",
+        "was",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "whom",
+        "whose",
+        "why",
+        "will",
+        "with",
+        "you",
+        "your",
+        "about",
+        "give",
+        "say",
+    ]
 )
 
 
