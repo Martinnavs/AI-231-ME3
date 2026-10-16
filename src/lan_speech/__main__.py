@@ -25,7 +25,7 @@ logger = logging.getLogger("lan_speech")
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m lan_speech")
     ap.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    ap.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    ap.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765)")
     ap.add_argument("--models", type=Path, default=Path("models"), help="Path to models directory")
     ap.add_argument(
         "--tts-steps", type=int, default=4, help="Supertonic synthesis steps (default: 4)"

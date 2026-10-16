@@ -55,7 +55,7 @@ class LanSpeechServer:
         stt_engine: STTEngine,
         tts_engine: TTSEngine,
         host: str = "127.0.0.1",
-        port: int = 8000,
+        port: int = 8765,
         token: str | None = None,
         insecure_loopback: bool = False,
     ) -> None:

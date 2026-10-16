@@ -266,8 +266,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m doc_chat")
     parser.add_argument(
         "--server",
-        default="ws://127.0.0.1:8000",
-        help="Speech server URL (default: ws://127.0.0.1:8000)",
+        default="ws://127.0.0.1:8765",
+        help="Speech server URL (default: ws://127.0.0.1:8765)",
     )
     parser.add_argument(
         "--docs",

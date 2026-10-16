@@ -75,7 +75,7 @@ async def connect_ws(url: str, token: str | None = None) -> Any:
 class DocChatSpeechClient:
     """Manages STT and TTS WebSocket sessions."""
 
-    def __init__(self, server_url: str = "ws://127.0.0.1:8000", token: str | None = None) -> None:
+    def __init__(self, server_url: str = "ws://127.0.0.1:8765", token: str | None = None) -> None:
         self.server_url = server_url
         self.token = token if token is not None else os.environ.get("LAN_SPEECH_TOKEN")
         self.stt_url = _format_ws_url(server_url, "stt")
