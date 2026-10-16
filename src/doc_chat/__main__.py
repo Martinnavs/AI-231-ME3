@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from doc_chat.chain import Answer, build_answer_chain
+from doc_chat.chain import Answer, build_answer_chain, build_chat_chain
 from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.speech import DocChatSpeechClient
 
@@ -44,23 +44,25 @@ async def async_main(args: argparse.Namespace) -> int:
             print("install the laptop group for --mic/--play", file=sys.stderr)
             return 2
 
-    # 1. Corpus & Retriever
-    chunks = load_and_split_corpus(args.docs)
-    from langchain_community.retrievers import BM25Retriever
-
-    retriever = BM25Retriever.from_documents(chunks, k=2, preprocess_func=tokenize)
-
-    # 2. LLM setup if requested
+    # 1. LLM setup if requested
     llm = None
     if args.llm == "qwen":
         from doc_chat.qwen import build_qwen_chat_model
 
         llm = build_qwen_chat_model()
 
-    # 3. Answer chain
-    chain = build_answer_chain(retriever, max_words=args.max_words, llm=llm)
+    # 2. Answer chain
+    if args.no_docs:
+        assert llm is not None
+        chain = build_chat_chain(llm, max_words=args.max_words)
+    else:
+        chunks = load_and_split_corpus(args.docs)
+        from langchain_community.retrievers import BM25Retriever
 
-    # 4. Speech Client
+        retriever = BM25Retriever.from_documents(chunks, k=2, preprocess_func=tokenize)
+        chain = build_answer_chain(retriever, max_words=args.max_words, llm=llm)
+
+    # 3. Speech client
     client = DocChatSpeechClient(server_url=args.server)
     await client.connect()
 
@@ -360,7 +362,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="LLM backend choice (none or qwen; default: none)",
     )
 
+    parser.add_argument(
+        "--no-docs",
+        action="store_true",
+        help="Skip retrieval: send each question straight to Qwen (needs --llm qwen)",
+    )
+
     args = parser.parse_args(argv)
+    if args.no_docs and args.llm != "qwen":
+        print("--no-docs needs --llm qwen", file=sys.stderr)
+        return 2
     try:
         return asyncio.run(async_main(args))
     except KeyboardInterrupt:

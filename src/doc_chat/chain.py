@@ -83,19 +83,55 @@ _SYSTEM_PROMPT = (
 )
 
 
+_CHAT_PROMPT = (
+    "You are a friendly voice assistant. Answer in at most two short sentences of plain spoken "
+    "English: no markdown, lists, or emoji. If you are not sure, say so briefly."
+)
+
+
 def clean_llm_reply(text: str) -> str:
     text = re.sub(r"<think>[\s\S]*?</think>", "", text)
     text = re.sub(r"^[\s\S]*?</think>", "", text)
     return strip_markdown(text)
 
 
-def _ask_llm(llm: BaseChatModel, context: str, question: str) -> str:
+def _ask_llm(llm: BaseChatModel, context: str | None, question: str) -> str:
     from langchain_core.output_parsers import StrOutputParser
     from langchain_core.prompts import ChatPromptTemplate
 
-    prompt = ChatPromptTemplate.from_messages([("system", _SYSTEM_PROMPT), ("user", "{question}")])
-    reply = (prompt | llm | StrOutputParser()).invoke({"context": context, "question": question})
+    system = _CHAT_PROMPT if context is None else _SYSTEM_PROMPT
+    prompt = ChatPromptTemplate.from_messages([("system", system), ("user", "{question}")])
+    variables = (
+        {"question": question} if context is None else {"context": context, "question": question}
+    )
+    reply = (prompt | llm | StrOutputParser()).invoke(variables)
     return clean_llm_reply(str(reply))
+
+
+_LLM_DOWN_TEXT = "Sorry, I couldn't reach the language model."
+
+
+def build_chat_chain(llm: BaseChatModel, *, max_words: int = 40) -> Runnable[str, Answer]:
+    """One-shot chat with no documents and no history."""
+
+    def _chat_fn(question: str) -> Answer:
+        t0 = time.perf_counter()
+        try:
+            reply = _ask_llm(llm, None, question)
+        except Exception as exc:
+            return Answer(
+                text=_LLM_DOWN_TEXT,
+                source=None,
+                retrieval_ms=0.0,
+                llm_ms=(time.perf_counter() - t0) * 1000.0,
+                llm_error=type(exc).__name__,
+            )
+        text = truncate_to_max_words(reply, max_words) or _LLM_DOWN_TEXT
+        return Answer(
+            text=text, source=None, retrieval_ms=0.0, llm_ms=(time.perf_counter() - t0) * 1000.0
+        )
+
+    return RunnableLambda(_chat_fn)
 
 
 def build_answer_chain(
