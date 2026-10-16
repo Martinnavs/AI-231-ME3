@@ -78,3 +78,33 @@ Each Kokoro call has a fixed cost of about 400 ms even for a one-word clause ("S
 ## Model files
 
 `uv run python scripts/fetch_laptop_models.py` downloads into `models/` and verifies SHA-256 (`--check` verifies only). It exits 2 naming the file on a missing download or checksum mismatch, and it prints licenses. Sources: sherpa from `huggingface.co/csukuangfj/...-2023-06-26`, Kokoro fp32 from `huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX` (`onnx/model.onnx`, saved as `kokoro-v1.0.onnx`), and Kokoro int8 + `voices-v1.0.bin` from the `thewh1teagle/kokoro-onnx` `model-files-v1.0` GitHub release.
+
+## Phase 1b — Supertonic 3 as the TTS alternative (2026-10-16)
+
+This was a follow-up evaluation after the Kokoro NO-GO, done at the user's request outside the ticket's original plan. Supertonic 3 (Supertone, about 99M parameters, ONNX Runtime CPU, Python SDK `supertonic` 1.3.1) was run in an isolated `uv run --no-project --with supertonic` environment, so the project's dependencies are unchanged. Voice `F1` was used, and each figure is the time for one whole `synthesize()` call.
+
+**License:** the SDK is MIT, but the model weights are **BigScience OpenRAIL-M**. That license is not Apache: it carries use-based restrictions (Attachment A). The human must accept it explicitly (A2).
+
+### Thread count × steps, 4C/8T i5-1145G7
+
+| Condition | Threads | Steps | "Sure," | 8 words | 25 words |
+|---|---|---|---|---|---|
+| battery, balanced | 1 | 4 | 475 | 766 | — |
+| battery, balanced | **2** | 4 | **320** | **483** | — |
+| battery, balanced | 4 | 4 | 410 | 591 | — |
+| battery, balanced | 8 | 4 | 735 | 947 | — |
+| battery, balanced | 2 | 8 | 564 | 860 | — |
+| battery, performance | 2 | 4 | 316 | 490 | — |
+| **AC, performance** | 2 | 2 | 136 | 213 | 631 |
+| **AC, performance** | 2 | **4** | **271** | **412** | 1083 |
+| **AC, performance** | 2 | 8 | 516 | 717 | 1873 |
+
+All times are p50 in ms. Battery rows are the median of 7 runs; AC rows are the median of 11.
+
+- **2 threads is fastest.** More intra-op threads make every row slower, and all 8 threads is about 2x worse than 2.
+- **The power profile barely matters on battery** (±5%). On AC with `performance` it is about 15% faster than battery at 2 threads.
+- **Quality, judged by the user by ear:** 4 steps with voice F1 is "decent, though still sounding robotic". 2 steps was not chosen.
+- **Long text at 4 steps:** a 132-word paragraph synthesized in 6.7 s for 45.4 s of audio (RTF 0.147, battery, library default threads).
+- **Against the gate:** at 4 steps, 2 threads, on AC, the TTS first-audio p50 is at the 400 ms gate when the first chunk is ≤ 8 words (412 ms). It passes with a short first clause (271 ms for "Sure,"). Whole 25-word sentences miss. Concurrency with STT has **not** been measured for Supertonic.
+
+`scripts/power_mode.sh max|balanced|save|status` switches the profile via `powerprofilesctl` without sudo and prints AC state, governor, EPP, turbo and average MHz.
