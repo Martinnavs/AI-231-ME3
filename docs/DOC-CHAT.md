@@ -72,10 +72,10 @@ Speak a question and pause. The terminal shows `hearing:` while you talk, then `
 
 By default the answer is the best-matching passage. To have Qwen answer instead, add `--llm qwen`:
 ```bash
-export ONIT_API_KEY=...   # the same variable opencode's upd-ai provider reads
+uv run --group laptop python -m doc_chat.qwen    # connectivity check: prints only ok / the failure reason
 uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter --llm qwen
 ```
-The server URL and model id are read at runtime from `~/.config/opencode/opencode.json` (provider `upd-ai`); the key only ever comes from `ONIT_API_KEY`.
+Credentials are read at runtime and never printed. The API key comes from `~/.secrets/onit/api_key.txt` (then env `ONIT_API_KEY`), the server address from `~/.secrets/onit/host_address.txt` (then env `ONIT_BASE_URL`, then opencode's `upd-ai` provider; a bare `host:port` becomes `http://host:port/v1`), and the model id from env `ONIT_MODEL` or opencode's `upd-ai` provider. `ONIT_SECRETS_DIR` points to a different directory.
 
 - **One shot, no memory:** every question is a fresh call with just a system prompt, the top 2 retrieved passages as context, and the question.
 - Thinking is switched off (`enable_thinking: false`), replies are capped at 160 tokens and 30 s, and the answer is cut to `--max-words` at a sentence end.

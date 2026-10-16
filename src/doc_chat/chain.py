@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.runnables import Runnable, RunnableLambda
 
+from doc_chat.qwen import describe_failure
 from lan_speech.protocol import split_sentences
 
 if TYPE_CHECKING:
@@ -124,7 +125,7 @@ def build_chat_chain(llm: BaseChatModel, *, max_words: int = 40) -> Runnable[str
                 source=None,
                 retrieval_ms=0.0,
                 llm_ms=(time.perf_counter() - t0) * 1000.0,
-                llm_error=type(exc).__name__,
+                llm_error=describe_failure(exc),
             )
         text = truncate_to_max_words(reply, max_words) or _LLM_DOWN_TEXT
         return Answer(
@@ -176,7 +177,7 @@ def build_answer_chain(
                 source=source,
                 retrieval_ms=retrieval_ms,
                 llm_ms=(time.perf_counter() - t1) * 1000.0,
-                llm_error=type(exc).__name__,
+                llm_error=describe_failure(exc),
             )
         llm_ms = (time.perf_counter() - t1) * 1000.0
         text = truncate_to_max_words(reply, max_words) or _NO_HIT_TEXT

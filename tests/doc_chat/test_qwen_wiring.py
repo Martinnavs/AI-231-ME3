@@ -149,3 +149,101 @@ def test_no_docs_requires_qwen(capsys: pytest.CaptureFixture[str]) -> None:
 
     assert main(["--text", "hi", "--no-docs"]) == 2
     assert "--no-docs needs --llm qwen" in capsys.readouterr().err
+
+
+def _fake_endpoint(seen: list[dict[str, Any]]) -> HTTPServer:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            seen.append({"path": self.path, "auth": self.headers.get("Authorization")})
+            self.rfile.read(int(self.headers["Content-Length"]))
+            payload = json.dumps(
+                {
+                    "id": "x",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "m",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {"role": "assistant", "content": "ready"},
+                        }
+                    ],
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    httpd = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd
+
+
+def test_secret_files_win_over_env_and_address_is_normalized(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from doc_chat.qwen import build_qwen_chat_model
+
+    seen: list[dict[str, Any]] = []
+    httpd = _fake_endpoint(seen)
+    try:
+        (tmp_path / "api_key.txt").write_text("file-key\n")
+        (tmp_path / "host_address.txt").write_text(f"127.0.0.1:{httpd.server_address[1]}\n")
+        monkeypatch.setenv("ONIT_SECRETS_DIR", str(tmp_path))
+        monkeypatch.setenv("ONIT_API_KEY", "env-key")
+        monkeypatch.setenv("ONIT_BASE_URL", "http://127.0.0.1:1")
+        monkeypatch.setenv("ONIT_MODEL", "fake/Qwen")
+        llm = build_qwen_chat_model()
+        llm.invoke("hi")
+    finally:
+        httpd.shutdown()
+
+    assert seen == [{"path": "/v1/chat/completions", "auth": "Bearer file-key"}]
+
+
+def test_env_is_the_fallback_when_files_are_missing(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from doc_chat.qwen import build_qwen_chat_model
+
+    seen: list[dict[str, Any]] = []
+    httpd = _fake_endpoint(seen)
+    try:
+        monkeypatch.setenv("ONIT_SECRETS_DIR", str(tmp_path / "missing"))
+        monkeypatch.setenv("ONIT_API_KEY", "env-key")
+        monkeypatch.setenv("ONIT_BASE_URL", f"http://127.0.0.1:{httpd.server_address[1]}/v1/")
+        monkeypatch.setenv("ONIT_MODEL", "fake/Qwen")
+        build_qwen_chat_model().invoke("hi")
+    finally:
+        httpd.shutdown()
+
+    assert seen[0]["auth"] == "Bearer env-key"
+
+
+def test_not_configured_and_failure_text_never_contain_values(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from doc_chat.qwen import build_qwen_chat_model, describe_failure, normalize_base_url
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("ONIT_SECRETS_DIR", str(tmp_path / "none"))
+    for var in ("ONIT_API_KEY", "ONIT_BASE_URL", "ONIT_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    with pytest.raises(SystemExit) as exc:
+        build_qwen_chat_model()
+    assert exc.value.code == 2
+    assert capsys.readouterr().err.strip() == "qwen backend not configured"
+
+    class Rejected(Exception):
+        status_code = 401
+
+    msg = describe_failure(Rejected("Bearer sk-secret at http://10.0.0.1"))
+    assert "sk-secret" not in msg and "10.0.0.1" not in msg and "401" in msg
+    assert normalize_base_url(" 10.0.0.1:8000 ") == "http://10.0.0.1:8000/v1"
+    assert normalize_base_url("https://h/v1/") == "https://h/v1"
