@@ -68,6 +68,35 @@ Speak a question and pause. The terminal shows `hearing:` while you talk, then `
 - It is half-duplex: the mic is closed while the answer plays, so use speakers or headphones without worrying about echo. Barge-in is not supported in mic mode.
 - In mic mode `speech_end_to_first_audio_ms` runs from the moment the end-of-turn transcript arrived, so the server's trailing-silence wait (`--endpoint-silence`) is on top of it, and `stt_final_ms` is null.
 
+## Answering with Qwen
+
+By default the answer is the best-matching passage. To have Qwen answer instead, add `--llm qwen`:
+```bash
+export ONIT_API_KEY=...   # the same variable opencode's upd-ai provider reads
+uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter --llm qwen
+```
+The server URL and model id are read at runtime from `~/.config/opencode/opencode.json` (provider `upd-ai`); the key only ever comes from `ONIT_API_KEY`.
+
+- **One shot, no memory:** every question is a fresh call with just a system prompt, the top 2 retrieved passages as context, and the question.
+- Thinking is switched off (`enable_thinking: false`), replies are capped at 160 tokens and 30 s, and the answer is cut to `--max-words` at a sentence end.
+- If the call fails (timeout, bad key, server down) the retrieved passage is spoken instead and the turn log records `llm_error`.
+- Each turn log line gains `llm_ms`, and the summary prints an `llm_ms` row. `speech_end_to_first_audio_ms` includes it.
+- Not covered by automated tests against the real server: that needs your key. Tests use a local fake OpenAI-compatible endpoint.
+
+## How speech is chunked and paced
+
+The server speaks an answer chunk by chunk, in order. A chunk ends at `, ; : . ! ?` followed by a space or the end of the text, optionally with a closing quote or bracket (so `."` ends a sentence). A period after initials or an abbreviation (`J.K.`, `Dr.`, `Mr.`, `e.g.`) is not a boundary, so "J.K. Rowling" is read as one. A first chunk over 6 words is split after word 6 so audio starts sooner.
+
+Supertonic pads every chunk with 0.3–0.6 s of silence, which made gaps of about 1 s. The server trims that and inserts its own pause after each chunk, shortest for commas:
+
+| After | Default pause | Flag |
+|---|---|---|
+| `,` | 0.12 s | `--comma-pause` |
+| `;` `:` | midpoint (0.26 s) | derived |
+| `.` `!` `?` | 0.40 s | `--sentence-pause` |
+
+Measured gaps include about 80 ms of edge margin on top. Speech becomes audible about 0.5 s after the request instead of about 0.9 s.
+
 ## Latency Results (40 Synthetic Turns)
 
 - **Hardware:** HP EliteBook 840 G8, Intel Core i5-1145G7 (4C/8T)

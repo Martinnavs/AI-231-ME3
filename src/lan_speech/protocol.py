@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -244,24 +245,87 @@ def unpack_tts_audio(data: bytes) -> tuple[int, bytes]:
     return context, data[4:]
 
 
-def split_clauses(text: str) -> list[str]:
-    """Split speak text at clause boundaries (, ; : . ! ?).
+COMMA_PAUSE_S = 0.12
+CLAUSE_PAUSE_S = 0.22
+SENTENCE_PAUSE_S = 0.40
 
-    If the first chunk is longer than 6 words, split it again at the first
-    word boundary after word 6.
+_BOUNDARY = re.compile(r"[,;:.!?][\"')\]\u201d\u2019]*(?=\s|$)")
+_ABBREVIATIONS = frozenset(
+    ["mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "mt"]
+    + ["gen", "col", "capt", "lt", "sgt", "rev", "hon", "e.g", "i.e"]
+)
+_INITIALS = re.compile(r"(?:[A-Z]\.)*[A-Z]")
+
+
+def _is_boundary(text: str, match: re.Match[str]) -> bool:
+    if text[match.start()] != ".":
+        return True
+    before = text[: match.start()].split()
+    if not before:
+        return True
+    token = before[-1].lstrip("\"'([\u201c\u2018")
+    if token.lower() in _ABBREVIATIONS:
+        return False
+    return not (_INITIALS.fullmatch(token) and token != "I")
+
+
+def _pause_for(mark: str, comma_s: float, sentence_s: float) -> float:
+    if mark == ",":
+        return comma_s
+    if mark in ";:":
+        return (comma_s + sentence_s) / 2
+    return sentence_s
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split at sentence ends (. ! ?), keeping initials like J.K. and Dr. intact."""
+    sentences: list[str] = []
+    start = 0
+    for m in _BOUNDARY.finditer(text):
+        if text[m.start()] in ".!?" and _is_boundary(text, m):
+            sentences.append(text[start : m.end()].strip())
+            start = m.end()
+    tail = text[start:].strip()
+    if tail:
+        sentences.append(tail)
+    return [x for x in sentences if x]
+
+
+def split_speech_chunks(
+    text: str,
+    comma_pause_s: float = COMMA_PAUSE_S,
+    sentence_pause_s: float = SENTENCE_PAUSE_S,
+) -> list[tuple[str, float]]:
+    """Split speak text into (chunk, pause_after_s) pairs, in speaking order.
+
+    Chunks end at `, ; : . ! ?` followed by whitespace; periods after initials or
+    abbreviations do not count. A first chunk longer than 6 words is split again
+    after word 6 (no pause there). The last chunk has no trailing pause.
     """
-    import re
-
     cleaned = text.strip()
     if not cleaned:
         return []
-    parts = [p.strip() for p in re.split(r"(?<=[,;:.!?])\s+", cleaned) if p.strip()]
-    if not parts:
-        parts = [cleaned]
-    first = parts[0]
+    chunks: list[tuple[str, float]] = []
+    start = 0
+    for m in _BOUNDARY.finditer(cleaned):
+        if not _is_boundary(cleaned, m):
+            continue
+        piece = cleaned[start : m.end()].strip()
+        if piece:
+            chunks.append((piece, _pause_for(cleaned[m.start()], comma_pause_s, sentence_pause_s)))
+        start = m.end()
+    tail = cleaned[start:].strip()
+    if tail:
+        chunks.append((tail, 0.0))
+    if not chunks:
+        chunks = [(cleaned, 0.0)]
+    first, first_pause = chunks[0]
     words = first.split()
     if len(words) > 6:
-        c1 = " ".join(words[:6])
-        rest = " ".join(words[6:])
-        parts = [c1, rest] + parts[1:]
-    return parts
+        chunks[:1] = [(" ".join(words[:6]), 0.0), (" ".join(words[6:]), first_pause)]
+    chunks[-1] = (chunks[-1][0], 0.0)
+    return chunks
+
+
+def split_clauses(text: str) -> list[str]:
+    return [chunk for chunk, _pause in split_speech_chunks(text)]

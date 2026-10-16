@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.runnables import Runnable, RunnableLambda
 
+from lan_speech.protocol import split_sentences
+
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -18,6 +20,8 @@ class Answer:
     text: str
     source: str | None
     retrieval_ms: float
+    llm_ms: float | None = None
+    llm_error: str | None = None
 
 
 _NO_HIT_TEXT = "I couldn't find that in the documents."
@@ -54,8 +58,7 @@ def truncate_to_max_words(text: str, max_words: int) -> str:
     if len(words) <= max_words:
         return text
 
-    raw_sentences = re.split(r"(?<=[.!?])\s+", text)
-    sentences = [s.strip() for s in raw_sentences if s.strip()]
+    sentences = split_sentences(text)
 
     accumulated: list[str] = []
     current_count = 0
@@ -71,6 +74,28 @@ def truncate_to_max_words(text: str, max_words: int) -> str:
         return " ".join(accumulated)
 
     return " ".join(words[:max_words])
+
+
+_SYSTEM_PROMPT = (
+    "You are a voice assistant. Answer the question in at most two short sentences of plain "
+    "spoken English: no markdown, lists, or emoji. Use only the context below. If the context "
+    "does not contain the answer, say you don't know.\n\nContext:\n{context}"
+)
+
+
+def clean_llm_reply(text: str) -> str:
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text)
+    text = re.sub(r"^[\s\S]*?</think>", "", text)
+    return strip_markdown(text)
+
+
+def _ask_llm(llm: BaseChatModel, context: str, question: str) -> str:
+    from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
+
+    prompt = ChatPromptTemplate.from_messages([("system", _SYSTEM_PROMPT), ("user", "{question}")])
+    reply = (prompt | llm | StrOutputParser()).invoke({"context": context, "question": question})
+    return clean_llm_reply(str(reply))
 
 
 def build_answer_chain(
@@ -102,25 +127,23 @@ def build_answer_chain(
                 return Answer(text=_NO_HIT_TEXT, source=None, retrieval_ms=retrieval_ms)
             ans_text = truncate_to_max_words(cleaned, max_words)
             return Answer(text=ans_text, source=source, retrieval_ms=retrieval_ms)
-        else:
-            from langchain_core.output_parsers import StrOutputParser
-            from langchain_core.prompts import ChatPromptTemplate
-
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    (
-                        "system",
-                        "Answer in <= 2 short sentences using only this context:\n\n{context}",
-                    ),
-                    ("user", "{question}"),
-                ]
+        context = "\n\n".join(
+            strip_markdown(d.page_content if hasattr(d, "page_content") else str(d)) for d in docs
+        )
+        t1 = time.perf_counter()
+        try:
+            reply = _ask_llm(llm, context, question)
+        except Exception as exc:
+            fallback = truncate_to_max_words(strip_markdown(top_doc.page_content), max_words)
+            return Answer(
+                text=fallback or _NO_HIT_TEXT,
+                source=source,
+                retrieval_ms=retrieval_ms,
+                llm_ms=(time.perf_counter() - t1) * 1000.0,
+                llm_error=type(exc).__name__,
             )
-            context = "\n\n".join(
-                d.page_content if hasattr(d, "page_content") else str(d) for d in docs
-            )
-            llm_chain = prompt | llm | StrOutputParser()
-            output = llm_chain.invoke({"context": context, "question": question})
-            ans_str = str(output).strip()
-            return Answer(text=ans_str, source=source, retrieval_ms=retrieval_ms)
+        llm_ms = (time.perf_counter() - t1) * 1000.0
+        text = truncate_to_max_words(reply, max_words) or _NO_HIT_TEXT
+        return Answer(text=text, source=source, retrieval_ms=retrieval_ms, llm_ms=llm_ms)
 
     return RunnableLambda(_answer_fn)

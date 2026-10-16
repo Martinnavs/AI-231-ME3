@@ -142,3 +142,41 @@ def test_split_clauses() -> None:
         "Fourth clause?",
         "Fifth clause.",
     ]
+
+
+def test_split_speech_chunks_keeps_initials_and_abbreviations() -> None:
+    from lan_speech.protocol import split_sentences, split_speech_chunks
+
+    text = "J.K. Rowling wrote it. Dr. Smith agreed, e.g. in Paris."
+    assert split_sentences(text) == ["J.K. Rowling wrote it.", "Dr. Smith agreed, e.g. in Paris."]
+    chunks = [c for c, _ in split_speech_chunks(text)]
+    assert chunks[0] == "J.K. Rowling wrote it."
+    assert "Dr. Smith agreed," in chunks
+    assert not any(c.endswith(("J.K.", "Dr.", "e.g.")) for c in chunks)
+
+
+def test_split_speech_chunks_quote_enders_and_i_period() -> None:
+    from lan_speech.protocol import split_sentences
+
+    assert split_sentences('He said "stop." Then he left. So did I. Bye') == [
+        'He said "stop."',
+        "Then he left.",
+        "So did I.",
+        "Bye",
+    ]
+
+
+def test_pauses_are_shorter_for_commas_than_sentence_ends() -> None:
+    from lan_speech.protocol import (
+        COMMA_PAUSE_S,
+        SENTENCE_PAUSE_S,
+        split_speech_chunks,
+    )
+
+    chunks = split_speech_chunks("Well, yes; indeed: fine. Done!")
+    pauses = {c: p for c, p in chunks}
+    assert pauses["Well,"] == COMMA_PAUSE_S
+    assert pauses["fine."] == SENTENCE_PAUSE_S
+    assert COMMA_PAUSE_S < pauses["yes;"] < SENTENCE_PAUSE_S
+    assert chunks[-1][1] == 0.0
+    assert COMMA_PAUSE_S < SENTENCE_PAUSE_S

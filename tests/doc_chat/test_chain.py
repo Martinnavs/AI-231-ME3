@@ -118,3 +118,50 @@ def test_qwen_not_configured(
     assert "qwen backend not configured" in captured.err
     # Verify no secret values printed
     assert "key" not in captured.err.lower() or "not configured" in captured.err
+
+
+class _StubRetriever:
+    def __init__(self, text: str) -> None:
+        from langchain_core.documents import Document
+
+        self._docs = [Document(page_content=text, metadata={"source": "stub.md"})]
+
+    def invoke(self, question: str) -> list:  # type: ignore[type-arg]
+        return self._docs
+
+
+def test_llm_one_shot_strips_thinking_and_markdown() -> None:
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    from doc_chat.chain import build_answer_chain
+
+    llm = FakeListChatModel(responses=["<think>hmm</think>**Harry** is a *wizard*. He is brave."])
+    chain = build_answer_chain(_StubRetriever("Harry is a wizard."), max_words=40, llm=llm)
+    ans = chain.invoke("Who is Harry?")
+    assert ans.text == "Harry is a wizard. He is brave."
+    assert ans.llm_ms is not None and ans.llm_ms >= 0
+    assert ans.llm_error is None
+
+
+def test_llm_failure_falls_back_to_retrieved_text() -> None:
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    from doc_chat.chain import build_answer_chain
+
+    class Boom(FakeListChatModel):
+        def _call(self, *a: object, **k: object) -> str:
+            raise TimeoutError("down")
+
+    chain = build_answer_chain(
+        _StubRetriever("Harry is a wizard."), max_words=40, llm=Boom(responses=["x"])
+    )
+    ans = chain.invoke("Who is Harry?")
+    assert ans.text == "Harry is a wizard."
+    assert ans.llm_error == "TimeoutError"
+
+
+def test_truncate_does_not_split_on_initials() -> None:
+    from doc_chat.chain import truncate_to_max_words
+
+    text = "J.K. Rowling wrote seven books. " + "More words here. " * 10
+    assert truncate_to_max_words(text, 7) == "J.K. Rowling wrote seven books."
