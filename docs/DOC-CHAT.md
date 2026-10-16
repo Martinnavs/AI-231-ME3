@@ -67,7 +67,6 @@ Speak a question and pause. The terminal shows `hearing:` while you talk, then `
 
 - It is half-duplex: the mic is closed while the answer plays, so use speakers or headphones without worrying about echo. Barge-in is not supported in mic mode.
 - In mic mode `speech_end_to_first_audio_ms` runs from the moment the end-of-turn transcript arrived, so the server's trailing-silence wait (`--endpoint-silence`) is on top of it, and `stt_final_ms` is null.
-- Pick another input device with the `SD_DEVICE` style defaults of your system (list them with `python -m sounddevice`).
 
 ## Latency Results (40 Synthetic Turns)
 
