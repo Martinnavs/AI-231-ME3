@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from doc_chat.chain import Answer, build_answer_chain
-from doc_chat.corpus import load_and_split_corpus
+from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.speech import DocChatSpeechClient
 
 
@@ -48,7 +48,7 @@ async def async_main(args: argparse.Namespace) -> int:
     chunks = load_and_split_corpus(args.docs)
     from langchain_community.retrievers import BM25Retriever
 
-    retriever = BM25Retriever.from_documents(chunks, k=2)
+    retriever = BM25Retriever.from_documents(chunks, k=2, preprocess_func=tokenize)
 
     # 2. LLM setup if requested
     llm = None

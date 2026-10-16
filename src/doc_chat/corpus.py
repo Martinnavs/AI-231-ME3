@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -54,3 +55,27 @@ def load_and_split_corpus(
         sys.exit(2)
 
     return list(chunks)
+
+
+_STOPWORDS = frozenset(
+    "a an and are as at be by can did do does for from has have how i in is it its me of on or "
+    "tell that the their then there this to was were what when where which who whom whose why "
+    "will with you your about give say".split()
+)
+
+
+def tokenize(text: str) -> list[str]:
+    tokens = []
+    for raw in re.findall(r"[a-z0-9']+", text.lower().replace("\u2019", "'")):
+        word = raw.removesuffix("'s").strip("'")
+        if word.endswith(("xes", "ches", "shes", "sses")):
+            word = word[:-2]
+        elif word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+            word = word[:-1]
+        if len(word) > 5 and word.endswith("ing"):
+            word = word[:-3]
+        elif len(word) > 4 and word.endswith("ed"):
+            word = word[:-2]
+        if word and word not in _STOPWORDS:
+            tokens.append(word)
+    return tokens

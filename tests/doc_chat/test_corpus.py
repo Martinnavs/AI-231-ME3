@@ -45,3 +45,12 @@ def test_missing_corpus_exits_2(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc_info:
         load_and_split_corpus(missing_dir)
     assert exc_info.value.code == 2
+
+
+def test_tokenize_matches_spoken_uppercase_and_plurals():
+    from doc_chat.corpus import tokenize
+
+    assert tokenize("WHAT IS A HORCRUX?") == ["horcrux"]
+    assert tokenize("The Horcruxes") == ["horcrux"]
+    assert tokenize("Dumbledore's") == ["dumbledore"]
+    assert tokenize("WHO KILLED DUMBLEDORE") == ["kill", "dumbledore"]
