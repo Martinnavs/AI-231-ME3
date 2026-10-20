@@ -11,10 +11,14 @@ from lan_speech.transcript_repair import (
     Risk,
     Rung,
     Word,
+    build_matchers,
     find_matches,
+    infer_context,
     phonemes,
     phonetic_distance,
     repair,
+    repair_text,
+    repair_to_dict,
 )
 
 NAMES = [
@@ -145,3 +149,71 @@ def test_matches_do_not_overlap_and_keep_position_order(matcher: EntityMatcher) 
     spans = [(m.start, m.end) for m in ms]
     assert spans == sorted(spans)
     assert all(a[1] <= b[0] for a, b in zip(spans, spans[1:], strict=False))
+
+
+def test_a_leading_ordinary_word_must_sound_like_the_name(matcher: EntityMatcher) -> None:
+    m = EntityMatcher([Entity("Katrina", "contact")])
+    ms = find_matches(words("call rowana"), m, Risk.HIGH)
+    assert all("call" not in match.heard for match in ms)
+
+
+def test_names_that_begin_with_an_ordinary_word_still_match() -> None:
+    m = EntityMatcher([Entity("The Weeknd", "artist")])
+    ms = find_matches(words("play the weekned"), m)
+    assert [match.entity.name for match in ms] == ["The Weeknd"]
+    assert ms[0].heard == "the weekned"
+
+
+@pytest.mark.parametrize(
+    ("text", "slot", "risk"),
+    [
+        ("Call Jocelyn", "contact", Risk.HIGH),
+        ("called Jocelyn", "contact", Risk.HIGH),
+        ("Can you please text Angelo", "contact", Risk.HIGH),
+        ("playing Opalite", "music", Risk.LOW),
+        ("Put on some BINI", "music", Risk.LOW),
+        ("What is the weather in Cebu", "place", Risk.LOW),
+        ("Book me a Grab to Makati", "brand+place", Risk.LOW),
+        ("Who won the Nobel prize", None, Risk.LOW),
+        ("", None, Risk.LOW),
+    ],
+)
+def test_the_slot_and_risk_are_guessed_from_the_first_verb(
+    text: str, slot: str | None, risk: Risk
+) -> None:
+    assert infer_context(text) == (slot, risk)
+
+
+def test_a_combined_slot_searches_every_listed_kind() -> None:
+    matchers = build_matchers([Entity("Grab", "brand"), Entity("Makati", "place")])
+    r = repair_text("book a grap to makaty", matchers, "brand+place", Risk.LOW)
+    assert r is not None
+    assert {m.entity.name for m in r.matches} == {"Grab", "Makati"}
+    assert r.question is None
+
+
+def test_no_list_for_the_slot_means_no_repair() -> None:
+    matchers = build_matchers([Entity("Grab", "brand")])
+    assert repair_text("call jocelyn", matchers, "contact", Risk.HIGH) is None
+    assert repair_text("call jocelyn", matchers, None, Risk.LOW) is None
+
+
+def test_the_slot_question_uses_a_natural_noun(matcher: EntityMatcher) -> None:
+    r = repair(words("play something"), matcher, expected_category="song")
+    assert r.question == "Which song was that?"
+    m = EntityMatcher([Entity("Opalite", "music")])
+    assert repair(words("play it"), m, expected_category="music").question == (
+        "Which artist or song was that?"
+    )
+
+
+def test_the_repair_summary_for_the_protocol_is_json_friendly() -> None:
+    matchers = build_matchers([Entity("Opalite", "music")])
+    r = repair_text("play opalate", matchers, "music", Risk.LOW)
+    assert r is not None
+    d = repair_to_dict(r, "music", Risk.LOW)
+    assert d["rung"] == "silent" and d["slot"] == "music" and d["risk"] == "low"
+    assert d["matches"][0]["entity"] == "Opalite"  # type: ignore[index]
+    import json
+
+    json.dumps(d)

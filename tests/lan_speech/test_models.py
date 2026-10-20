@@ -83,3 +83,7 @@ def test_real_parakeet_files_match_the_pinned_hashes_when_present() -> None:
     if not all((root / e.path).is_file() for e in entries):
         pytest.skip("Parakeet files not downloaded")
     assert all(sha256_of(root / e.path) == e.sha256 for e in entries)
+
+
+def test_the_parakeet_engine_needs_kroko_for_streaming_and_parakeet_for_finals() -> None:
+    assert required_dirs("parakeet") == {KROKO_DIR, PARAKEET_DIR, SUPERTONIC_DIR}

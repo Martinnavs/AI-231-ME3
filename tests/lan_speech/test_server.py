@@ -14,7 +14,7 @@ import pytest
 websockets = pytest.importorskip("websockets")
 from websockets.asyncio.client import connect  # noqa: E402
 
-from lan_speech.engines import FakeSTTEngine, FakeTTSEngine  # noqa: E402
+from lan_speech.engines import FakeSTTEngine, FakeTTSEngine, STTDecodeResult  # noqa: E402
 from lan_speech.protocol import (  # noqa: E402
     CancelMessage,
     DoneMessage,
@@ -316,3 +316,81 @@ async def test_tts_two_contexts_busy(
             err = ErrorMessage.from_json(msg)
             assert err.status == 409
             assert err.reason == "context busy"
+
+
+class ContextStream:
+    """Engine stream that records the hints it is given and returns repair details."""
+
+    def __init__(self, log: list[tuple[str | None, str | None]], answer: bool) -> None:
+        self.log = log
+        self.answer = answer
+        self.chunks = 0
+
+    def set_context(self, slot: str | None, risk: str | None) -> None:
+        self.log.append((slot, risk))
+
+    def accept_waveform(self, sample_rate: int, pcm_bytes: bytes) -> None:
+        self.chunks += 1
+
+    def decode(self) -> STTDecodeResult | None:
+        if self.answer and self.chunks == 1:
+            return STTDecodeResult(
+                "call angeilo",
+                True,
+                True,
+                raw_text="call angeilo",
+                repair={"rung": "confirm", "question": "Did you mean Angelo?"},
+            )
+        return None
+
+    def finalize(self) -> str:
+        return "plain"
+
+    def finalize_result(self) -> STTDecodeResult:
+        return STTDecodeResult(
+            "call Angelo", True, True, raw_text="call angeilo", repair={"rung": "silent"}
+        )
+
+    def reset(self) -> None:
+        pass
+
+
+async def test_stt_hints_reach_every_stream_and_repair_details_reach_the_client() -> None:
+    log: list[tuple[str | None, str | None]] = []
+    port = find_free_port()
+    server = LanSpeechServer(
+        stt_engine=FakeSTTEngine(stream_factory=lambda: ContextStream(log, answer=not log)),
+        tts_engine=FakeTTSEngine(),
+        host="127.0.0.1",
+        port=port,
+        insecure_loopback=True,
+    )
+    await server.start()
+    try:
+        async with ws_connect(f"ws://127.0.0.1:{port}/stt") as ws:
+            await ws.send(StartMessage(slot="contact", risk="high").to_json())
+            await ws.send(b"\x00\x00" * 1600)
+            first = TranscriptMessage.from_json(json.loads(await ws.recv()))
+            assert first.is_final and first.raw_text == "call angeilo"
+            assert first.repair == {"rung": "confirm", "question": "Did you mean Angelo?"}
+
+            # the turn ended, so the next audio opens a new stream: it must get the hints too
+            await ws.send(b"\x00\x00" * 1600)
+            await ws.send(FinalizeMessage().to_json())
+            second = TranscriptMessage.from_json(json.loads(await ws.recv()))
+            assert second.text == "call Angelo" and second.repair == {"rung": "silent"}
+    finally:
+        await server.stop()
+    assert log == [("contact", "high"), ("contact", "high")]
+
+
+async def test_stt_without_hints_or_details_keeps_the_old_wire_format(
+    test_server: tuple[LanSpeechServer, int, str],
+) -> None:
+    _, port, token = test_server
+    headers = {"Authorization": f"Bearer {token}"}
+    async with ws_connect(f"ws://127.0.0.1:{port}/stt", additional_headers=headers) as ws:
+        await ws.send(json.dumps({"type": "start", "sample_rate": 16000}))
+        await ws.send(b"\x00\x00" * 1600)
+        interim = json.loads(await ws.recv())
+        assert set(interim) == {"type", "text", "is_final", "end_of_turn", "t_audio_end_s"}

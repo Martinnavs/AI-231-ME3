@@ -263,12 +263,16 @@ def verify(models: Path, entry: ModelFile) -> str | None:
     return None
 
 
-STT_MODELS = {"kroko": KROKO_DIR, "zipformer": SHERPA_DIR}
+STT_MODELS = {
+    "kroko": (KROKO_DIR,),
+    "zipformer": (SHERPA_DIR,),
+    "parakeet": (KROKO_DIR, PARAKEET_DIR),  # Kroko streams and ends turns, Parakeet finalises
+}
 
 
 def required_dirs(stt_model: str) -> frozenset[str]:
     """Model folders the server needs: the chosen STT model and Supertonic."""
-    return frozenset({STT_MODELS[stt_model], SUPERTONIC_DIR})
+    return frozenset({*STT_MODELS[stt_model], SUPERTONIC_DIR})
 
 
 def in_dirs(path: str, dirs: frozenset[str] | None) -> bool:

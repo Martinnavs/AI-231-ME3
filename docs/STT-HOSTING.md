@@ -121,22 +121,49 @@ What it took to stop doing harm (first version: 18-31 false fixes and up to 11 b
 3. **Length gate** on the sound strings, so "angelo hello" cannot become "Angelo".
 4. **Slot awareness.** Match only against names of the kind the agent expects (contact for "call", music for "play"). This removed the remaining false fixes.
 
-Result with all four (hotword decode as input; hard = tuning set with the answers in the list, held-out = names mostly not in the list):
+Later changes (found while trying it on the live server): a leading or trailing ordinary word must sound like the name's own first or last word ("call" in "call rowana" is not part of the name, but "The" in "The Weeknd" is); an ordinary word that sounds *identical* to a listed name is that name respelled ("Christine" for Kristine); weak guesses (distance above 0.30) are no longer offered as "did you mean" and the slot question is asked instead; the slot may combine kinds ("brand+place" for "book a Grab to Makati"). The slot question reads "Which artist or song was that?".
 
-| mode | set | entities after hotwords | + auto repair | + asks counted | false fixes | names broken | WER |
-|---|---|---|---|---|---|---|---|
-| global list | hard | 88% | 89% | 90% | 2 | 1 | 4.7% -> 4.4% |
-| global list | held-out | 63% | 60% | 63% | 2-3 | 1 | 9.3% -> 10.0% |
-| **slot-aware** | hard | 88% | 89% | 92% | 1 | 1 | 4.7% -> 4.4% |
-| **slot-aware** | held-out | 63% | 63% | 65% | **0** | **0** | **9.3% -> 9.3%** |
+Result with all of it (hotword decode as input; slot-aware, no confidence, default thresholds; hard = tuning set with the answers in the list, held-out = names mostly not in the list):
 
-Held-out, slot-aware: 4 "did you mean" questions (1 offered the right name) and 9 "which <slot>" questions, 7 of them on clips where the name was in fact mis-heard. The sweep on the hard set preferred silent 0.08, implicit 0.20, confirm 0.40, margin 0.04 over the defaults in `RepairConfig` (0.16 / 0.26 / 0.38 / 0.06); both gave the same held-out result, so the defaults were left as they are.
+| set | entities after hotwords | + auto repair | + asks counted | false fixes | names broken | WER |
+|---|---|---|---|---|---|---|
+| hard | 88% | 93% | 94% | 1 | 1 | 4.7% -> 3.4% |
+| held-out | 63% | 65% | 67% | **0** | **0** | 9.3% -> 9.0% |
+
+Held-out: 1 "did you mean" (right name), 11 "which <slot>" questions, 8 of them on clips where the name really was mis-heard. The sweep's best on the hard set (silent 0.08, implicit 0.20, confirm 0.40, margin 0.04) gave the same held-out recall with more, mostly wrong, guesses, so the defaults (0.16 / 0.26 / 0.30 / 0.06) were kept. The eval scores one slot per clip; multi-slot ("brand+place") is only exercised by the unit tests and the live tryout.
 
 **Read this honestly:**
-- **The automatic fix adds little once hotwords are on** (+2 entities hard, 0 held-out). Hotwords already recover most of what sound matching can; what is left is mostly names not in the list, which no list-based matcher can fix. The earlier prototype's 71-80% was an unguarded matcher against a list containing the answers and should be ignored.
+- **The automatic fix adds a few points once hotwords are on** (+5 entities hard, +1 held-out). Hotwords already recover most of what sound matching can; what is left is mostly names not in the list, which no list-based matcher can fix. The earlier prototype's 71-80% was an unguarded matcher against a list containing the answers and should be ignored.
 - **The ladder's value is safety, not recall:** with slot awareness it never breaks a correct transcript, and it knows when a required name was not found, so the agent can ask instead of calling the wrong person.
 - **Decoder confidence added nothing** (identical results with and without a greedy-pass confidence per word), so the design needs no second decode. Note that with hotwords on, `ys_log_probs` of boosted tokens are positive (the bonus is baked in), so confidence from the hotword decode is not usable anyway.
 - Fragile spots: `COMMON_WORDS`/CMUdict also contains many names ("Binnie" is a CMU entry), so those are protected from repair; slot labels come from the caller and were assigned by hand for the test clips (`slot` field in the clip scripts); risk (high for call/text/message/send) is inferred from the first word; the sample is 95 clips from one speaker.
+
+## Running the Parakeet engine (`--stt-model parakeet`)
+
+**What it is:** a hybrid. Kroko streams interim text and detects pauses, as before. When a turn ends (Kroko's endpoint, or a `finalize` message), the buffered audio is re-decoded by Parakeet with hotwords from a names file, and the text goes through the repair ladder. Interim transcripts are therefore Kroko's (weaker); finals are Parakeet's. Kroko stays the default engine; nothing changes unless you pass the flag.
+
+```bash
+uv run python scripts/fetch_laptop_models.py          # once; also fetches Parakeet (~660 MB)
+uv run --group laptop python -m lan_speech --stt-model parakeet --insecure-loopback
+uv run --group laptop python scripts/try_stt.py       # in another terminal: live microphone
+uv run --group laptop python scripts/try_stt.py --wav out/synth/stt_heldout-06.wav   # a file
+```
+
+`try_stt.py` acts like the Pi: it streams audio, and after `--vad-hold` seconds of quiet (0.5) sends `finalize`. It prints Kroko's interim text, then the final line, the raw Parakeet text if repair changed it, what the ladder did, and the delay: "client pause + server". Useful flags: `--slot contact --risk high` (hints the agent would send), `--vad-hold 0` (wait for the server's own end-of-turn), `--device N` (microphone).
+
+**Server flags:** `--entities config/entities.json` (default), `--parakeet-threads 2`, `--hotword-score 1.0` (1.5 or more hurts), `--no-repair` (hotwords only), `--endpoint-silence`. Startup takes about 30 s (three models).
+
+**Your names:** `config/entities.json` is the list that both biases Parakeet and feeds the repair step: `{"Display Name": "category"}` with categories `music`, `contact`, `place`, `brand` (anything else is used for biasing only). It ships with the 318 names used in the experiments (artists, Filipino names, places, brands, number phrases). Replace it with your real contacts and library; it is read at startup. Use proper casing for the display name (`GCash`, `BINI`), since that is what replaces a mis-heard word. A plain JSON list of names also works (biasing only).
+
+**Protocol additions** (both optional, omitted when unset, so existing clients are unaffected): the `start` message may carry `"slot": "contact"` and `"risk": "high"`; a final `transcript` may carry `"raw_text"` (Parakeet before repair) and `"repair": {"rung", "question", "echo", "slot", "risk", "matches": [{"heard", "entity", "distance", "margin", "rung"}]}`. The final `text` already has silent and echoed replacements applied; for `confirm` and `targeted` rungs the text is left as heard and `repair.question` is what to say instead of acting. If the client sends no `slot`, the server guesses it from the first verb (call/text/message = contact and high risk; play/put on = music; book/order/buy = brand+place; weather/rain/far = place); with no guess no repair is applied. A client that knows the intent should send it.
+
+**What to expect, and what is not verified:**
+- On synthetic clips through the real server a final arrives about 0.9-1.1 s after the last speech with `--vad-hold 0.5` (0.6 s client pause + 0.3-0.5 s server) on a laptop busy with a video call. Without a client-side pause the server's own endpoint is slow: Kroko ended turns 1.6-2.3 s after speech even with `--endpoint-silence 0.7` (3.4 s at the 1.2 s default) on synthetic digital silence; real microphone noise may behave differently. In the demo the Pi's VAD should send `finalize`.
+- Trimmed audio (0.3 s before, 0.4 s after the speech) is sent to Parakeet; whether that is safe for the first and last words of real speech is untested.
+- One slot per turn (or an explicit combination). A sentence naming a contact and a place only repairs the kind its first verb implies.
+- Names the dictionary knows (CMUdict has many first names) are protected from repair unless they sound identical to a listed name.
+- Hotwords are fixed at startup; per-request lists would need a different mechanism.
+- The CPU is shared: Kroko (2 threads) + Parakeet (2) + Supertonic (2) on 8 logical cores. Decoding while TTS runs was measured at 1.5-1.65x slower.
 
 ## Speed experiments on synthetic speech (no recordings needed)
 

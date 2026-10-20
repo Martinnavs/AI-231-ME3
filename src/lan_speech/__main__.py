@@ -11,7 +11,9 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from lan_speech.engines import SherpaSTTEngine, SupertonicTTSEngine
+from lan_speech.engines import SherpaSTTEngine, STTEngine, SupertonicTTSEngine
+from lan_speech.hotwords import load_entities
+from lan_speech.hybrid_stt import ParakeetHybridSTTEngine
 from lan_speech.models import required_dirs, verify_all
 from lan_speech.server import LanSpeechServer
 
@@ -35,9 +37,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     ap.add_argument(
         "--stt-model",
-        choices=["kroko", "zipformer"],
+        choices=["kroko", "zipformer", "parakeet"],
         default="kroko",
-        help="Streaming STT model (default: kroko; zipformer is the older LibriSpeech model)",
+        help="STT model (default: kroko; zipformer is the older LibriSpeech model; parakeet = "
+        "Kroko for streaming and turn ends plus Parakeet with hotwords and name repair for finals)",
+    )
+    ap.add_argument(
+        "--entities",
+        type=Path,
+        default=Path("config/entities.json"),
+        help="names for --stt-model parakeet to bias toward and repair against: JSON "
+        '{"Taylor Swift": "music", ...} or a list (default: config/entities.json)',
+    )
+    ap.add_argument("--parakeet-threads", type=int, default=2, help="Parakeet threads (default: 2)")
+    ap.add_argument(
+        "--hotword-score", type=float, default=1.0, help="Hotword boost (default: 1.0; >=1.5 hurts)"
+    )
+    ap.add_argument(
+        "--no-repair",
+        action="store_true",
+        help="with --stt-model parakeet: hotwords only, skip the name repair ladder",
     )
     ap.add_argument("--stt-threads", type=int, default=2, help="Sherpa STT threads (default: 2)")
     ap.add_argument(
@@ -80,13 +99,31 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # 2. Initialize engines
     try:
-        stt = SherpaSTTEngine(
-            models_dir=args.models,
-            threads=args.stt_threads,
-            int8=args.stt_int8,
-            model=args.stt_model,
-            rule2_trailing_silence=args.endpoint_silence,
-        )
+        stt: STTEngine
+        if args.stt_model == "parakeet":
+            entities = load_entities(args.entities) if args.entities.is_file() else []
+            if not entities:
+                logger.warning(
+                    "No names loaded from %s: Parakeet runs without hotwords", args.entities
+                )
+            logger.info("Parakeet hybrid: %d names from %s", len(entities), args.entities)
+            stt = ParakeetHybridSTTEngine(
+                args.models,
+                entities,
+                kroko_threads=args.stt_threads,
+                parakeet_threads=args.parakeet_threads,
+                hotword_score=args.hotword_score,
+                endpoint_silence=args.endpoint_silence,
+                repair=not args.no_repair,
+            )
+        else:
+            stt = SherpaSTTEngine(
+                models_dir=args.models,
+                threads=args.stt_threads,
+                int8=args.stt_int8,
+                model=args.stt_model,
+                rule2_trailing_silence=args.endpoint_silence,
+            )
         tts = SupertonicTTSEngine(
             model_dir=args.models / "supertonic-3",
             total_steps=args.tts_steps,

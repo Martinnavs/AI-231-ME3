@@ -138,10 +138,10 @@ The server binds to `127.0.0.1` by default and exposes WebSocket and HTTP endpoi
 ### Endpoints
 
 #### 1. STT Stream — `ws://H:P/stt`
-- **C->S text:** `{"type": "start", "sample_rate": 16000}` (PCM is S16LE mono).
+- **C->S text:** `{"type": "start", "sample_rate": 16000}` (PCM is S16LE mono). Optional hints for the Parakeet engine: `"slot"` (`contact`, `music`, `place`, `brand`, or two joined with `+`) and `"risk"` (`low` or `high`); see `STT-HOSTING.md`.
 - **C->S binary:** raw PCM S16LE chunks (typically 100 ms chunks). Audio sent before `start` triggers `error status=400 reason="start required"` and socket closure. Audio sent after `finalize` is treated as a new turn on the same stream.
 - **C->S text:** `{"type": "finalize"}` flushes current turn; socket stays open.
-- **S->C text:** `{"type": "transcript", "text": str, "is_final": bool, "end_of_turn": bool, "t_audio_end_s": float | null}`. End of turn comes from sherpa's endpoint detection or finalize.
+- **S->C text:** `{"type": "transcript", "text": str, "is_final": bool, "end_of_turn": bool, "t_audio_end_s": float | null}`. End of turn comes from sherpa's endpoint detection or finalize. With `--stt-model parakeet`, final transcripts may also carry `"raw_text"` and `"repair"` (both omitted otherwise).
 - **S->C text:** `{"type": "error", "status": int, "reason": str}`.
 
 #### 2. TTS Stream — `ws://H:P/tts`

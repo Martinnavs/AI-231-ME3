@@ -15,18 +15,37 @@ class ProtocolError(ValueError):
 
 @dataclass(frozen=True)
 class StartMessage:
+    """Opens an STT turn. ``slot`` and ``risk`` are optional hints for entity repair.
+
+    ``slot`` is the kind of name the agent expects (contact, music, place, brand); ``risk`` is
+    "high" for actions that are costly to get wrong (calls, messages). Both are omitted from the
+    JSON when unset, so older clients and servers are unaffected.
+    """
+
     sample_rate: int = 16000
+    slot: str | None = None
+    risk: str | None = None
     type: str = "start"
 
     def to_json(self) -> str:
-        return json.dumps({"type": self.type, "sample_rate": self.sample_rate})
+        obj: dict[str, Any] = {"type": self.type, "sample_rate": self.sample_rate}
+        if self.slot is not None:
+            obj["slot"] = self.slot
+        if self.risk is not None:
+            obj["risk"] = self.risk
+        return json.dumps(obj)
 
     @classmethod
     def from_json(cls, data: str | dict[str, Any]) -> StartMessage:
         obj = json.loads(data) if isinstance(data, str) else data
         if not isinstance(obj, dict) or obj.get("type") != "start":
             raise ProtocolError(f"Expected type 'start', got {obj.get('type')!r}")
-        return cls(sample_rate=int(obj.get("sample_rate", 16000)))
+        slot, risk = obj.get("slot"), obj.get("risk")
+        return cls(
+            sample_rate=int(obj.get("sample_rate", 16000)),
+            slot=str(slot) if slot is not None else None,
+            risk=str(risk) if risk is not None else None,
+        )
 
 
 @dataclass(frozen=True)
@@ -46,22 +65,31 @@ class FinalizeMessage:
 
 @dataclass(frozen=True)
 class TranscriptMessage:
+    """A transcript. Final transcripts from the Parakeet engine also carry ``raw_text`` (before
+    entity repair) and ``repair`` (rung, question, echoed names, matches); both are omitted from
+    the JSON when unset."""
+
     text: str
     is_final: bool
     end_of_turn: bool
     t_audio_end_s: float | None = None
+    raw_text: str | None = None
+    repair: dict[str, Any] | None = None
     type: str = "transcript"
 
     def to_json(self) -> str:
-        return json.dumps(
-            {
-                "type": self.type,
-                "text": self.text,
-                "is_final": self.is_final,
-                "end_of_turn": self.end_of_turn,
-                "t_audio_end_s": self.t_audio_end_s,
-            }
-        )
+        obj: dict[str, Any] = {
+            "type": self.type,
+            "text": self.text,
+            "is_final": self.is_final,
+            "end_of_turn": self.end_of_turn,
+            "t_audio_end_s": self.t_audio_end_s,
+        }
+        if self.raw_text is not None:
+            obj["raw_text"] = self.raw_text
+        if self.repair is not None:
+            obj["repair"] = self.repair
+        return json.dumps(obj)
 
     @classmethod
     def from_json(cls, data: str | dict[str, Any]) -> TranscriptMessage:
@@ -69,11 +97,15 @@ class TranscriptMessage:
         if not isinstance(obj, dict) or obj.get("type") != "transcript":
             raise ProtocolError(f"Expected type 'transcript', got {obj.get('type')!r}")
         t_end = obj.get("t_audio_end_s")
+        raw = obj.get("raw_text")
+        rep = obj.get("repair")
         return cls(
             text=str(obj["text"]),
             is_final=bool(obj["is_final"]),
             end_of_turn=bool(obj["end_of_turn"]),
             t_audio_end_s=float(t_end) if t_end is not None else None,
+            raw_text=str(raw) if raw is not None else None,
+            repair=dict(rep) if isinstance(rep, dict) else None,
         )
 
 

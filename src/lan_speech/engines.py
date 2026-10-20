@@ -26,6 +26,8 @@ class STTDecodeResult(NamedTuple):
     text: str
     is_final: bool
     end_of_turn: bool
+    raw_text: str | None = None  # model output before entity repair (final results only)
+    repair: dict[str, Any] | None = None  # rung, question, echo, matches (see transcript_repair)
 
 
 class STTStream(Protocol):

@@ -56,7 +56,8 @@ class Word:
 class RepairConfig:
     silent_max: float = 0.16  # distance at or below which a clear winner is replaced silently
     implicit_max: float = 0.26  # ... replaced with an echo, low-risk actions only
-    confirm_max: float = 0.38  # ... offered as "did you mean"
+    confirm_max: float = 0.30  # ... offered as "did you mean" (weaker guesses are not offered)
+    same_sound_max: float = 0.03  # an ordinary word this close to a name is that name respelled
     high_risk_silent_max: float = 0.08  # silent-replace bar when the action is risky
     margin_min: float = 0.06  # best must beat the runner-up entity by this much to act alone
     min_letters: int = 4  # shortest span (letters) we will try to repair
@@ -208,9 +209,14 @@ class EntityMatcher:
     ) -> None:
         """``known_words``: a dictionary (e.g. CMUdict); spans made only of these are left alone."""
         self._common = COMMON_WORDS | known_words
+        self.known = known_words
         self._entities = entities
         self._sounds = [phonemes(e.name) for e in entities]
         self._exact = {" ".join(_norm_words(e.name)) for e in entities}
+
+    @property
+    def entities(self) -> list[Entity]:
+        return self._entities
 
     def is_exact(self, span: str) -> bool:
         return " ".join(_norm_words(span)) in self._exact
@@ -231,6 +237,9 @@ class EntityMatcher:
     def all_common(self, words: list[str]) -> bool:
         return all(w in self._common for w in words)
 
+    def is_common(self, word: str) -> bool:
+        return word in self._common
+
     def has_category(self, text: str, category: str) -> bool:
         """Whether ``text`` already contains a listed name of this category."""
         norm = " " + " ".join(_norm_words(text)) + " "
@@ -238,6 +247,14 @@ class EntityMatcher:
             e.category == category and f" {' '.join(_norm_words(e.name))} " in norm
             for e in self._entities
         )
+
+
+SLOT_NOUN = {
+    "music": "artist or song",
+    "contact": "contact",
+    "place": "place",
+    "brand": "brand or shop",
+}
 
 
 def _rung_for(d: float, margin: float, risk: Risk, cfg: RepairConfig) -> Rung:
@@ -250,6 +267,25 @@ def _rung_for(d: float, margin: float, risk: Risk, cfg: RepairConfig) -> Rung:
     if d <= cfg.confirm_max:
         return Rung.CONFIRM
     return Rung.NONE
+
+
+def _edges_belong(flat: list[str], ent: Entity, matcher: EntityMatcher) -> bool:
+    """A leading or trailing ordinary word ("call" in "call rowana") must sound like the name's.
+
+    Names do start with ordinary words ("The Weeknd", "Up Dharma Down"), so compare against the
+    name's own first and last word instead of banning them.
+    """
+    if len(flat) < 2:
+        return True
+    words = _norm_words(ent.name)
+    if not words:
+        return True
+    for heard, name_word in ((flat[0], words[0]), (flat[-1], words[-1])):
+        if matcher.is_common(heard) and (
+            phonetic_distance(phonemes(heard), phonemes(name_word)) > 0.35
+        ):
+            return False
+    return True
 
 
 def _exact_coverage(tokens: list[list[str]], matcher: EntityMatcher, max_words: int) -> set[int]:
@@ -299,8 +335,9 @@ def find_matches(
             span = " ".join(flat)
             if len(re.sub(r"[^a-z]", "", span)) < cfg.min_letters or matcher.is_exact(span):
                 continue
-            if matcher.all_common(flat) or _contains_exact(flat, matcher):
+            if _contains_exact(flat, matcher):
                 continue
+            ordinary = matcher.all_common(flat)
             confs = [w.conf for w in words[i:j]]
             if all(c is not None and c >= cfg.confident for c in confs):
                 continue
@@ -308,9 +345,13 @@ def find_matches(
             if not near:
                 continue
             d, ent = near[0]
+            if ordinary and d > cfg.same_sound_max:
+                continue  # an ordinary word, not a mangled name
             runner = near[1] if len(near) > 1 else None
             margin = (runner[0] - d) if runner else 1.0
             if " ".join(_norm_words(ent.name)) == span:
+                continue
+            if not _edges_belong(flat, ent, matcher):
                 continue
             rung = _rung_for(d, margin, risk, cfg)
             if rung is Rung.NONE:
@@ -372,8 +413,114 @@ def repair(
             text,
             Rung.TARGETED,
             tuple(matches),
-            f"Which {expected_category} was that?",
+            f"Which {SLOT_NOUN.get(expected_category, expected_category)} was that?",
             tuple(echo),
         )
     rung = Rung.IMPLICIT if echo else (Rung.SILENT if matches else Rung.NONE)
     return Repair(text, rung, tuple(matches), None, tuple(echo))
+
+
+# ---------------------------------------------------------------- using it on a transcript
+
+
+def _wordset(text: str) -> frozenset[str]:
+    return frozenset(text.split())
+
+
+_FILLER = _wordset("please hey hi ok okay can could would will you i want to like just go ahead")
+_CONTACT_VERBS = _wordset("call text message send email dial ring whatsapp dm")
+_MUSIC_VERBS = _wordset("play queue shuffle listen")
+_PLACE_CUES = _wordset(
+    "weather rain raining temperature forecast navigate directions route far near nearest traffic"
+)
+_BRAND_VERBS = _wordset("order buy book pay")
+
+
+_SUFFIXES = frozenset({"", "s", "es", "d", "ed", "ing"})
+
+
+def _is_verb(word: str, verbs: frozenset[str]) -> bool:
+    """``word`` is one of ``verbs`` or a plain inflection of it (called, texting, plays)."""
+    return any(word.startswith(v) and word[len(v) :] in _SUFFIXES for v in verbs)
+
+
+def infer_context(text: str) -> tuple[str | None, Risk]:
+    """Guess (slot, risk) from the sentence alone: "call ..." wants a contact and is risky.
+
+    A slot may combine kinds with "+" ("brand+place" for "book a grab to Makati").
+    A stand-in for the agent's own intent, for trying the system without an agent. A client that
+    knows the intent should send it (``slot`` and ``risk`` on the start message) instead.
+    """
+    words = [w for w in _norm_words(text) if w not in _FILLER]
+    if not words:
+        return None, Risk.LOW
+    first = words[0]
+    if _is_verb(first, _CONTACT_VERBS):
+        return "contact", Risk.HIGH
+    if _is_verb(first, _MUSIC_VERBS) or words[:2] == ["put", "on"]:
+        return "music", Risk.LOW
+    if _is_verb(first, _BRAND_VERBS):
+        return "brand+place", Risk.LOW
+    if _PLACE_CUES.intersection(words):
+        return "place", Risk.LOW
+    return None, Risk.LOW
+
+
+def build_matchers(
+    entities: list[Entity], known_words: frozenset[str] = frozenset()
+) -> dict[str, EntityMatcher]:
+    """One matcher per entity category: repair only searches the names the agent expects."""
+    cats = sorted({e.category for e in entities if e.category})
+    return {
+        c: EntityMatcher([e for e in entities if e.category == c], known_words=known_words)
+        for c in cats
+    }
+
+
+def repair_text(
+    text: str,
+    matchers: dict[str, EntityMatcher],
+    slot: str | None,
+    risk: Risk,
+    cfg: RepairConfig | None = None,
+) -> Repair | None:
+    """Run the ladder on a plain-text transcript. None when there is no list for this slot.
+
+    ``slot`` may name several kinds joined with "+"; the names of all of them are searched
+    together and no "which one was that?" question is asked.
+    """
+    kinds = [k for k in (slot or "").split("+") if k in matchers]
+    if not kinds:
+        return None
+    if len(kinds) == 1:
+        matcher = matchers[kinds[0]]
+        expected: str | None = kinds[0]
+    else:
+        matcher = EntityMatcher(
+            [e for k in kinds for e in matchers[k].entities], known_words=matchers[kinds[0]].known
+        )
+        expected = None
+    return repair(
+        [Word(w) for w in text.split()], matcher, risk=risk, expected_category=expected, cfg=cfg
+    )
+
+
+def repair_to_dict(r: Repair, slot: str | None, risk: Risk) -> dict[str, object]:
+    """JSON-friendly summary of a repair for the protocol."""
+    return {
+        "rung": r.rung.name.lower(),
+        "question": r.question,
+        "echo": list(r.echo),
+        "slot": slot,
+        "risk": risk.value,
+        "matches": [
+            {
+                "heard": m.heard,
+                "entity": m.entity.name,
+                "distance": round(m.distance, 3),
+                "margin": round(m.margin, 3),
+                "rung": m.rung.name.lower(),
+            }
+            for m in r.matches
+        ],
+    }
