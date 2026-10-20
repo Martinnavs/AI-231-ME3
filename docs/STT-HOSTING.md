@@ -266,6 +266,30 @@ So on open reading and on the held-out sentences it changed (almost) nothing, bu
 
 **Why it is off:** the user's priority is transcript accuracy, and this trades 0.3 s for a real accuracy risk on exactly the short commands that are the common case. Try it with `--early-decode-ms 200` and judge on your own commands; a safer variant (hand the LLM the early text as provisional and send a correction if the verified decode differs) needs client support and is not built. Other caveats: the first turn after a restart has no noise estimate, so it has no early start; speculative decodes that get cancelled still burn CPU, which competes with Kroko and with TTS; all numbers are one speaker and one laptop.
 
+### Which early-start approach? (precedent: ticket 12 / design review §3)
+
+The project already decided how to start early: **ticket 12, "speculative LLM start"** (`config/agent.toml`: `speculative_llm = false`, `speculative_silence_ms = 180`; design review §3, "start the LLM early"). When an interim transcript looks like a complete clause and VAD silence has lasted 180 ms, start `respond()` but **hold its audio**; if the final transcript matches the speculative text (lowercase, punctuation stripped) release it, otherwise cancel (`LLM_CANCELLED`, reason `text_changed`) and start fresh; log the cancellation rate, because cancelled requests are still billed for their input tokens. The research notes support the shape (Endpoint Anticipation, arXiv 2606.13450: -505 ms average at +28.4% speculative compute; the practice report: speculative *prefill and tool intent only*, never speak early; two-pass ASR as the standard way to pair a fast first pass with a verified second one). The pipeline that would hold and release audio (`pipeline/speculative.py`) is not built yet.
+
+That is a different approach from `--early-decode-ms` above, which uses the early Parakeet result *as* the final. Measured with `scripts/stt_provisional_eval.py` (turns where a 0.2 s pause started a speculative path; "match" = the provisional text, normalised, is word for word the verified final):
+
+| provisional text from | hard (short commands) | held-out | live session |
+|---|---|---|---|
+| Kroko's interim text at the pause | 0 of 16 match | 0 of 8 | 0 of 21 |
+| **Parakeet early decode** | **12 of 16 (75%)** | **7 of 8 (88%)** | **21 of 21 (100%)** |
+
+Kroko's streaming text at the pause has not caught up with the speech yet (word error 26-67% against what was said), so it can never confirm; it is not a usable provisional source. Parakeet's early decode confirms in 40 of 45 turns (89%); the 5 cancellations are all on short commands and held-out sentences (25% and 12% there). Coverage: only turns where the pause detector fires get an early start (22-27% of the labelled clips, which have short recorded tails; 84% of the live session turns, which carry the client's full 0.5 s hold).
+
+| approach | speed (a 2-3 s command) | accuracy | cost |
+|---|---|---|---|
+| nothing (verified decode after the pause) | transcript at about 0.96 s after speech ends | 4.9% hard / 8.7% held-out | none |
+| **early result used as the final** (`--early-decode-ms`) | about 0.7 s (saves about 0.25-0.3 s) | hard set 7.4%: wrong text is passed on unverified | none |
+| **speculative LLM start on Parakeet's early text, verified by the full decode** (ticket 12) | LLM starts about 0.3 s earlier; first audio about 0.3 s sooner on the 89% that confirm | unchanged (the verified text decides); cancelled turns cost the baseline | LLM input tokens on cancelled turns (about 11% overall, 25% on short commands) and a second Parakeet decode |
+| speculative LLM start on Kroko's interim text | none (never confirms) | unchanged | wasted tokens on every turn |
+
+Timings are the measured STT figures with the LLM (about 0.35 s, estimated, not measured) and TTS first audio (about 0.3 s) added; they assume the speculative LLM starts when the early decode finishes.
+
+**Reading:** the two useful approaches save about the same time. The precedent approach keeps accuracy (the full decode still decides) at the price of tokens and a pipeline that does not exist yet; the shortcut costs nothing to run but passes slightly worse text on roughly a tenth of turns (a quarter on short commands). Given that accuracy of the text the agent acts on is the stated priority, the precedent is the one to build, with the early Parakeet decode as the provisional source and the existing verified path as the confirmation.
+
 ## Speed experiments on synthetic speech (no recordings needed)
 
 `scripts/make_synth_clips.py` renders the clip scripts with Kokoro (95 clips, mean 2.5 s, two voices) and `scripts/stt_latency_bench.py` times Parakeet on them. **Speed only**: clean synthetic speech says nothing reliable about accuracy. Laptop: i5-1145G7, on AC, governor `powersave`; main run with profile `balanced` (EPP `balance_performance`), repeated with `scripts/power_mode.sh max` (profile `performance`, EPP `performance`; restored to `balanced` afterwards). Padding in all rows except the padding table is 0.5 s lead + 1.5 s tail.
