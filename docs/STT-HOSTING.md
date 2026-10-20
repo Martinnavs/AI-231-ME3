@@ -140,7 +140,7 @@ Held-out, slot-aware: 4 "did you mean" questions (1 offered the right name) and 
 
 ## Speed experiments on synthetic speech (no recordings needed)
 
-`scripts/make_synth_clips.py` renders the clip scripts with Kokoro (95 clips, mean 2.5 s, two voices) and `scripts/stt_latency_bench.py` times Parakeet on them. **Speed only**: clean synthetic speech says nothing reliable about accuracy. Laptop: i5-1145G7, on AC, governor `powersave` (EPP `balance_performance`); the repo's `power_mode.sh max` was not used. Padding in all rows except the padding table is 0.5 s lead + 1.5 s tail.
+`scripts/make_synth_clips.py` renders the clip scripts with Kokoro (95 clips, mean 2.5 s, two voices) and `scripts/stt_latency_bench.py` times Parakeet on them. **Speed only**: clean synthetic speech says nothing reliable about accuracy. Laptop: i5-1145G7, on AC, governor `powersave`; main run with profile `balanced` (EPP `balance_performance`), repeated with `scripts/power_mode.sh max` (profile `performance`, EPP `performance`; restored to `balanced` afterwards). Padding in all rows except the padding table is 0.5 s lead + 1.5 s tail.
 
 **Threads** (decode p50 / p95 ms): 1 thread 549 / 825 greedy, 604 / 870 hotwords; **2 threads 406 / 585, 425 / 619**; **4 threads 397 / 536, 444 / 618**; 8 threads 656 / 835, 764 / 1044. Two threads is as fast as four, and 8 (all hyperthreads) is slower. Hotwords add roughly 20-50 ms.
 
@@ -152,7 +152,9 @@ Held-out, slot-aware: 4 "did you mean" questions (1 offered the right name) and 
 
 **Sharing the CPU with TTS** (Supertonic, 4 steps, 2 threads, running back to back): Parakeet is **1.5x slower with 2 threads (435 -> 666 ms p50) and 1.65x with 4 (448 -> 739 ms)**, and a TTS call goes from 957 ms to 1315 ms (2 STT threads) or 1740 ms (4). So give STT 2 threads: it is as fast alone, and it hurts TTS less. This matters in full duplex, when the user speaks over a reply that is still being synthesised.
 
-**What this gives for the latency budget on this laptop:** VAD pause (0.2 s) + decode (~0.34 s with short padding and the early start) is about 0.5 s before the transcript reaches the LLM, against ~0.25 s for Kroko. The 500 ms to first audio target is therefore not reachable by speech recognition alone; it needs the masking tricks (acknowledgement sound, LLM prefill on the Kroko partial) or a faster host. A power profile of `performance` was not tried.
+**Power profile `performance` vs `balanced`** (same 95 clips, same script, run back to back): small and mostly inside run-to-run noise (about 10%). Where it shows: 4 threads, hotwords, 0.5 / 1.5 s padding 444 -> 390 ms p50 (greedy 397 -> 361); 2 threads 425 -> 400; early decode at a 0.2 s pause 333 -> 299 ms; no padding 298 -> 299 ms (no change). It did not help under TTS load (STT still 1.69x slower; 2 threads 666 -> 679 ms, TTS call 1315 -> 1375 ms) and 8 threads stayed slow (756 ms). Average clock barely moved (2856 -> 2926 MHz, the governor stays `powersave`), so the limit is not the profile. Best case on this laptop: about 0.2 s VAD pause + 0.30 s decode = 0.5 s before the transcript reaches the LLM.
+
+**What this gives for the latency budget on this laptop:** VAD pause (0.2 s) + decode (~0.34 s with short padding and the early start) is about 0.5 s before the transcript reaches the LLM, against ~0.25 s for Kroko. The 500 ms to first audio target is therefore not reachable by speech recognition alone; it needs the masking tricks (acknowledgement sound, LLM prefill on the Kroko partial) or a faster host.
 
 ## Network baselines from this laptop (not the demo network)
 

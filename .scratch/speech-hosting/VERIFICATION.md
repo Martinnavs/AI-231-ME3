@@ -76,3 +76,6 @@ Unguarded matcher on hotword output: false fixes 18 (hard) / 31 (held-out), name
 
 ## Synthetic-speech speed experiments and network baselines (2026-10-20, laptop on AC, powersave governor)
 See docs/STT-HOSTING.md. Raw output: out/stt_compare/latency-bench.txt (git-ignored). Deepgram connect ~240 ms on US, EU and AU endpoints from this laptop's network; Parakeet 2 threads == 4 threads, 8 slower; TTS contention 1.5-1.65x on STT; early decode at 0.2 s tail matches 0.5 s tail words on 89/95 synthetic clips.
+
+## power_mode.sh max rerun of the latency bench (2026-10-20)
+balanced -> performance: 4 threads hotwords 444 -> 390 ms p50, greedy 397 -> 361, early decode (0.2 s tail) 333 -> 299 ms, no-padding 298 -> 299; TTS-contention slowdown unchanged (1.53/1.65x -> 1.69/1.69x); 8 threads still slow. Raw: out/stt_compare/latency-bench-max.txt (balanced run: latency-bench.txt). Profile restored to balanced.
