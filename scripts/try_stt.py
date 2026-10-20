@@ -142,6 +142,22 @@ def timing_note(state: dict[str, Any], hold_s: float, now: float) -> str:
     )
 
 
+def take_turn_audio(buffer: bytearray, cut: int | None, answered_finalize: bool) -> bytes:
+    """Remove and return the audio that belongs to a final transcript.
+
+    If the final answers a `finalize` we sent, only the audio up to that moment is this turn's:
+    what was recorded while the server worked (about half a second) is the start of the next
+    turn. A final the server produced on its own takes everything recorded so far.
+    """
+    if answered_finalize and cut is not None:
+        taken = bytes(buffer[:cut])
+        del buffer[:cut]
+        return taken
+    taken = bytes(buffer)
+    buffer.clear()
+    return taken
+
+
 def save_turn(save_dir: Path, n: int, pcm: bytes, msg: dict[str, Any]) -> None:
     save_dir.mkdir(parents=True, exist_ok=True)
     stem = save_dir / f"turn-{time.strftime('%H%M%S')}-{n:02d}"
@@ -175,6 +191,7 @@ async def run(args: argparse.Namespace) -> int:
         "turn_pcm": bytearray(),
         "last_interim": "",
         "unsent_s": 0.0,
+        "cut": None,
     }
     detector = PauseDetector(args.vad_hold)
 
@@ -192,9 +209,19 @@ async def run(args: argparse.Namespace) -> int:
                 if msg["is_final"]:
                     now = time.monotonic()
                     note = timing_note(state, args.vad_hold, now)
-                    # all audio since the previous final belongs to this one, however it ended
-                    audio = bytes(state["turn_pcm"])
-                    state["turn_pcm"].clear()
+                    # the audio up to the moment we asked for the end of the turn belongs to
+                    # this final; what was recorded while the server worked belongs to the next
+                    cut = state["cut"]
+                    fresh = (
+                        state["finalize_sent"] is not None and now - state["finalize_sent"] <= 5.0
+                    )
+                    if fresh and cut is not None:
+                        audio = bytes(state["turn_pcm"][:cut])
+                        del state["turn_pcm"][:cut]
+                    else:
+                        audio = bytes(state["turn_pcm"])
+                        state["turn_pcm"].clear()
+                    state["cut"] = None
                     state["finalize_sent"] = None
                     streamed, state["last_interim"] = state["last_interim"], ""
                     # warn only if more than the silence we appended ourselves was left unsent
@@ -237,6 +264,7 @@ async def run(args: argparse.Namespace) -> int:
                 if pause:
                     # what the Pi's VAD does: the user paused, so end the turn now
                     state["finalize_sent"] = time.monotonic()
+                    state["cut"] = len(state["turn_pcm"])
                     await ws.send(json.dumps({"type": "finalize"}))
                     if args.wav:
                         left = (queue.qsize() - 1) * CHUNK_S  # minus the end marker

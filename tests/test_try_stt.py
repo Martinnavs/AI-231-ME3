@@ -105,3 +105,22 @@ def test_the_final_says_so_when_the_two_engines_agree(
 def test_a_finalize_the_server_never_answered_is_ignored(ts: types.ModuleType) -> None:
     stale = {"finalize_sent": 1.0, "last_voiced": 0.5}
     assert "server's own end-of-turn" in ts.timing_note(stale, 0.5, 20.0)
+
+
+def test_audio_recorded_while_the_server_answers_goes_to_the_next_turn(
+    ts: types.ModuleType,
+) -> None:
+    buf = bytearray(b"A" * 100)  # the turn
+    cut = len(buf)
+    buf += b"B" * 20  # the user keeps talking while the server finalises
+    assert ts.take_turn_audio(buf, cut, answered_finalize=True) == b"A" * 100
+    assert bytes(buf) == b"B" * 20
+
+
+def test_a_final_the_server_produced_on_its_own_takes_everything(ts: types.ModuleType) -> None:
+    buf = bytearray(b"A" * 100 + b"B" * 20)
+    assert ts.take_turn_audio(buf, None, answered_finalize=False) == b"A" * 100 + b"B" * 20
+    assert not buf
+    # an unanswered finalize left a cut behind: it must not split the next server-made final
+    buf = bytearray(b"C" * 50)
+    assert ts.take_turn_audio(buf, 30, answered_finalize=False) == b"C" * 50

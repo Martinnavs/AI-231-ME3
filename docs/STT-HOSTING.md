@@ -200,6 +200,36 @@ You read song lyrics, book openings and tongue twisters into the microphone (5.5
 
 To turn free reading into a measurement, write down what you said for a subset: `scripts/analyze_tries.py` and `scripts/stt_padding_eval.py` can then score any setting (hold time, padding, hotword score) on speech from this room.
 
+### Live session with a transcript (2026-10-20, 25 turns, 291 words, owner reading books and lyrics)
+
+The first measurement on live speech with the true text (`out/tries/truth.tsv`, scored by `scripts/score_tries.py`). Server on `--stt-model parakeet` with the padding fix, `try_stt.py` with a 0.5 s pause hold, same noisy room as before (about 14 dB signal to noise).
+
+**The live server's final transcripts: 13 word errors in 291 words = 4.5% WER.** Reading each error: one is the scorer not expanding a contraction ("would've" vs "would have"), one is probably a word that was actually said ("acknowledged that"), and one has no cause in the audio (turn 16 should start "Planning to go to"; the recording contains only "Sagada"). Without those three the rate is about 3.4%. The real recognition errors:
+
+| said | heard | why it is plausible |
+|---|---|---|
+| Start walking uphill to **train** your lungs | to **drain** | voicing of the first consonant (an accent pattern: t -> d) |
+| Planning to go to **Sagada** | **Zagada** | not in the name list; add the places you care about to `config/entities.json` |
+| I'd say **Quezon** was an okay zone for the case on **Kay's son** | **Kazan** ... **Case Sun** | a deliberate homophone test; "Quezon" is in the list and still lost |
+| Damn it **we** jamming | **with** jamming | |
+
+Replaying the saved audio under other settings (to choose a setting, not to measure the live system; see the bug below):
+
+| setting | word errors | WER |
+|---|---|---|
+| hotwords 1.0, pad 0.5 + 1.0 s (the server default) | 16 | 5.5% |
+| hotwords 0.5 | 16 | 5.5% |
+| hotwords 1.0 with no padding / pad 0.5 + 1.5 s | 16 / 16 | 5.5% |
+| no hotwords, beam search | 18 | 6.2% |
+| no hotwords, greedy | 21 | 7.2% |
+
+So hotwords help a little even on open reading (names like GCash and David Foster Wallace), a hotword score of 0.5 did as well as 1.0 on this text, and padding made no difference here. With 291 words these gaps are small.
+
+**Two corrections to my own earlier analysis, found by this session:**
+
+- The saved audio was missing the start of most turns. My `--save` code cleared its buffer when a final arrived and so filed the half second you spoke while the server was still answering `finalize` under the *previous* turn. The server itself received that audio correctly (the live text has "Things are better if I stay", "Every unhappy family"; the saved WAVs begin mid-word). Replaying the saved WAVs therefore overstates errors (5.5% vs 4.5% live), and a "pre-roll" experiment I ran on them (0.4 s of the previous turn put in front: 5.5% -> 5.2%, 1.0 s: 4.5%, 1.5 s: 11.3%) was measuring that bug, not a server problem. Fixed: audio up to the moment `finalize` was sent is saved with that final, the rest goes to the next turn (`take_turn_audio`). Earlier sessions' WAVs have this defect.
+- The slot guesser asked "Which place was that?" after a statement beginning "Far out in the uncharted backwaters ...", because "far" looked like a place cue. A bare "far" or "near" is no longer a cue ("how far" is), and an utterance longer than 14 words is never treated as a command.
+
 ## Speed experiments on synthetic speech (no recordings needed)
 
 `scripts/make_synth_clips.py` renders the clip scripts with Kokoro (95 clips, mean 2.5 s, two voices) and `scripts/stt_latency_bench.py` times Parakeet on them. **Speed only**: clean synthetic speech says nothing reliable about accuracy. Laptop: i5-1145G7, on AC, governor `powersave`; main run with profile `balanced` (EPP `balance_performance`), repeated with `scripts/power_mode.sh max` (profile `performance`, EPP `performance`; restored to `balanced` afterwards). Padding in all rows except the padding table is 0.5 s lead + 1.5 s tail.
