@@ -431,8 +431,9 @@ _FILLER = _wordset("please hey hi ok okay can could would will you i want to lik
 _CONTACT_VERBS = _wordset("call text message send email dial ring whatsapp dm")
 _MUSIC_VERBS = _wordset("play queue shuffle listen")
 _PLACE_CUES = _wordset(
-    "weather rain raining temperature forecast navigate directions route far near nearest traffic"
+    "weather rain raining temperature forecast navigate directions route nearest traffic"
 )
+MAX_COMMAND_WORDS = 14  # a longer utterance is a statement or a question, not a command
 _BRAND_VERBS = _wordset("order buy book pay")
 _PRONOUNS = _wordset("me it this that them us you him her myself yourself")
 
@@ -452,8 +453,9 @@ def infer_context(text: str) -> tuple[str | None, Risk]:
     A stand-in for the agent's own intent, for trying the system without an agent. A client that
     knows the intent should send it (``slot`` and ``risk`` on the start message) instead.
     """
-    words = [w for w in _norm_words(text) if w not in _FILLER]
-    if not words:
+    all_words = _norm_words(text)
+    words = [w for w in all_words if w not in _FILLER]
+    if not words or len(all_words) > MAX_COMMAND_WORDS:
         return None, Risk.LOW
     first = words[0]
     if _is_verb(first, _CONTACT_VERBS):
@@ -464,7 +466,7 @@ def infer_context(text: str) -> tuple[str | None, Risk]:
         return "music", Risk.LOW
     if _is_verb(first, _BRAND_VERBS):
         return "brand+place", Risk.LOW
-    if _PLACE_CUES.intersection(words):
+    if _PLACE_CUES.intersection(words) or " ".join(words[:2]) == "how far":
         return "place", Risk.LOW
     return None, Risk.LOW
 

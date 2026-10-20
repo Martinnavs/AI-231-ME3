@@ -177,6 +177,17 @@ def test_names_that_begin_with_an_ordinary_word_still_match() -> None:
         ("Call me Ishmael", None, Risk.LOW),
         ("Text me when you get there", None, Risk.LOW),
         ("Send it to the printer", None, Risk.LOW),
+        ("How far is Siargao from Cebu", "place", Risk.LOW),
+        (
+            "Far out in the uncharted backwaters of the unfashionable end of the western arm",
+            None,
+            Risk.LOW,
+        ),
+        (
+            "Call me maybe, hey I just met you and this is crazy but here is my number",
+            None,
+            Risk.LOW,
+        ),
         ("Who won the Nobel prize", None, Risk.LOW),
         ("", None, Risk.LOW),
     ],
