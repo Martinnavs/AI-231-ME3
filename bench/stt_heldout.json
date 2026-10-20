@@ -1,0 +1,292 @@
+[
+ {
+  "kind": "heldout_in",
+  "text": "Play something by Ariana Grande after this",
+  "entities": [
+   "ariana grande"
+  ],
+  "id": "01"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Text Kristine and ask if she is free on Saturday",
+  "entities": [
+   "kristine",
+   "saturday"
+  ],
+  "id": "02"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Is it going to rain in Cebu this weekend",
+  "entities": [
+   "cebu"
+  ],
+  "id": "03"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Call Jericho and tell him I am running late",
+  "entities": [
+   "jericho"
+  ],
+  "id": "04"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Put on Moira Dela Torre while I cook",
+  "entities": [
+   "moira dela torre"
+  ],
+  "id": "05"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Book me a Grab from Makati to Taguig",
+  "entities": [
+   "grab",
+   "makati",
+   "taguig"
+  ],
+  "id": "06"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Remind me to pay my GCash balance on Friday",
+  "entities": [
+   "gcash",
+   "friday"
+  ],
+  "id": "07"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Send Joshua Santos the notes from this morning",
+  "entities": [
+   "joshua santos"
+  ],
+  "id": "08"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Play Dua Lipa and then Bruno Mars",
+  "entities": [
+   "dua lipa",
+   "bruno mars"
+  ],
+  "id": "09"
+ },
+ {
+  "kind": "heldout_in",
+  "text": "Find a Jollibee near Pasig",
+  "entities": [
+   "jollibee",
+   "pasig"
+  ],
+  "id": "10"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Play Chappell Roan on the speaker",
+  "entities": [
+   "chappell roan"
+  ],
+  "id": "11"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Put on Cup of Joe",
+  "entities": [
+   "cup of joe"
+  ],
+  "id": "12"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Play Tate McRae and then Benson Boone",
+  "entities": [
+   "tate mcrae",
+   "benson boone"
+  ],
+  "id": "13"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Call Rowena",
+  "entities": [
+   "rowena"
+  ],
+  "id": "14"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Text Clarisse that dinner is ready",
+  "entities": [
+   "clarisse"
+  ],
+  "id": "15"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Message Engineer Dumlao about the delivery",
+  "entities": [
+   "dumlao"
+  ],
+  "id": "16"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "What is the weather in Tuguegarao",
+  "entities": [
+   "tuguegarao"
+  ],
+  "id": "17"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "How far is Siargao from Cebu",
+  "entities": [
+   "siargao"
+  ],
+  "id": "18"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Remind me to buy Goldilocks cake for Mama",
+  "entities": [
+   "goldilocks"
+  ],
+  "id": "19"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Order from Shakey's and Red Ribbon",
+  "entities": [
+   "shakeys",
+   "red ribbon"
+  ],
+  "id": "20"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Play Dilaw by Maki",
+  "entities": [
+   "dilaw",
+   "maki"
+  ],
+  "id": "21"
+ },
+ {
+  "kind": "heldout_out",
+  "text": "Navigate to Puerto Princesa",
+  "entities": [
+   "puerto princesa"
+  ],
+  "id": "22"
+ },
+ {
+  "kind": "open_world",
+  "text": "Who won the Nobel Prize in physics last year",
+  "entities": [],
+  "id": "23"
+ },
+ {
+  "kind": "open_world",
+  "text": "What is the difference between a virus and a bacterium",
+  "entities": [],
+  "id": "24"
+ },
+ {
+  "kind": "open_world",
+  "text": "Convert two hundred fifty pesos to US dollars",
+  "entities": [
+   "two hundred fifty"
+  ],
+  "id": "25"
+ },
+ {
+  "kind": "open_world",
+  "text": "How do I make adobo without soy sauce",
+  "entities": [
+   "adobo"
+  ],
+  "id": "26"
+ },
+ {
+  "kind": "open_world",
+  "text": "Draft an email asking my professor for an extension on the report",
+  "entities": [],
+  "id": "27"
+ },
+ {
+  "kind": "open_world",
+  "text": "Explain how a transformer neural network works in simple terms",
+  "entities": [],
+  "id": "28"
+ },
+ {
+  "kind": "open_world",
+  "text": "Translate good morning, how are you into Tagalog",
+  "entities": [
+   "tagalog"
+  ],
+  "id": "29"
+ },
+ {
+  "kind": "open_world",
+  "text": "Summarize the plot of Noli Me Tangere",
+  "entities": [
+   "noli me tangere"
+  ],
+  "id": "30"
+ },
+ {
+  "kind": "complex",
+  "text": "Build me a simple website for a bakery called Panaderia Santa Clara with a menu page and a contact form",
+  "entities": [
+   "panaderia santa clara"
+  ],
+  "id": "31"
+ },
+ {
+  "kind": "complex",
+  "text": "Write a Python script that reads a CSV file with pandas and groups the rows by barangay",
+  "entities": [
+   "python",
+   "pandas",
+   "barangay"
+  ],
+  "id": "32"
+ },
+ {
+  "kind": "complex",
+  "text": "Plan a three day trip to Sagada and Banaue with a budget of fifteen thousand pesos",
+  "entities": [
+   "sagada",
+   "banaue"
+  ],
+  "id": "33"
+ },
+ {
+  "kind": "complex",
+  "text": "Research the best laptops under fifty thousand pesos and compare them in a table",
+  "entities": [
+   "fifty thousand"
+  ],
+  "id": "34"
+ },
+ {
+  "kind": "complex",
+  "text": "Set up a PostgreSQL database for a student grading app and write the schema",
+  "entities": [
+   "postgresql"
+  ],
+  "id": "35"
+ },
+ {
+  "kind": "complex",
+  "text": "Create a study schedule for my midterms in machine learning and statistics",
+  "entities": [],
+  "id": "36"
+ }
+]

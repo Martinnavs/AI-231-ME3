@@ -78,9 +78,67 @@ SPELLING = {
 }
 
 
+_ONES = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+]
+_TENS = ["_", "_", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+
+
+def number_words(n: int) -> str:
+    """Spell out 0-999999 so '8', '22' and 'twenty two' compare equal."""
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        return _TENS[n // 10] + (f" {_ONES[n % 10]}" if n % 10 else "")
+    if n < 1000:
+        rest = f" {number_words(n % 100)}" if n % 100 else ""
+        return f"{_ONES[n // 100]} hundred{rest}"
+    if n < 1_000_000:
+        rest = f" {number_words(n % 1000)}" if n % 1000 else ""
+        return f"{number_words(n // 1000)} thousand{rest}"
+    return " ".join(_ONES[int(d)] for d in str(n))
+
+
+def spell_digits(text: str) -> str:
+    """'6:45' -> 'six forty five', '40%' -> 'forty percent', 'SB19' -> 'sb nineteen'."""
+
+    def clock(m: re.Match[str]) -> str:
+        hour, minute = int(m.group(1)), int(m.group(2))
+        if minute == 0:
+            return f" {number_words(hour)} "
+        lead = "oh " if minute < 10 else ""
+        return f" {number_words(hour)} {lead}{number_words(minute)} "
+
+    text = re.sub(r"\b(\d{1,2}):(\d{2})\b", clock, text)
+    text = re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
+    text = text.replace("%", " percent ")
+    text = re.sub(r"(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])", " ", text)
+    return re.sub(r"\d+", lambda m: f" {number_words(int(m.group()))} ", text)
+
+
 def norm_words(text: str) -> list[str]:
-    text = text.lower().replace("'", "").replace("\u2019", "")
-    return [SPELLING.get(w, w) for w in re.sub(r"[^a-z0-9]+", " ", text).split()]
+    text = text.lower().replace("'", "").replace("\u2019", "").replace("per cent", "percent")
+    text = spell_digits(text)
+    return [SPELLING.get(w, w) for w in re.sub(r"[^a-z]+", " ", text).split()]
 
 
 def word_edits(ref: Sequence[str], hyp: Sequence[str]) -> int:
@@ -227,7 +285,9 @@ def capitalized_names(sentence: str) -> list[str]:
 
 def build_items(args: argparse.Namespace) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
-    if args.script:
+    if getattr(args, "items", None):
+        items = json.loads(Path(args.items).read_text(encoding="utf-8"))
+    elif args.script:
         from lan_speech.protocol import split_sentences
 
         for sentence in split_sentences(Path(args.script).read_text(encoding="utf-8")):
@@ -419,9 +479,10 @@ def evaluate(
         ref = norm_words(item["text"])
         edits += word_edits(ref, hyp)
         ref_words += len(ref)
+        hyp_text = " " + " ".join(hyp) + " "
         for ent in item["entities"]:
             ent_total += 1
-            ent_hit += 1 if ent in hyp else 0
+            ent_hit += 1 if f" {' '.join(norm_words(ent))} " in hyp_text else 0
         rows.append((item["id"], item["kind"], item["text"], text))
     return {
         "name": name,
@@ -504,6 +565,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     rec = sub.add_parser("record")
     rec.add_argument("--device", type=int, default=None, help="sounddevice input device index")
     rec.add_argument("--script", help="text file: read its sentences aloud, one clip each")
+    rec.add_argument("--items", help="JSON list of {kind, text, entities}: a structured script")
+    rec.add_argument(
+        "--audio-dir", type=Path, default=AUDIO_DIR, help="where clips and refs.json go"
+    )
     rec.add_argument("--no-noise", action="store_true", help="skip the silence/typing clips")
     rec.add_argument("--manual", action="store_true", help="Enter to start and stop each clip")
     rec.add_argument("--only", nargs="+", help="re-record just these clip numbers")
@@ -514,8 +579,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     rn.add_argument("--tag", default="mic")
     rn.add_argument("--audio-dir", type=Path, default=AUDIO_DIR)
     args = ap.parse_args(argv)
-    if args.cmd == "run":
-        globals()["AUDIO_DIR"] = args.audio_dir
+    globals()["AUDIO_DIR"] = args.audio_dir
     return cmd_record(args) if args.cmd == "record" else cmd_run(args)
 
 

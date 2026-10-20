@@ -1,0 +1,494 @@
+[
+ {
+  "kind": "music",
+  "text": "Play Opalite by Taylor Swift",
+  "entities": [
+   "opalite",
+   "taylor swift"
+  ],
+  "id": "01"
+ },
+ {
+  "kind": "music",
+  "text": "Put on Blinding Lights by The Weeknd",
+  "entities": [
+   "blinding lights",
+   "the weeknd"
+  ],
+  "id": "02"
+ },
+ {
+  "kind": "music",
+  "text": "Play some Bad Bunny in the living room",
+  "entities": [
+   "bad bunny"
+  ],
+  "id": "03"
+ },
+ {
+  "kind": "music",
+  "text": "Queue up Espresso by Sabrina Carpenter",
+  "entities": [
+   "espresso",
+   "sabrina carpenter"
+  ],
+  "id": "04"
+ },
+ {
+  "kind": "music",
+  "text": "Play Die With A Smile by Lady Gaga and Bruno Mars",
+  "entities": [
+   "die with a smile",
+   "lady gaga",
+   "bruno mars"
+  ],
+  "id": "05"
+ },
+ {
+  "kind": "music",
+  "text": "Shuffle my Billie Eilish playlist",
+  "entities": [
+   "billie eilish"
+  ],
+  "id": "06"
+ },
+ {
+  "kind": "music",
+  "text": "Play Golden from KPop Demon Hunters",
+  "entities": [
+   "golden",
+   "kpop demon hunters"
+  ],
+  "id": "07"
+ },
+ {
+  "kind": "music",
+  "text": "Play Pantropiko by BINI",
+  "entities": [
+   "pantropiko",
+   "bini"
+  ],
+  "id": "08"
+ },
+ {
+  "kind": "music",
+  "text": "Put on some SB19 please",
+  "entities": [
+   "sb19"
+  ],
+  "id": "09"
+ },
+ {
+  "kind": "music",
+  "text": "Play Ben and Ben on the speaker",
+  "entities": [
+   "ben and ben"
+  ],
+  "id": "10"
+ },
+ {
+  "kind": "music",
+  "text": "Play Tadhana by Up Dharma Down",
+  "entities": [
+   "tadhana",
+   "up dharma down"
+  ],
+  "id": "11"
+ },
+ {
+  "kind": "music",
+  "text": "Play Ere by Juan Karlos",
+  "entities": [
+   "ere",
+   "juan karlos"
+  ],
+  "id": "12"
+ },
+ {
+  "kind": "music",
+  "text": "Play Moira Dela Torre",
+  "entities": [
+   "moira dela torre"
+  ],
+  "id": "13"
+ },
+ {
+  "kind": "music",
+  "text": "Play Ariana Grande and then Dua Lipa",
+  "entities": [
+   "ariana grande",
+   "dua lipa"
+  ],
+  "id": "14"
+ },
+ {
+  "kind": "music",
+  "text": "Put on Kendrick Lamar and turn it up a bit",
+  "entities": [
+   "kendrick lamar"
+  ],
+  "id": "15"
+ },
+ {
+  "kind": "music",
+  "text": "Play Shape of You by Ed Sheeran",
+  "entities": [
+   "shape of you",
+   "ed sheeran"
+  ],
+  "id": "16"
+ },
+ {
+  "kind": "music",
+  "text": "Play something by Coldplay or Imagine Dragons",
+  "entities": [
+   "coldplay",
+   "imagine dragons"
+  ],
+  "id": "17"
+ },
+ {
+  "kind": "music",
+  "text": "Play Eraserheads",
+  "entities": [
+   "eraserheads"
+  ],
+  "id": "18"
+ },
+ {
+  "kind": "contact",
+  "text": "Call Jocelyn",
+  "entities": [
+   "jocelyn"
+  ],
+  "id": "19"
+ },
+ {
+  "kind": "contact",
+  "text": "Text Angelo that I will be there in ten minutes",
+  "entities": [
+   "angelo",
+   "ten"
+  ],
+  "id": "20"
+ },
+ {
+  "kind": "contact",
+  "text": "Call Mary Grace and put her on speaker",
+  "entities": [
+   "mary grace"
+  ],
+  "id": "21"
+ },
+ {
+  "kind": "contact",
+  "text": "Send a message to Kristine saying happy birthday",
+  "entities": [
+   "kristine"
+  ],
+  "id": "22"
+ },
+ {
+  "kind": "contact",
+  "text": "Call Ezekiel Reyes",
+  "entities": [
+   "ezekiel reyes"
+  ],
+  "id": "23"
+ },
+ {
+  "kind": "contact",
+  "text": "Text Jericho to bring the charger",
+  "entities": [
+   "jericho"
+  ],
+  "id": "24"
+ },
+ {
+  "kind": "contact",
+  "text": "Call Ysabel Dela Cruz",
+  "entities": [
+   "ysabel",
+   "dela cruz"
+  ],
+  "id": "25"
+ },
+ {
+  "kind": "contact",
+  "text": "Message Paolo and Bea that dinner is at eight",
+  "entities": [
+   "paolo",
+   "bea",
+   "eight"
+  ],
+  "id": "26"
+ },
+ {
+  "kind": "contact",
+  "text": "Call Tita Cora",
+  "entities": [
+   "tita cora"
+  ],
+  "id": "27"
+ },
+ {
+  "kind": "contact",
+  "text": "Text Joshua Santos that the meeting moved to Friday",
+  "entities": [
+   "joshua santos",
+   "friday"
+  ],
+  "id": "28"
+ },
+ {
+  "kind": "place",
+  "text": "What is the weather in Quezon City",
+  "entities": [
+   "quezon city"
+  ],
+  "id": "29"
+ },
+ {
+  "kind": "place",
+  "text": "Will it rain in Makati tomorrow",
+  "entities": [
+   "makati"
+  ],
+  "id": "30"
+ },
+ {
+  "kind": "place",
+  "text": "What is the temperature in Cebu right now",
+  "entities": [
+   "cebu"
+  ],
+  "id": "31"
+ },
+ {
+  "kind": "place",
+  "text": "Is it going to be hot in Davao this weekend",
+  "entities": [
+   "davao"
+  ],
+  "id": "32"
+ },
+ {
+  "kind": "place",
+  "text": "What time is it in Tokyo",
+  "entities": [
+   "tokyo"
+  ],
+  "id": "33"
+ },
+ {
+  "kind": "brand",
+  "text": "Remind me to order from Jollibee at noon",
+  "entities": [
+   "jollibee",
+   "noon"
+  ],
+  "id": "34"
+ },
+ {
+  "kind": "brand",
+  "text": "Remind me to pay my Globe bill on Monday",
+  "entities": [
+   "globe",
+   "monday"
+  ],
+  "id": "35"
+ },
+ {
+  "kind": "brand",
+  "text": "Remind me to top up GCash tonight",
+  "entities": [
+   "gcash"
+  ],
+  "id": "36"
+ },
+ {
+  "kind": "brand",
+  "text": "Remind me to check my Shopee order",
+  "entities": [
+   "shopee"
+  ],
+  "id": "37"
+ },
+ {
+  "kind": "brand",
+  "text": "Book a Grab to Bonifacio Global City",
+  "entities": [
+   "grab",
+   "bonifacio global city"
+  ],
+  "id": "38"
+ },
+ {
+  "kind": "number",
+  "text": "Set a timer for twelve minutes",
+  "entities": [
+   "twelve"
+  ],
+  "id": "39"
+ },
+ {
+  "kind": "number",
+  "text": "Set an alarm for six forty five in the morning",
+  "entities": [
+   "six forty five"
+  ],
+  "id": "40"
+ },
+ {
+  "kind": "number",
+  "text": "Wake me up at five fifteen tomorrow",
+  "entities": [
+   "five fifteen"
+  ],
+  "id": "41"
+ },
+ {
+  "kind": "number",
+  "text": "Set a timer for one hour and thirty minutes",
+  "entities": [
+   "one hour",
+   "thirty"
+  ],
+  "id": "42"
+ },
+ {
+  "kind": "number",
+  "text": "Set the thermostat to twenty two degrees",
+  "entities": [
+   "twenty two"
+  ],
+  "id": "43"
+ },
+ {
+  "kind": "number",
+  "text": "Set an alarm for seven thirty on Saturday",
+  "entities": [
+   "seven thirty",
+   "saturday"
+  ],
+  "id": "44"
+ },
+ {
+  "kind": "number",
+  "text": "Remind me at nine fifty in the evening to take my vitamins",
+  "entities": [
+   "nine fifty"
+  ],
+  "id": "45"
+ },
+ {
+  "kind": "number",
+  "text": "Turn the lights down to forty percent",
+  "entities": [
+   "forty"
+  ],
+  "id": "46"
+ },
+ {
+  "kind": "everyday",
+  "text": "Turn off the lights in the kitchen",
+  "entities": [
+   "kitchen"
+  ],
+  "id": "47"
+ },
+ {
+  "kind": "everyday",
+  "text": "Turn on the bedroom lamp",
+  "entities": [
+   "bedroom"
+  ],
+  "id": "48"
+ },
+ {
+  "kind": "everyday",
+  "text": "Make it a little warmer in here",
+  "entities": [],
+  "id": "49"
+ },
+ {
+  "kind": "everyday",
+  "text": "What is on my reminders for today",
+  "entities": [],
+  "id": "50"
+ },
+ {
+  "kind": "everyday",
+  "text": "Stop the music",
+  "entities": [],
+  "id": "51"
+ },
+ {
+  "kind": "everyday",
+  "text": "Cancel the timer",
+  "entities": [],
+  "id": "52"
+ },
+ {
+  "kind": "everyday",
+  "text": "Set the living room lights to blue",
+  "entities": [
+   "living room",
+   "blue"
+  ],
+  "id": "53"
+ },
+ {
+  "kind": "correction",
+  "text": "Play Taylor Swift. No, I want Opalite",
+  "entities": [
+   "taylor swift",
+   "opalite"
+  ],
+  "id": "54"
+ },
+ {
+  "kind": "correction",
+  "text": "Call Angelo. Actually, call Jocelyn",
+  "entities": [
+   "angelo",
+   "jocelyn"
+  ],
+  "id": "55"
+ },
+ {
+  "kind": "correction",
+  "text": "Set an alarm for six. No, make it six thirty",
+  "entities": [
+   "six thirty"
+  ],
+  "id": "56"
+ },
+ {
+  "kind": "correction",
+  "text": "Text Kristine that I am late. Wait, say I am on my way",
+  "entities": [
+   "kristine"
+  ],
+  "id": "57"
+ },
+ {
+  "kind": "correction",
+  "text": "Play Bad Bunny in the kitchen. Sorry, the bedroom",
+  "entities": [
+   "bad bunny",
+   "kitchen",
+   "bedroom"
+  ],
+  "id": "58"
+ },
+ {
+  "kind": "correction",
+  "text": "Set a timer for ten minutes. Make that fifteen",
+  "entities": [
+   "ten",
+   "fifteen"
+  ],
+  "id": "59"
+ }
+]

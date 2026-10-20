@@ -150,3 +150,17 @@ def test_filter_state_carries_across_blocks(sc: types.ModuleType) -> None:
 
 def test_spelling_variants_are_not_errors(sc: types.ModuleType) -> None:
     assert sc.norm_words("A cosy neighbourhood.") == sc.norm_words("a cozy neighborhood")
+
+
+def test_norm_words_spells_numbers_so_digits_and_words_compare_equal(sc):
+    assert sc.norm_words("dinner is at 8.") == sc.norm_words("dinner is at eight")
+    assert sc.norm_words("Alarm for 6:45") == sc.norm_words("alarm for six forty five")
+    assert sc.norm_words("set to 22 degrees") == sc.norm_words("set to twenty two degrees")
+    assert sc.norm_words("down to 40%") == sc.norm_words("down to forty per cent")
+    assert sc.norm_words("some SB19") == sc.norm_words("some sb nineteen")
+    assert sc.norm_words("at 7:05") == sc.norm_words("at seven oh five")
+
+
+def test_norm_words_ignores_thousands_separators(sc):
+    assert sc.norm_words("under 50,000 pesos") == sc.norm_words("under fifty thousand pesos")
+    assert sc.norm_words("15,000 pesos") == sc.norm_words("fifteen thousand pesos")
