@@ -63,6 +63,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="zeros after the speech for Parakeet (s); 0.5 + 1.0 beat no padding on labelled clips",
     )
     ap.add_argument(
+        "--early-decode-ms",
+        type=int,
+        default=0,
+        help="start Parakeet in the background after this much quiet (e.g. 200) and use the result "
+        "if the turn then ends; cuts ~0.3 s of waiting but changed words on short commands "
+        "(hard set WER 4.9%% -> 7.4%%). Default 0 = off",
+    )
+    ap.add_argument(
         "--no-repair",
         action="store_true",
         help="with --stt-model parakeet: hotwords only, skip the name repair ladder",
@@ -125,6 +133,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 endpoint_silence=args.endpoint_silence,
                 pad_lead_s=args.pad_lead,
                 pad_tail_s=args.pad_tail,
+                early_decode_s=args.early_decode_ms / 1000 if args.early_decode_ms > 0 else None,
                 repair=not args.no_repair,
             )
         else:
