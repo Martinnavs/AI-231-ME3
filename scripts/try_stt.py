@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import collections
 import contextlib
 import json
 import os
@@ -35,16 +36,65 @@ import numpy as np
 
 SR = 16000
 CHUNK = 1600  # 100 ms
-VOICED_RMS = 0.02
+CHUNK_S = CHUNK / SR
 
 
-def show_final(msg: dict[str, Any], delay_ms: float | None, server_ms: float | None) -> None:
+class PauseDetector:
+    """Adaptive stand-in for the Pi's VAD: finds speech above the room's noise floor, then a pause.
+
+    The noise floor is the 10th percentile of the last ~10 s of chunk levels, so steady hum or a
+    fan raises the bar instead of looking like speech. The first second only measures the room.
+    """
+
+    def __init__(self, hold_s: float, ratio: float = 2.5, floor: float = 0.008) -> None:
+        self.hold_s = hold_s
+        self.ratio = ratio
+        self.floor = floor
+        self.levels: collections.deque[float] = collections.deque(maxlen=100)
+        self.heard = False
+        self.quiet_s = 0.0
+        self.calibration_chunks = int(1.0 / CHUNK_S)
+
+    @property
+    def noise(self) -> float:
+        return float(np.percentile(self.levels, 10)) if self.levels else 0.0
+
+    @property
+    def threshold(self) -> float:
+        return max(self.floor, self.ratio * self.noise)
+
+    def feed(self, rms: float) -> tuple[bool, bool]:
+        """One chunk's RMS level -> (is speech, the pause is long enough to end the turn)."""
+        calibrating = len(self.levels) < self.calibration_chunks
+        voiced = not calibrating and rms > self.threshold
+        if not voiced:
+            self.levels.append(rms)  # speech is kept out of the noise estimate
+        if voiced:
+            self.heard, self.quiet_s = True, 0.0
+            return True, False
+        if self.heard:
+            self.quiet_s += CHUNK_S
+            if self.hold_s > 0 and self.quiet_s >= self.hold_s:
+                self.heard, self.quiet_s = False, 0.0
+                return False, True
+        return False, False
+
+
+def dbfs(x: float) -> float:
+    return 20 * float(np.log10(max(x, 1e-6)))
+
+
+def show_final(msg: dict[str, Any], timing: str, streamed: str = "") -> None:
     sys.stdout.write("\r\033[K")
     rep = msg.get("repair")
     raw = msg.get("raw_text")
     print(f"FINAL  {msg['text']!r}")
+    if streamed and _words(streamed) != _words(msg["text"]):
+        print(f"  Kroko had streamed: {streamed!r}  (Parakeet re-decoded the finished turn)")
+    elif raw is not None:
+        print("  Parakeet re-decoded the turn; same words as the streamed text")
     if raw is not None and raw != msg["text"]:
-        print(f"  raw (Parakeet): {raw!r}")
+        print(f"  raw (Parakeet, before name repair): {raw!r}")
     if rep:
         print(f"  ladder: {rep['rung']}  (slot {rep['slot']}, risk {rep['risk']})")
         for m in rep["matches"]:
@@ -57,13 +107,48 @@ def show_final(msg: dict[str, Any], delay_ms: float | None, server_ms: float | N
         if rep["question"]:
             print(f"  ASK: {rep['question']}")
     elif raw is not None:
-        print("  ladder: not applied (no name list for this kind of request)")
-    if delay_ms is not None:
-        extra = ""
-        if server_ms is not None:
-            extra = f" (client pause {delay_ms - server_ms:.0f} ms + server {server_ms:.0f} ms)"
-        print(f"  arrived {delay_ms:.0f} ms after the last speech was heard{extra}")
+        print(
+            "  name repair: not applied (only call/text, play, book/order and weather-style "
+            "requests get a name list; --slot forces one)"
+        )
+    if timing:
+        print(f"  {timing}")
     print()
+
+
+def _words(text: str) -> list[str]:
+    """Words only, lower case: ignore punctuation, quotes and capitals when comparing texts."""
+    return "".join(c.lower() if c.isalnum() or c == " " else " " for c in text).split()
+
+
+def timing_note(state: dict[str, Any], hold_s: float, now: float) -> str:
+    """Say who ended the turn and what the numbers mean; no claim when they would be misleading."""
+    fin = state["finalize_sent"]
+    if fin is None:
+        sound = state["last_voiced"]
+        since = f", {(now - sound) * 1000:.0f} ms after your last sound" if sound else ""
+        return (
+            "turn ended by the server's own end-of-turn detector (this client's pause detector "
+            f"had not fired){since}"
+        )
+    if state["last_voiced"] is not None and state["last_voiced"] > fin:
+        return "you were already speaking again when the answer came, so no delay is shown"
+    server = (now - fin) * 1000
+    return (
+        f"turn ended by this client after {hold_s * 1000:.0f} ms of quiet; the server answered "
+        f"{server:.0f} ms later (about {hold_s * 1000 + server:.0f} ms from the end of speech)"
+    )
+
+
+def save_turn(save_dir: Path, n: int, pcm: bytes, msg: dict[str, Any]) -> None:
+    save_dir.mkdir(parents=True, exist_ok=True)
+    stem = save_dir / f"turn-{time.strftime('%H%M%S')}-{n:02d}"
+    with wave.open(f"{stem}.wav", "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SR)
+        w.writeframes(pcm)
+    Path(f"{stem}.json").write_text(json.dumps(msg, indent=1, ensure_ascii=False))
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -85,7 +170,12 @@ async def run(args: argparse.Namespace) -> int:
         "audio_done": None,
         "finalize_sent": None,
         "finals": 0,
+        "turn_pcm": bytearray(),
+        "snapshot": None,
+        "last_interim": "",
+        "unsent_s": 0.0,
     }
+    detector = PauseDetector(args.vad_hold)
 
     async with connect(args.url, additional_headers=headers, max_size=None) as ws:
         await ws.send(json.dumps(start))
@@ -100,40 +190,60 @@ async def run(args: argparse.Namespace) -> int:
                     continue
                 if msg["is_final"]:
                     now = time.monotonic()
-                    ref = state["last_voiced"] or state["audio_done"]
-                    delay = (now - ref) * 1000 if ref else None
-                    fin = state["finalize_sent"]
-                    server = (now - fin) * 1000 if fin else None
+                    note = timing_note(state, args.vad_hold, now)
+                    audio = state["snapshot"] if state["snapshot"] is not None else None
+                    if audio is None:
+                        audio = bytes(state["turn_pcm"])
+                        state["turn_pcm"].clear()
+                    state["snapshot"] = None
                     state["finalize_sent"] = None
+                    streamed, state["last_interim"] = state["last_interim"], ""
+                    # warn only if more than the silence we appended ourselves was left unsent
+                    if state["unsent_s"] > args.tail + 0.2:
+                        note += (
+                            "\n  NOTE: the pause ended the turn mid-clip; "
+                            f"{state['unsent_s']:.1f} s of audio after it was not sent "
+                            "(try --vad-hold 1.0)"
+                        )
                     if msg["text"].strip():
-                        show_final(msg, delay, server)
+                        show_final(msg, note, streamed)
                         state["finals"] += 1
+                        if args.save:
+                            save_turn(args.save, state["finals"], audio, msg)
                     if args.wav and msg["end_of_turn"]:
                         return
                 else:
+                    state["last_interim"] = msg["text"]
                     sys.stdout.write(f"\r\033[K  ... {msg['text']}")
                     sys.stdout.flush()
 
         async def send() -> None:
-            heard = False
-            quiet = 0.0
             while (chunk := await queue.get()) is not None:
                 x = np.frombuffer(chunk, np.int16).astype(np.float32) / 32768
-                voiced = x.size > 0 and float(np.sqrt(np.mean(x**2))) > VOICED_RMS
+                rms = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
+                voiced, pause = detector.feed(rms)
+                if args.levels:
+                    bar = "#" * min(int(rms / max(detector.threshold, 1e-6) * 10), 40)
+                    sys.stdout.write(
+                        f"\r\033[K[{dbfs(rms):6.1f} dB | noise {dbfs(detector.noise):6.1f} | "
+                        f"bar {'speech' if voiced else '      '}] {bar}"
+                    )
+                    sys.stdout.flush()
                 if voiced:
                     state["last_voiced"] = time.monotonic()
-                    heard, quiet = True, 0.0
-                elif heard:
-                    quiet += len(chunk) / 2 / SR
+                state["turn_pcm"] += chunk
                 await ws.send(chunk)
                 if args.wav:
                     await asyncio.sleep(len(chunk) / 2 / SR)  # real-time pacing
-                if args.vad_hold > 0 and heard and quiet >= args.vad_hold:
+                if pause:
                     # what the Pi's VAD does: the user paused, so end the turn now
                     state["finalize_sent"] = time.monotonic()
+                    state["snapshot"] = bytes(state["turn_pcm"])
+                    state["turn_pcm"].clear()
                     await ws.send(json.dumps({"type": "finalize"}))
-                    heard, quiet = False, 0.0
                     if args.wav:
+                        left = (queue.qsize() - 1) * CHUNK_S  # minus the end marker
+                        state["unsent_s"] = max(left, 0.0)
                         break
             state["audio_done"] = time.monotonic()
             if args.finalize and args.wav and state["finalize_sent"] is None:
@@ -149,7 +259,8 @@ async def run(args: argparse.Namespace) -> int:
                     print("need a 16 kHz mono 16-bit WAV", file=sys.stderr)
                     return 2
                 pcm = w.readframes(w.getnframes())
-            pcm += b"\x00\x00" * int(args.tail * SR)  # silence so the server ends the turn
+            # a second of silence first (the pause detector measures the room), a tail after
+            pcm = b"\x00\x00" * SR + pcm + b"\x00\x00" * int(args.tail * SR)
             for i in range(0, len(pcm), CHUNK * 2):
                 queue.put_nowait(pcm[i : i + CHUNK * 2])
             queue.put_nowait(None)
@@ -167,7 +278,10 @@ async def run(args: argparse.Namespace) -> int:
         def on_audio(indata: Any, frames: int, t: Any, status: Any) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, bytes(indata))
 
-        print("Speak. The server ends your turn after a pause; Ctrl-C to quit.\n")
+        print(
+            "Stay quiet for a second (measuring the room), then speak. A pause of "
+            f"{args.vad_hold:g} s ends your turn; Ctrl-C to quit.\n"
+        )
         with (
             sd.RawInputStream(
                 samplerate=SR,
@@ -201,6 +315,10 @@ def main() -> int:
         "Kroko lags 1.5-2.5 s)",
     )
     ap.add_argument("--finalize", action="store_true", help="WAV mode: send finalize at the end")
+    ap.add_argument("--save", type=Path, help="keep each turn's audio and result in this folder")
+    ap.add_argument(
+        "--levels", action="store_true", help="show the microphone level and noise floor"
+    )
     ap.add_argument("--tail", type=float, default=2.0, help="WAV mode: seconds of silence appended")
     args = ap.parse_args()
     try:
