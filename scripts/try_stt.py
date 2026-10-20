@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import collections
 import contextlib
 import json
 import os
@@ -34,50 +33,13 @@ from typing import Any
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))  # run without PYTHONPATH
+
+from lan_speech.pause import PauseDetector  # noqa: E402
+
 SR = 16000
 CHUNK = 1600  # 100 ms
 CHUNK_S = CHUNK / SR
-
-
-class PauseDetector:
-    """Adaptive stand-in for the Pi's VAD: finds speech above the room's noise floor, then a pause.
-
-    The noise floor is the 10th percentile of the last ~10 s of chunk levels, so steady hum or a
-    fan raises the bar instead of looking like speech. The first second only measures the room.
-    """
-
-    def __init__(self, hold_s: float, ratio: float = 2.5, floor: float = 0.008) -> None:
-        self.hold_s = hold_s
-        self.ratio = ratio
-        self.floor = floor
-        self.levels: collections.deque[float] = collections.deque(maxlen=100)
-        self.heard = False
-        self.quiet_s = 0.0
-        self.calibration_chunks = int(1.0 / CHUNK_S)
-
-    @property
-    def noise(self) -> float:
-        return float(np.percentile(self.levels, 10)) if self.levels else 0.0
-
-    @property
-    def threshold(self) -> float:
-        return max(self.floor, self.ratio * self.noise)
-
-    def feed(self, rms: float) -> tuple[bool, bool]:
-        """One chunk's RMS level -> (is speech, the pause is long enough to end the turn)."""
-        calibrating = len(self.levels) < self.calibration_chunks
-        voiced = not calibrating and rms > self.threshold
-        if not voiced:
-            self.levels.append(rms)  # speech is kept out of the noise estimate
-        if voiced:
-            self.heard, self.quiet_s = True, 0.0
-            return True, False
-        if self.heard:
-            self.quiet_s += CHUNK_S
-            if self.hold_s > 0 and self.quiet_s >= self.hold_s:
-                self.heard, self.quiet_s = False, 0.0
-                return False, True
-        return False, False
 
 
 def dbfs(x: float) -> float:
@@ -247,7 +209,7 @@ async def run(args: argparse.Namespace) -> int:
             while (chunk := await queue.get()) is not None:
                 x = np.frombuffer(chunk, np.int16).astype(np.float32) / 32768
                 rms = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
-                voiced, pause = detector.feed(rms)
+                voiced, pause = detector.feed(rms, CHUNK_S)
                 if args.levels:
                     bar = "#" * min(int(rms / max(detector.threshold, 1e-6) * 10), 40)
                     sys.stdout.write(

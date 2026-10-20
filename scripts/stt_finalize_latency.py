@@ -35,6 +35,15 @@ def main() -> int:
     ap.add_argument("--pad-lead", type=float, default=0.5)
     ap.add_argument("--pad-tail", type=float, default=1.0)
     ap.add_argument("--rounds", type=int, default=2)
+    ap.add_argument(
+        "--hold",
+        type=float,
+        default=0.5,
+        help="seconds of the end of each turn fed in real time, like the client's pause hold",
+    )
+    ap.add_argument(
+        "--early", type=float, nargs="*", default=[], help="also time these early-decode pauses (s)"
+    )
     args = ap.parse_args()
 
     engine = ParakeetHybridSTTEngine(
@@ -53,55 +62,64 @@ def main() -> int:
         f"{len(turns)} turns, mean {np.mean([t[1] for t in turns]):.1f} s; Kroko {args.kroko_threads} / Parakeet {args.parakeet_threads} threads, pad {args.pad_lead}/{args.pad_tail} s\n"
     )
 
-    rows = []
-    for rnd in range(args.rounds):
-        for pcm, dur in turns:
-            stream = engine.create_stream(16000)
-            inner: dict[str, float] = {}
-            real = stream._transcribe  # type: ignore[attr-defined]
+    def measure(early: float | None) -> list[tuple[float, float, float, float]]:
+        engine._early = early  # type: ignore[attr-defined]
+        rows = []
+        for rnd in range(args.rounds):
+            for pcm, dur in turns:
+                stream = engine.create_stream(16000)
+                inner: dict[str, float] = {}
+                real = stream._transcribe  # type: ignore[attr-defined]
 
-            def timed(samples: np.ndarray, sr: int, real=real, inner=inner) -> str:
+                def timed(samples: np.ndarray, sr: int, real=real, inner=inner) -> str:
+                    t0 = time.perf_counter()
+                    out = real(samples, sr)
+                    inner["parakeet"] = (time.perf_counter() - t0) * 1000
+                    inner["audio_s"] = len(samples) / sr
+                    return out
+
+                stream._transcribe = timed  # type: ignore[attr-defined]
+                ended = False
+                n_chunks = (len(pcm) + 3199) // 3200
+                paced_from = n_chunks - int(args.hold / 0.1)
+                for k, i in enumerate(range(0, len(pcm), 3200)):  # 100 ms chunks
+                    stream.accept_waveform(16000, pcm[i : i + 3200])
+                    res = stream.decode()
+                    ended = ended or (res is not None and res.is_final)
+                    if k >= paced_from:
+                        time.sleep(
+                            0.1
+                        )  # the pause hold happens in real time, so a background decode can overlap it
+                if ended:
+                    continue
                 t0 = time.perf_counter()
-                out = real(samples, sr)
-                inner["parakeet"] = (time.perf_counter() - t0) * 1000
-                inner["audio_s"] = len(samples) / sr
-                return out
+                stream.finalize_result()
+                total = (time.perf_counter() - t0) * 1000
+                if rnd > 0 and "parakeet" in inner:
+                    rows.append((dur, total, inner["parakeet"], inner["audio_s"]))
+        return rows
 
-            stream._transcribe = timed  # type: ignore[attr-defined]
-            ended = False
-            for i in range(0, len(pcm), 3200):  # 100 ms chunks, decoded as they arrive
-                stream.accept_waveform(16000, pcm[i : i + 3200])
-                res = stream.decode()
-                ended = ended or (res is not None and res.is_final)
-            if ended:  # Kroko's own endpoint fired first: nothing left for a finalize to time
-                continue
-            t0 = time.perf_counter()
-            stream.finalize_result()
-            total = (time.perf_counter() - t0) * 1000
-            if rnd > 0 and "parakeet" in inner:  # round 0 warms everything up
-                rows.append((dur, total, inner["parakeet"], inner["audio_s"]))
-
-    tot = np.array([r[1] for r in rows])
-    pk = np.array([r[2] for r in rows])
-    kro = tot - pk
-    dur = np.array([r[0] for r in rows])
-    p = lambda a, q: float(np.percentile(a, q))  # noqa: E731
-    print(f"{len(rows)} measured finalizes\n")
-    print("| part | p50 | p95 | max |")
-    print("|---|---|---|---|")
-    for label, a in (
-        ("finalize total (what the server adds after the pause)", tot),
-        ("  Parakeet decode of the padded audio", pk),
-        ("  Kroko finishing the turn + repair", kro),
-    ):
-        print(f"| {label} | {p(a, 50):.0f} ms | {p(a, 95):.0f} ms | {a.max():.0f} ms |")
-    print("\nby turn length (total finalize):")
-    for lo, hi in ((0, 3), (3, 5), (5, 8), (8, 99)):
-        m = (dur >= lo) & (dur < hi)
-        if m.any():
-            print(
-                f"  {lo}-{hi if hi < 99 else '+'} s: {m.sum():2d} turns, p50 {np.median(tot[m]):.0f} ms, max {tot[m].max():.0f} ms"
-            )
+    modes: list[float | None] = [None, *args.early]
+    results = {m: measure(m) for m in modes}
+    for mode in modes:
+        rows = results[mode]
+        tot = np.array([r[1] for r in rows])
+        dur = np.array([r[0] for r in rows])
+        label = "no early decode" if mode is None else f"early decode after a {mode} s pause"
+        print(
+            f"\n### {label}: {len(rows)} finalizes, last {args.hold} s of each turn fed in real time"
+        )
+        print("| after `finalize` is sent | p50 | p95 | max |")
+        print("|---|---|---|---|")
+        print(
+            f"| time until the final transcript | {np.percentile(tot, 50):.0f} ms | {np.percentile(tot, 95):.0f} ms | {tot.max():.0f} ms |"
+        )
+        for lo, hi in ((0, 3), (3, 5), (5, 8), (8, 99)):
+            m = (dur >= lo) & (dur < hi)
+            if m.any():
+                print(
+                    f"|   turns {lo}-{hi if hi < 99 else '+'} s ({m.sum()}) | {np.median(tot[m]):.0f} ms | | {tot[m].max():.0f} ms |"
+                )
     return 0
 
 

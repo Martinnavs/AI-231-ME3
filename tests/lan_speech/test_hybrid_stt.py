@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,7 @@ import pytest
 from lan_speech.engines import STTDecodeResult
 from lan_speech.hotwords import load_entities, write_hotwords, write_vocab
 from lan_speech.hybrid_stt import HybridSTTStream, pad_with_zeros, trim_silence
+from lan_speech.pause import NoiseFloor
 from lan_speech.transcript_repair import Entity, build_matchers
 
 SR = 16000
@@ -249,3 +251,118 @@ def test_the_shipped_names_file_loads_and_has_every_slot() -> None:
     ents = load_entities(Path("config/entities.json"))
     assert len(ents) > 100
     assert {"music", "contact", "place", "brand"} <= {e.category for e in ents}
+
+
+def chunks(*parts: bytes) -> list[bytes]:
+    """100 ms blocks, the size a client sends."""
+    raw = b"".join(parts)
+    return [raw[i : i + 3200] for i in range(0, len(raw), 3200)]
+
+
+def quiet(seconds: float) -> bytes:
+    return np.zeros(int(seconds * SR), np.int16).tobytes()
+
+
+def early_stream(base: FakeBase, tr: Transcriber, **kw: float) -> HybridSTTStream:
+    return HybridSTTStream(
+        base,
+        tr,
+        MATCHERS,
+        early_s=0.2,
+        executor=ThreadPoolExecutor(max_workers=1),
+        noise=NoiseFloor(0.005),
+        **kw,
+    )
+
+
+def test_a_pause_starts_the_decode_before_the_turn_ends() -> None:
+    tr = Transcriber("play opalate")
+    s = early_stream(FakeBase([FINAL]), tr)
+    for c in chunks(speech(1.0), quiet(0.4)):
+        s.accept_waveform(SR, c)
+    s.accept_waveform(SR, b"")  # let the worker thread run
+    s._spec.future.result()  # type: ignore[union-attr]
+    assert len(tr.calls) == 1  # Parakeet has already run, and nobody has asked for the end yet
+    res = s.decode()
+    assert res is not None and res.text == "play Opalite"
+    assert len(tr.calls) == 1  # the end of the turn reused it: no second decode
+
+
+def test_speech_after_the_pause_throws_the_early_decode_away() -> None:
+    tr = Transcriber("hello there")
+    s = early_stream(FakeBase([FINAL]), tr)
+    for c in chunks(speech(0.6), quiet(0.4), speech(0.6)):
+        s.accept_waveform(SR, c)
+    assert s._spec is None
+    res = s.decode()
+    assert res is not None and res.text == "hello there"
+    # the decode that counts covers the whole turn, both stretches of speech
+    assert tr.calls[-1][0] >= int((0.6 + 0.4 + 0.6) * SR)
+
+
+def test_without_early_decoding_nothing_runs_until_the_turn_ends() -> None:
+    tr = Transcriber("hi")
+    s = HybridSTTStream(FakeBase([FINAL]), tr, MATCHERS)
+    for c in chunks(speech(1.0), quiet(0.6)):
+        s.accept_waveform(SR, c)
+    assert tr.calls == []
+    s.decode()
+    assert len(tr.calls) == 1
+
+
+def test_a_failed_early_decode_falls_back_to_decoding_the_turn() -> None:
+    calls = {"n": 0}
+
+    def flaky(samples: np.ndarray, sample_rate: int) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom")
+        return "second try"
+
+    s = HybridSTTStream(
+        FakeBase([FINAL]),
+        flaky,
+        MATCHERS,
+        early_s=0.2,
+        executor=ThreadPoolExecutor(max_workers=1),
+        noise=NoiseFloor(0.005),
+    )
+    for c in chunks(speech(1.0), quiet(0.4)):
+        s.accept_waveform(SR, c)
+    res = s.decode()
+    assert res is not None and res.text == "second try"
+
+
+def test_the_room_noise_is_handed_to_the_next_turn() -> None:
+    shared = NoiseFloor()
+    s = HybridSTTStream(
+        FakeBase([FINAL]),
+        Transcriber("x"),
+        MATCHERS,
+        early_s=0.2,
+        executor=ThreadPoolExecutor(max_workers=1),
+        noise=shared,
+    )
+    for c in chunks(quiet(3.0), speech(1.0), quiet(0.4)):
+        s.accept_waveform(SR, c)
+    s.decode()
+    assert shared.value is not None and shared.value < 0.001
+
+
+def test_reset_cancels_a_pending_early_decode() -> None:
+    tr = Transcriber("x")
+    s = early_stream(FakeBase([]), tr)
+    for c in chunks(speech(1.0), quiet(0.4)):
+        s.accept_waveform(SR, c)
+    s.reset()
+    assert s._spec is None
+
+
+def test_the_soft_end_of_a_word_after_the_pause_cancels_the_early_decode() -> None:
+    soft = (0.02 * np.sin(2 * np.pi * 220 * np.arange(int(0.3 * SR)) / SR) * 32767).astype(np.int16)
+    s = early_stream(FakeBase([FINAL]), Transcriber("fine"))
+    s.accept_waveform(SR, speech(1.0))
+    s.accept_waveform(SR, quiet(0.25))  # looks like a pause: an early decode starts
+    assert s._spec is not None
+    s.accept_waveform(SR, soft.tobytes())  # ... but the word was not over
+    assert s._spec is None

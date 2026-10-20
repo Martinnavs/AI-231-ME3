@@ -151,7 +151,7 @@ uv run --group laptop python scripts/try_stt.py --wav out/synth/stt_heldout-06.w
 
 `try_stt.py` acts like the Pi: it streams audio and, after `--vad-hold` seconds of quiet (default 0.5), sends `finalize`. Its pause detector is adaptive: the first second only measures the room, then speech is anything well above the noise floor, so steady hum or a fan does not count as speech (an earlier fixed bar did, see below). It prints Kroko's interim text, then the final line (with what Kroko had streamed when Parakeet's version differs, which is the improvement you see between the interim and final text), the raw Parakeet text if repair changed it, whether name repair ran (it only runs for requests with a name list: call/text, play, book/order, weather-style, or `--slot`; open-ended questions skip it by design, the Parakeet re-decode still happens), and who ended the turn: this client after the pause (with the server's answer time), or the server's own detector (no timing claim, since it ends turns late). Useful flags: `--slot contact --risk high` (hints the agent would send), `--save DIR` (keep each turn's audio and result for offline scoring), `--levels` (live microphone level and noise floor), `--vad-hold 0` (let the server decide), `--device N` (microphone).
 
-**Server flags:** `--entities config/entities.json` (default), `--parakeet-threads 2`, `--hotword-score 1.0` (1.5 or more hurts; 0.5 is gentler), `--pad-lead 0.5`, `--pad-tail 1.0`, `--no-repair` (hotwords only), `--endpoint-silence`. Startup takes about 30 s (three models).
+**Server flags:** `--entities config/entities.json` (default), `--parakeet-threads 2`, `--hotword-score 1.0` (1.5 or more hurts; 0.5 is gentler), `--pad-lead 0.5`, `--pad-tail 1.0`, `--early-decode-ms 0` (200 starts Parakeet at the first pause; see below), `--no-repair` (hotwords only), `--endpoint-silence`. Startup takes about 30 s (three models).
 
 **Your names:** `config/entities.json` is the list that both biases Parakeet and feeds the repair step: `{"Display Name": "category"}` with categories `music`, `contact`, `place`, `brand` (anything else is used for biasing only). It ships with the 318 names used in the experiments (artists, Filipino names, places, brands, number phrases). Replace it with your real contacts and library; it is read at startup. Use proper casing for the display name (`GCash`, `BINI`), since that is what replaces a mis-heard word. A plain JSON list of names also works (biasing only).
 
@@ -245,6 +245,26 @@ By length of the turn: under 3 s, p50 460 ms (max 558); 3-5 s, 598 ms; 5-8 s, 82
 What a user waits, from the end of their speech to a transcript the agent can use: the client's pause (0.5 s here) plus the server's time. For a 2-3 s command that is about 0.5 + 0.46 = **1.0 s**; for a 5-8 s sentence about 0.5 + 0.83 = **1.3 s**; for 8 s and over about 1.5 s. The LLM's first token and the first audio of the reply come on top of that (TTS first audio was measured at about 320 ms with Supertonic alone; the LLM was not measured here). The target of about 500 ms to first audio is not met by speech recognition alone, and these figures do not include the 1.5-1.65x slowdown measured when TTS runs on the same CPU.
 
 Levers, with what is known: **start the decode at the first short pause** (0.2 s) and discard it if the user keeps talking (on synthetic clips the words matched the 0.5 s-tail decode on 94% of clips; not built); **a shorter pause hold** (0.5 s ended turns mid-sentence when reading in chunks, but a command is a single burst); **a faster host for Parakeet** (the phone benchmark is the open question; a GPU would cut the decode to tens of milliseconds); **give the LLM Kroko's streaming text early** and let Parakeet correct it (the fast partial is available while the user speaks; not built). Smaller: a 1.0 s tail pad costs about 70 ms against 0.5 s but the shorter pad was worse on the hard set (6.1% vs 4.9%); 2 and 4 threads are equal; the `performance` power profile gains about 10%.
+
+### Early decode at the first pause (built, off by default: `--early-decode-ms 200`)
+
+The server watches the audio for a short pause (200 ms of quiet after speech, relative to the room's noise floor, which is carried from turn to turn). When it sees one it starts the Parakeet decode in the background. If the speaker carries on, or anything rises above 1.5x the noise floor (the soft end of a word), the result is thrown away; if the turn ends instead (the client's `finalize`, 0.5 s later), the answer is already computed or partly computed. Code: `lan_speech/pause.py` (detector), `HybridSTTStream` (speculation).
+
+**What it saves** (`stt_finalize_latency.py --early 0.2`, last 0.5 s of each turn fed in real time, time from `finalize` to the final transcript): median **659 ms -> 375 ms** (p95 967 -> 750); turns under 3 s, 457 -> **100 ms** (max 528); 3-5 s, 586 -> 433; 5-8 s, 792 -> 367; over 8 s, 923 -> 699. On a command that is roughly the whole server wait.
+
+**What it can cost** (`stt_early_eval.py`, labelled clips, early decode vs full-clip decode, both scored against what was said):
+
+| set | clips that got an early start | WER full | WER early | words changed |
+|---|---|---|---|---|
+| hard (short commands) | 16 of 59 | 4.9% | **7.4%** | 10 of 408 |
+| held-out | 8 of 36 | 8.7% | 8.7% | 1 of 311 |
+| live session (25 turns) | 21 of 25 | 5.5% | 5.5% | 0 of 291 |
+
+So on open reading and on the held-out sentences it changed (almost) nothing, but on short commands it cost 2.5 points of WER. Parakeet's words depend on the audio around the speech (see the padding results), and an early decode sees 0.2 s of trailing room noise where the full decode sees 0.4 s or more; on 16 command clips that was enough to change about one word in ten. A first version without the "soft end of a word" cancellation did far worse (hard set 18.4%): an energy-based pause is declared inside quiet word endings, so the decode missed them. Any rise above 1.5x the noise floor after the pause now cancels the early decode. A 0.3 s pause was no better (12 changed words on the hard set).
+
+**Through the real server** (websocket, `--early-decode-ms 200`, four synthetic clips twice, 0.5 s client pause): the server answered 54-172 ms after `finalize` instead of 300-660 ms, with the same transcripts; about 0.55-0.67 s from the end of speech to the final text instead of 0.9-1.1 s.
+
+**Why it is off:** the user's priority is transcript accuracy, and this trades 0.3 s for a real accuracy risk on exactly the short commands that are the common case. Try it with `--early-decode-ms 200` and judge on your own commands; a safer variant (hand the LLM the early text as provisional and send a correction if the verified decode differs) needs client support and is not built. Other caveats: the first turn after a restart has no noise estimate, so it has no early start; speculative decodes that get cancelled still burn CPU, which competes with Kroko and with TTS; all numbers are one speaker and one laptop.
 
 ## Speed experiments on synthetic speech (no recordings needed)
 

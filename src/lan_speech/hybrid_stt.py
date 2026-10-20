@@ -19,6 +19,8 @@ import logging
 import tempfile
 import threading
 from collections.abc import Callable
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,7 @@ import numpy as np
 from lan_speech.engines import SherpaSTTEngine, STTDecodeResult, STTStream
 from lan_speech.hotwords import write_hotwords, write_vocab
 from lan_speech.models import PARAKEET_DIR
+from lan_speech.pause import NoiseFloor, PauseDetector
 from lan_speech.transcript_repair import (
     Entity,
     EntityMatcher,
@@ -119,8 +122,21 @@ class ParakeetTranscriber:
             return str(stream.result.text).strip()
 
 
+@dataclass
+class _Speculation:
+    """A Parakeet decode started at a pause, before the turn is known to be over."""
+
+    future: Future[str] = field(default_factory=Future)
+    cancelled: bool = False
+
+
 class HybridSTTStream:
-    """One user turn: forwards audio to the streaming stream and buffers it for Parakeet."""
+    """One user turn: forwards audio to the streaming stream and buffers it for Parakeet.
+
+    With ``early_s`` set, the stream also watches the audio for a pause that long and starts the
+    Parakeet decode right then, in the background. If the speaker carries on, the result is thrown
+    away; if the turn ends instead, the answer is already (partly) computed.
+    """
 
     def __init__(
         self,
@@ -134,6 +150,9 @@ class HybridSTTStream:
         pad_lead_s: float = 0.5,
         pad_tail_s: float = 1.0,
         max_seconds: float = 25.0,
+        early_s: float | None = None,
+        executor: Executor | None = None,
+        noise: NoiseFloor | None = None,
     ) -> None:
         self._base = base
         self._transcribe = transcribe
@@ -148,6 +167,12 @@ class HybridSTTStream:
         self._sample_rate = 16000
         self._slot: str | None = None
         self._risk: Risk | None = None
+        self._noise = noise
+        self._executor = executor
+        self._spec: _Speculation | None = None
+        self._pause: PauseDetector | None = None
+        if early_s is not None and executor is not None:
+            self._pause = PauseDetector(early_s, noise=noise.value if noise else None)
 
     def set_context(self, slot: str | None, risk: str | None) -> None:
         """What the agent expects to hear (contact, music, ...) and how risky a mistake is."""
@@ -160,6 +185,37 @@ class HybridSTTStream:
         if len(self._pcm) > self._max_bytes:
             del self._pcm[: len(self._pcm) - self._max_bytes]
         self._base.accept_waveform(sample_rate, pcm_bytes)
+        if self._pause is not None:
+            self._watch(pcm_bytes, sample_rate)
+
+    def _watch(self, pcm_bytes: bytes, sample_rate: int) -> None:
+        """Look for the first short pause; a start of new speech cancels a decode begun at one."""
+        assert self._pause is not None and self._executor is not None
+        block = max(sample_rate // 10, 1) * 2  # 100 ms of 16-bit samples
+        for i in range(0, len(pcm_bytes), block):
+            part = np.frombuffer(pcm_bytes[i : i + block], dtype=np.int16)
+            if part.size == 0:
+                continue
+            level = float(np.sqrt(np.mean((part.astype(np.float32) / 32768.0) ** 2)))
+            voiced, pause = self._pause.feed(level, part.size / sample_rate)
+            if self._spec is not None and (voiced or self._pause.above_floor(level)):
+                # they kept talking, or the pause fell inside the soft end of a word: no use
+                self._spec.cancelled = True
+                self._spec = None
+            if pause and self._spec is None:
+                self._spec = self._start_speculation(bytes(self._pcm), sample_rate)
+
+    def _start_speculation(self, audio: bytes, sample_rate: int) -> _Speculation:
+        assert self._executor is not None
+        spec = _Speculation()
+
+        def run() -> str:
+            if spec.cancelled:
+                return ""
+            return self._decode_audio(audio, sample_rate)
+
+        spec.future = self._executor.submit(run)
+        return spec
 
     def decode(self) -> STTDecodeResult | None:
         res = self._base.decode()
@@ -176,20 +232,38 @@ class HybridSTTStream:
     def reset(self) -> None:
         self._base.reset()
         self._pcm.clear()
+        self._drop_speculation()
+
+    def _drop_speculation(self) -> None:
+        if self._spec is not None:
+            self._spec.cancelled = True
+            self._spec = None
+
+    def _decode_audio(self, audio: bytes, sample_rate: int) -> str:
+        """Trim, pad and transcribe a buffered turn; "" if Parakeet fails."""
+        samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
+        samples = trim_silence(samples, sample_rate, self._lead_s, self._tail_s)
+        samples = pad_with_zeros(samples, sample_rate, self._pad_lead_s, self._pad_tail_s)
+        try:
+            return self._transcribe(samples, sample_rate)
+        except Exception:
+            logger.exception("Parakeet failed; using the streaming transcript")
+            return ""
 
     def _finish(self, streaming_text: str) -> STTDecodeResult:
         audio = bytes(self._pcm)
         self._pcm.clear()
+        spec, self._spec = self._spec, None
+        if self._pause is not None and self._noise is not None and self._pause.measured:
+            self._noise.value = self._pause.noise
         if not streaming_text.strip():
+            if spec is not None:
+                spec.cancelled = True
             return STTDecodeResult(text="", is_final=True, end_of_turn=True)
-        samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
-        samples = trim_silence(samples, self._sample_rate, self._lead_s, self._tail_s)
-        samples = pad_with_zeros(samples, self._sample_rate, self._pad_lead_s, self._pad_tail_s)
-        try:
-            raw = self._transcribe(samples, self._sample_rate)
-        except Exception:
-            logger.exception("Parakeet failed; using the streaming transcript")
-            raw = ""
+        # a decode started at the pause is only used if nobody spoke after it (see _watch)
+        raw = spec.future.result() if spec is not None else ""
+        if not raw:  # no early result (none started, or it failed): decode the whole turn now
+            raw = self._decode_audio(audio, self._sample_rate)
         if not raw:
             return STTDecodeResult(text=streaming_text, is_final=True, end_of_turn=True)
 
@@ -225,6 +299,7 @@ class ParakeetHybridSTTEngine:
         endpoint_silence: float = 1.2,
         pad_lead_s: float = 0.5,
         pad_tail_s: float = 1.0,
+        early_decode_s: float | None = None,
         repair: bool = True,
         repair_cfg: RepairConfig | None = None,
     ) -> None:
@@ -243,6 +318,9 @@ class ParakeetHybridSTTEngine:
         )
         self._cfg = repair_cfg
         self._pads = (pad_lead_s, pad_tail_s)
+        self._early = early_decode_s
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="parakeet-early")
+        self._noise = NoiseFloor()
         self._matchers: dict[str, EntityMatcher] = {}
         if repair and entities:
             self._matchers = build_matchers(entities, _known_words())
@@ -259,6 +337,9 @@ class ParakeetHybridSTTEngine:
             self._cfg,
             pad_lead_s=self._pads[0],
             pad_tail_s=self._pads[1],
+            early_s=self._early,
+            executor=self._executor,
+            noise=self._noise,
         )
 
 
