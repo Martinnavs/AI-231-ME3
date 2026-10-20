@@ -100,3 +100,8 @@ def test_the_final_says_so_when_the_two_engines_agree(
     ts.show_final(msg, "", streamed="hello how are you")
     out = capsys.readouterr().out
     assert "same words as the streamed text" in out and "Kroko had streamed" not in out
+
+
+def test_a_finalize_the_server_never_answered_is_ignored(ts: types.ModuleType) -> None:
+    stale = {"finalize_sent": 1.0, "last_voiced": 0.5}
+    assert "server's own end-of-turn" in ts.timing_note(stale, 0.5, 20.0)

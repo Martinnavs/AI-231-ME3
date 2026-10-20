@@ -151,7 +151,7 @@ uv run --group laptop python scripts/try_stt.py --wav out/synth/stt_heldout-06.w
 
 `try_stt.py` acts like the Pi: it streams audio and, after `--vad-hold` seconds of quiet (default 0.5), sends `finalize`. Its pause detector is adaptive: the first second only measures the room, then speech is anything well above the noise floor, so steady hum or a fan does not count as speech (an earlier fixed bar did, see below). It prints Kroko's interim text, then the final line (with what Kroko had streamed when Parakeet's version differs, which is the improvement you see between the interim and final text), the raw Parakeet text if repair changed it, whether name repair ran (it only runs for requests with a name list: call/text, play, book/order, weather-style, or `--slot`; open-ended questions skip it by design, the Parakeet re-decode still happens), and who ended the turn: this client after the pause (with the server's answer time), or the server's own detector (no timing claim, since it ends turns late). Useful flags: `--slot contact --risk high` (hints the agent would send), `--save DIR` (keep each turn's audio and result for offline scoring), `--levels` (live microphone level and noise floor), `--vad-hold 0` (let the server decide), `--device N` (microphone).
 
-**Server flags:** `--entities config/entities.json` (default), `--parakeet-threads 2`, `--hotword-score 1.0` (1.5 or more hurts), `--no-repair` (hotwords only), `--endpoint-silence`. Startup takes about 30 s (three models).
+**Server flags:** `--entities config/entities.json` (default), `--parakeet-threads 2`, `--hotword-score 1.0` (1.5 or more hurts; 0.5 is gentler), `--pad-lead 0.5`, `--pad-tail 1.0`, `--no-repair` (hotwords only), `--endpoint-silence`. Startup takes about 30 s (three models).
 
 **Your names:** `config/entities.json` is the list that both biases Parakeet and feeds the repair step: `{"Display Name": "category"}` with categories `music`, `contact`, `place`, `brand` (anything else is used for biasing only). It ships with the 318 names used in the experiments (artists, Filipino names, places, brands, number phrases). Replace it with your real contacts and library; it is read at startup. Use proper casing for the display name (`GCash`, `BINI`), since that is what replaces a mis-heard word. A plain JSON list of names also works (biasing only).
 
@@ -159,7 +159,7 @@ uv run --group laptop python scripts/try_stt.py --wav out/synth/stt_heldout-06.w
 
 **What to expect, and what is not verified:**
 - On synthetic clips through the real server a final arrives about 0.9-1.1 s after the last speech with `--vad-hold 0.5` (0.6 s client pause + 0.3-0.5 s server) on a laptop busy with a video call. Without a client-side pause the server's own endpoint is slow: Kroko ended turns 1.6-2.3 s after speech even with `--endpoint-silence 0.7` (3.4 s at the 1.2 s default) on synthetic digital silence; real microphone noise may behave differently. In the demo the Pi's VAD should send `finalize`.
-- Trimmed audio (0.3 s before, 0.4 s after the speech) is sent to Parakeet; whether that is safe for the first and last words of real speech is untested.
+- Before Parakeet decodes, the buffered turn is trimmed (0.3 s before, 0.4 s after the speech) and then padded with digital silence, 0.5 s before and 1.0 s after (`--pad-lead`, `--pad-tail`). The padding matters: see the table below.
 - One slot per turn (or an explicit combination). A sentence naming a contact and a place only repairs the kind its first verb implies.
 - Names the dictionary knows (CMUdict has many first names) are protected from repair unless they sound identical to a listed name.
 - Hotwords are fixed at startup; per-request lists would need a different mechanism.
@@ -170,6 +170,35 @@ uv run --group laptop python scripts/try_stt.py --wav out/synth/stt_heldout-06.w
 Open-domain talk transcribed with punctuation and mostly well: "Do you know what gen alpha means when they say six seven?", "Can you tell me the biography of Frederick Nietzsche?", "Do you know what the phenomenology of spirit is?", "How many dictators does it take to turn an empire into a union of ruinous states?". Two attempts at the woodchuck tongue twister came out garbled both times (to be expected for a tongue twister). "John Dewey II times two plus one." looks wrong but what was said is not known. Digits and words were not consistent ("square root of 2" vs "of two"); the LLM can absorb that. No name list applied to any of these (none were call/play/book requests), as designed.
 
 Two things in that run were artifacts of the test tool, now fixed: the delays it printed ("arrived 5-28 ms after the last speech") were meaningless because a fixed loudness bar counted room noise as speech, so the client never saw a pause and the turns were ended by Kroko's slow endpoint instead; and one line showed a negative client pause when sound arrived after `finalize` was sent. Also visible: "The phenomenology of spirit is." was cut off as a fragment and then repeated in full, so a 0.5 s pause ends a turn in the middle of a thinking pause; real use will want a longer hold or smarter turn detection, and the right value has not been measured. On a synthetic 14-word request with a natural pause in the middle, a 0.5 s hold cut the sentence after the first half; a 1.0 s hold kept it all but the final arrived about 1.85 s after the end of speech (0.5 s hold: about 0.9 s). The test client now warns when a pause ends a WAV clip early.
+
+### Padding, measured on the labelled clips (2026-10-20)
+
+The first version of the server trimmed the silence but added no zeros, a different treatment from the one behind every published number (0.5 s before and 1.5 s after). On the 95 labelled clips (hard + held-out, your recordings, hotwords on) the difference was real:
+
+| preprocessing | WER hard | WER held-out | entities held-out | decode p50 |
+|---|---|---|---|---|
+| as evaluated so far (no trim, 0.5 + 1.5 s zeros) | 4.7% | 9.3% | 27/43 | 450 ms |
+| first server version (trim 0.3/0.4, no zeros) | 5.6% | 11.6% | 27/43 | 302 ms |
+| trim, 0.3 + 0.5 s zeros | 5.4% | 10.0% | 27/43 | 353 ms |
+| trim, 0.5 + 0.5 s zeros | 6.1% | 8.4% | 31/43 | 363 ms |
+| **trim, 0.5 + 1.0 s zeros (now the default)** | **4.9%** | **8.7%** | **30/43** | 395 ms |
+| trim, 0.5 + 1.5 s zeros | 4.9% | 9.3% | 30/43 | 417 ms |
+| no trim, no zeros | 6.6% | 12.2% | 26/43 | 314 ms |
+
+Differences between the padded rows are within the noise of 95 clips from one speaker; the clear result is that some zero padding is needed and that trimming first saves about 55 ms. Script: `scripts/stt_padding_eval.py`.
+
+### 94 turns of free live speech (unlabelled; `--save out/tries`)
+
+You read song lyrics, book openings and tongue twisters into the microphone (5.5 min). There is no transcript of what was said, so none of this is a WER; `scripts/analyze_tries.py` reports what can be measured without one.
+
+- **Room:** noise floor median -36 dBFS (worst turn -28), speech median -21 dBFS, so about 14 dB of signal to noise, 4 dB worse than the room of the labelled clips (-40). No clipping.
+- **Fragments:** 36 of 94 turns end open, start in lower case or are three words or fewer, and about 20 are plainly cut in the middle of a sentence ("heartbreak of the", "where ice", "His father took"). The 0.5 s pause ended turns inside sentences, as the book and lyric readings paused every few words. This is the hold-time trade-off above, not a recognition error.
+- **Hotwords on open speech:** 22 of 94 turns changed against plain decoding. Most changes are plausible fixes ("pile driver waltz", "I can promise that things would be broken"), but a listed name appeared where it should not in 4: "turned to **Francis**" (the book says "face"), "Colonel Aureliano Buendia" came out with **Arthur** and **London** appended or substituted, and a 0.7 s noise-only turn became "**Thirty.**". So the earlier finding that hotwords did no harm on held-out speech does not extend to hard, noisy open reading: they can insert a wrong listed name. A lower `--hotword-score` (0.5 gave most of the gain on the labelled clips) is the obvious thing to try, but cannot be judged without a transcript.
+- **Padding sensitivity:** on these turns every extra bit of zero padding (0 -> 0.2 -> 0.5 -> 1.0 -> 1.5 s) changed 6-15% of the words, with no plateau, so unlabelled turns cannot pick the padding; that was settled on the labelled clips above. An earlier reading of this data ("trimming clips the ends of words") was wrong: the trimmer removes almost nothing from these buffers; the differences came from zero padding.
+- **Data problem (my bug, fixed):** for 16 of the 94 saved turns the audio does not match the saved text (for example a 0.7 s clip next to a two-sentence transcript), because the test client paired a final with a stale audio snapshot when the server's own end-of-turn raced the client's `finalize`. Each final is now saved with all the audio since the previous final. Use only newer saves for scoring.
+- **Slot guesser:** "Call me Ishmael" asked "Which contact was that?" because "call" looked like a phone call. "call/text/send" followed by a pronoun (me, it, this, them...) now gets no slot.
+
+To turn free reading into a measurement, write down what you said for a subset: `scripts/analyze_tries.py` and `scripts/stt_padding_eval.py` can then score any setting (hold time, padding, hotword score) on speech from this room.
 
 ## Speed experiments on synthetic speech (no recordings needed)
 

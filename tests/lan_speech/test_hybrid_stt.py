@@ -10,7 +10,7 @@ import pytest
 
 from lan_speech.engines import STTDecodeResult
 from lan_speech.hotwords import load_entities, write_hotwords, write_vocab
-from lan_speech.hybrid_stt import HybridSTTStream, trim_silence
+from lan_speech.hybrid_stt import HybridSTTStream, pad_with_zeros, trim_silence
 from lan_speech.transcript_repair import Entity, build_matchers
 
 SR = 16000
@@ -42,9 +42,11 @@ class Transcriber:
     def __init__(self, text: str | Exception) -> None:
         self.text = text
         self.calls: list[tuple[int, int]] = []
+        self.arrays: list[np.ndarray] = []
 
     def __call__(self, samples: np.ndarray, sample_rate: int) -> str:
         self.calls.append((len(samples), sample_rate))
+        self.arrays.append(samples)
         if isinstance(self.text, Exception):
             raise self.text
         return self.text
@@ -94,8 +96,10 @@ def test_the_end_of_a_turn_is_transcribed_by_parakeet_and_repaired() -> None:
     assert res.text == "Play Opalite by Taylor Swift."
     assert res.repair is not None
     assert res.repair["rung"] == "silent" and res.repair["slot"] == "music"
-    # silence around the speech was trimmed before the (slow) offline decode
-    assert tr.calls[0][0] < 1.0 * SR + 0.3 * SR + 0.4 * SR + 400
+    # silence around the speech was trimmed, then 0.5 s + 1.0 s of zeros were put back
+    n = tr.calls[0][0]
+    assert n < (1.0 + 0.3 + 0.4 + 0.5 + 1.0) * SR + 800
+    assert n > (1.0 + 0.5 + 1.0) * SR
 
 
 def test_an_empty_streaming_turn_does_not_wake_parakeet() -> None:
@@ -160,11 +164,43 @@ def test_reset_clears_the_buffer_and_the_streaming_stream() -> None:
     assert base.was_reset
     s.accept_waveform(SR, speech(0.2))
     s.decode()
-    assert tr.calls[0][0] < 0.6 * SR
+    assert tr.calls[0][0] < (0.2 + 0.3 + 0.4 + 0.5 + 1.0) * SR + 800
+
+
+def test_parakeet_gets_digital_silence_around_the_speech() -> None:
+    tr = Transcriber("hello")
+    s = stream(FakeBase([FINAL]), tr)
+    s.accept_waveform(SR, speech(1.0, lead=0.6, tail=0.6))
+    s.decode()
+    got = tr.arrays[0]
+    assert not got[: int(0.5 * SR)].any() and not got[-int(1.0 * SR) :].any()
+    assert got[int(0.5 * SR) : -int(1.0 * SR)].any()
+
+
+def test_padding_can_be_set_per_stream() -> None:
+    tr = Transcriber("hello")
+    s = HybridSTTStream(FakeBase([FINAL]), tr, MATCHERS, pad_lead_s=0.0, pad_tail_s=0.0)
+    s.accept_waveform(SR, speech(1.0))
+    s.decode()
+    assert tr.calls[0][0] <= (1.0 + 0.3 + 0.4) * SR + 800
+
+
+def test_pad_with_zeros_adds_exactly_the_requested_silence() -> None:
+    x = np.ones(SR, np.float32)
+    out = pad_with_zeros(x, SR, 0.5, 1.0)
+    assert len(out) == SR + SR // 2 + SR
+    assert not out[: SR // 2].any() and not out[-SR:].any() and out[SR // 2 : -SR].all()
 
 
 def test_the_audio_buffer_is_capped() -> None:
-    s = HybridSTTStream(FakeBase([FINAL]), tr := Transcriber("x"), MATCHERS, max_seconds=2.0)
+    s = HybridSTTStream(
+        FakeBase([FINAL]),
+        tr := Transcriber("x"),
+        MATCHERS,
+        max_seconds=2.0,
+        pad_lead_s=0.0,
+        pad_tail_s=0.0,
+    )
     for _ in range(10):
         s.accept_waveform(SR, speech(1.0))
     s.decode()

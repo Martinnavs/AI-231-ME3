@@ -60,6 +60,16 @@ def trim_silence(samples: np.ndarray, sample_rate: int, lead_s: float, tail_s: f
     return samples[start:end]
 
 
+def pad_with_zeros(
+    samples: np.ndarray, sample_rate: int, lead_s: float, tail_s: float
+) -> np.ndarray:
+    """Digital silence around the speech. Parakeet's words depend on it: on the labelled clips,
+    trimming without it raised WER from 4.9% to 5.6% (hard set) and 8.7% to 11.6% (held-out)."""
+    lead = np.zeros(int(lead_s * sample_rate), dtype=samples.dtype)
+    tail = np.zeros(int(tail_s * sample_rate), dtype=samples.dtype)
+    return np.concatenate([lead, samples, tail])
+
+
 class ParakeetTranscriber:
     """Parakeet-TDT 0.6B (sherpa-onnx, int8) with optional hotwords; one shared recogniser."""
 
@@ -121,6 +131,8 @@ class HybridSTTStream:
         *,
         lead_s: float = 0.3,
         tail_s: float = 0.4,
+        pad_lead_s: float = 0.5,
+        pad_tail_s: float = 1.0,
         max_seconds: float = 25.0,
     ) -> None:
         self._base = base
@@ -129,6 +141,8 @@ class HybridSTTStream:
         self._cfg = cfg
         self._lead_s = lead_s
         self._tail_s = tail_s
+        self._pad_lead_s = pad_lead_s
+        self._pad_tail_s = pad_tail_s
         self._max_bytes = int(max_seconds * 16000) * 2
         self._pcm = bytearray()
         self._sample_rate = 16000
@@ -170,6 +184,7 @@ class HybridSTTStream:
             return STTDecodeResult(text="", is_final=True, end_of_turn=True)
         samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
         samples = trim_silence(samples, self._sample_rate, self._lead_s, self._tail_s)
+        samples = pad_with_zeros(samples, self._sample_rate, self._pad_lead_s, self._pad_tail_s)
         try:
             raw = self._transcribe(samples, self._sample_rate)
         except Exception:
@@ -208,6 +223,8 @@ class ParakeetHybridSTTEngine:
         parakeet_threads: int = 2,
         hotword_score: float = 1.0,
         endpoint_silence: float = 1.2,
+        pad_lead_s: float = 0.5,
+        pad_tail_s: float = 1.0,
         repair: bool = True,
         repair_cfg: RepairConfig | None = None,
     ) -> None:
@@ -225,6 +242,7 @@ class ParakeetHybridSTTEngine:
             hotword_score=hotword_score,
         )
         self._cfg = repair_cfg
+        self._pads = (pad_lead_s, pad_tail_s)
         self._matchers: dict[str, EntityMatcher] = {}
         if repair and entities:
             self._matchers = build_matchers(entities, _known_words())
@@ -235,7 +253,12 @@ class ParakeetHybridSTTEngine:
 
     def create_stream(self, sample_rate: int = 16000) -> STTStream:
         return HybridSTTStream(
-            self._kroko.create_stream(sample_rate), self._transcribe, self._matchers, self._cfg
+            self._kroko.create_stream(sample_rate),
+            self._transcribe,
+            self._matchers,
+            self._cfg,
+            pad_lead_s=self._pads[0],
+            pad_tail_s=self._pads[1],
         )
 
 

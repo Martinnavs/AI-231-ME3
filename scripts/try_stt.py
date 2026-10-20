@@ -124,6 +124,8 @@ def _words(text: str) -> list[str]:
 def timing_note(state: dict[str, Any], hold_s: float, now: float) -> str:
     """Say who ended the turn and what the numbers mean; no claim when they would be misleading."""
     fin = state["finalize_sent"]
+    if fin is not None and now - fin > 5.0:
+        fin = None  # a finalize the server never answered (it had already ended the turn)
     if fin is None:
         sound = state["last_voiced"]
         since = f", {(now - sound) * 1000:.0f} ms after your last sound" if sound else ""
@@ -171,7 +173,6 @@ async def run(args: argparse.Namespace) -> int:
         "finalize_sent": None,
         "finals": 0,
         "turn_pcm": bytearray(),
-        "snapshot": None,
         "last_interim": "",
         "unsent_s": 0.0,
     }
@@ -191,11 +192,9 @@ async def run(args: argparse.Namespace) -> int:
                 if msg["is_final"]:
                     now = time.monotonic()
                     note = timing_note(state, args.vad_hold, now)
-                    audio = state["snapshot"] if state["snapshot"] is not None else None
-                    if audio is None:
-                        audio = bytes(state["turn_pcm"])
-                        state["turn_pcm"].clear()
-                    state["snapshot"] = None
+                    # all audio since the previous final belongs to this one, however it ended
+                    audio = bytes(state["turn_pcm"])
+                    state["turn_pcm"].clear()
                     state["finalize_sent"] = None
                     streamed, state["last_interim"] = state["last_interim"], ""
                     # warn only if more than the silence we appended ourselves was left unsent
@@ -238,8 +237,6 @@ async def run(args: argparse.Namespace) -> int:
                 if pause:
                     # what the Pi's VAD does: the user paused, so end the turn now
                     state["finalize_sent"] = time.monotonic()
-                    state["snapshot"] = bytes(state["turn_pcm"])
-                    state["turn_pcm"].clear()
                     await ws.send(json.dumps({"type": "finalize"}))
                     if args.wav:
                         left = (queue.qsize() - 1) * CHUNK_S  # minus the end marker
