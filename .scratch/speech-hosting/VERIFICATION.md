@@ -73,3 +73,6 @@ greedy 11.6% WER, in-list 10/16, out-of-list 15/27 -> hotwords 1.0: 9.3%, 13/16,
 
 ## Repair ladder evaluation (scripts/stt_repair_eval.py)
 Unguarded matcher on hotword output: false fixes 18 (hard) / 31 (held-out), names broken 11 / 10, WER 4.7->9.6% / 9.3->21.5%. After protecting right names, CMUdict guard, length gate and slot awareness: held-out 0 false, 0 broken, WER 9.3->9.3; hard +2 entities. Greedy-pass confidence made no difference. The earlier prototype numbers (71-80%) are superseded.
+
+## Synthetic-speech speed experiments and network baselines (2026-10-20, laptop on AC, powersave governor)
+See docs/STT-HOSTING.md. Raw output: out/stt_compare/latency-bench.txt (git-ignored). Deepgram connect ~240 ms on US, EU and AU endpoints from this laptop's network; Parakeet 2 threads == 4 threads, 8 slower; TTS contention 1.5-1.65x on STT; early decode at 0.2 s tail matches 0.5 s tail words on 89/95 synthetic clips.

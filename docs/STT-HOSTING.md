@@ -138,6 +138,63 @@ Held-out, slot-aware: 4 "did you mean" questions (1 offered the right name) and 
 - **Decoder confidence added nothing** (identical results with and without a greedy-pass confidence per word), so the design needs no second decode. Note that with hotwords on, `ys_log_probs` of boosted tokens are positive (the bonus is baked in), so confidence from the hotword decode is not usable anyway.
 - Fragile spots: `COMMON_WORDS`/CMUdict also contains many names ("Binnie" is a CMU entry), so those are protected from repair; slot labels come from the caller and were assigned by hand for the test clips (`slot` field in the clip scripts); risk (high for call/text/message/send) is inferred from the first word; the sample is 95 clips from one speaker.
 
+## Speed experiments on synthetic speech (no recordings needed)
+
+`scripts/make_synth_clips.py` renders the clip scripts with Kokoro (95 clips, mean 2.5 s, two voices) and `scripts/stt_latency_bench.py` times Parakeet on them. **Speed only**: clean synthetic speech says nothing reliable about accuracy. Laptop: i5-1145G7, on AC, governor `powersave` (EPP `balance_performance`); the repo's `power_mode.sh max` was not used. Padding in all rows except the padding table is 0.5 s lead + 1.5 s tail.
+
+**Threads** (decode p50 / p95 ms): 1 thread 549 / 825 greedy, 604 / 870 hotwords; **2 threads 406 / 585, 425 / 619**; **4 threads 397 / 536, 444 / 618**; 8 threads 656 / 835, 764 / 1044. Two threads is as fast as four, and 8 (all hyperthreads) is slower. Hotwords add roughly 20-50 ms.
+
+**Length:** decode ms is about 279 + 72 x (seconds of audio fed, padding included). A 2 s command with 2 s of padding costs ~450 ms; the same command with no padding ~300 ms.
+
+**Padding** (4 threads, hotwords): 0.5 / 1.5 s lead / tail: 451 ms; 0.5 / 0.5: 378; 0.2 / 0.5: 363; 0 / 0.3: 335; 0 / 0: 298. Shorter padding changes the text on 27-39 of 95 clips, but WER against the script did not rise (4.7-6.5% vs 5.8%), so on clean synthetic speech Parakeet does not need the long padding. Kroko and NeMo dropped edge words without it (see `STT-COMPARE.md`); whether Parakeet does on real speech is **untested**.
+
+**Early decode** (decode as soon as the VAD sees a 0.2 s pause, before the turn is confirmed at ~0.5 s): the words match the 0.5 s-tail decode on 89 of 95 clips (94%; 82 of 95 after 0.1 s). Decode takes ~340 ms, so starting it at the first pause finishes about when the turn is confirmed. The 6 differences are the case to design around (re-decode if the user keeps talking or if the last word looks uncertain). Real speech endings differ from synthetic ones, so treat 94% as an upper estimate.
+
+**Sharing the CPU with TTS** (Supertonic, 4 steps, 2 threads, running back to back): Parakeet is **1.5x slower with 2 threads (435 -> 666 ms p50) and 1.65x with 4 (448 -> 739 ms)**, and a TTS call goes from 957 ms to 1315 ms (2 STT threads) or 1740 ms (4). So give STT 2 threads: it is as fast alone, and it hurts TTS less. This matters in full duplex, when the user speaks over a reply that is still being synthesised.
+
+**What this gives for the latency budget on this laptop:** VAD pause (0.2 s) + decode (~0.34 s with short padding and the early start) is about 0.5 s before the transcript reaches the LLM, against ~0.25 s for Kroko. The 500 ms to first audio target is therefore not reachable by speech recognition alone; it needs the masking tricks (acknowledgement sound, LLM prefill on the Kroko partial) or a faster host. A power profile of `performance` was not tried.
+
+## Network baselines from this laptop (not the demo network)
+
+`scripts/net_probe.py cloud` (TCP connect and TLS handshake only, no audio), 25 attempts, laptop on its normal Wi-Fi (Pi power save was on):
+
+| endpoint | connect p50 / p95 ms | TLS p50 ms |
+|---|---|---|
+| api.deepgram.com | 238-261 / 313-337 | 242-278 |
+| api.au.deepgram.com (Australia) | 245 / 336 | 258 |
+| api.eu.deepgram.com | 231 / 272 | 244 |
+| ec2.ap-southeast-1.amazonaws.com (Singapore) | 54 / 254 | 69 |
+| api.groq.com | 10 / 22 | 31 |
+| api.cartesia.ai | 22 / 32 | 40 |
+| api.anthropic.com | 14 / 100 | 32 |
+
+Reading it: Deepgram is about a quarter-second round trip from here on every endpoint it offers (US, EU, Australia; there is no Singapore one), so a streamed transcript cannot arrive sooner than one such round trip after the audio, before any server processing and before the extra delay of mobile data. Groq, Cartesia and Anthropic answer from a nearby edge (10-22 ms), but a fast connect to a CDN edge does not mean fast inference. This is the laptop's own connection; the numbers that decide the demo are the ones from the Pi on the phone's hotspot.
+
+## Running the tests on the actual devices
+
+**Hotspot reachability and jitter (Pi <-> laptop), 5 minutes.** Put both on the phone hotspot, then:
+
+```bash
+# laptop
+python3 scripts/net_probe.py serve --port 9099
+# Pi (use the laptop's hotspot IP: `ip -brief addr` on the laptop)
+python3 scripts/net_probe.py lan --host <laptop-ip> --port 9099 --json lan.json
+```
+
+It prints UNREACHABLE if the phone isolates clients; otherwise round trips and the delay of a 256 kbps audio-like stream (20 ms frames). Also run `python3 scripts/net_probe.py cloud` on the Pi on the hotspot to get the real cloud round trips and jitter. Copy `net_probe.py` alone; it is stdlib-only.
+
+**Phone speed and thermals (Termux), about 45 minutes the first time.**
+
+```bash
+pkg install python python-numpy
+pip install sherpa-onnx
+# copy to the phone: models/stt-candidates/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 (4 files),
+# out/synth (the WAVs), scripts/phone_bench.py
+python phone_bench.py --model ~/parakeet-v2-int8 --clips ~/synth --threads 4 --minutes 10
+```
+
+It prints decode time, real-time factor and temperatures per round; a rising time per round means throttling. For a fair comparison run the same command on the laptop. Drop the phone as a host if the first round is already slower than the laptop's ~340 ms, or if it slows by more than ~1.5x over ten minutes.
+
 ## Hosting and cost
 
 - Deepgram Flux English: $0.39/h pay-as-you-go, $200 free credit. Two hours of testing costs under $1.
