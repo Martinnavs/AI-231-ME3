@@ -231,3 +231,14 @@ def test_the_repair_summary_for_the_protocol_is_json_friendly() -> None:
     import json
 
     json.dumps(d)
+
+
+def test_an_optional_slot_repairs_names_but_never_asks_for_one() -> None:
+    matchers = build_matchers([Entity("Dumbledore", "doc"), Entity("Hermione", "doc")])
+    heard = repair_text("is dumbledor a wizard", matchers, "doc?", Risk.LOW)
+    assert heard is not None and heard.text == "is Dumbledore a wizard"
+    none = repair_text("what is the capital of france", matchers, "doc?", Risk.LOW)
+    assert none is not None and none.rung is Rung.NONE and none.question is None
+    # a required slot would have asked
+    required = repair_text("what is the capital of france", matchers, "doc", Risk.LOW)
+    assert required is not None and required.rung is Rung.TARGETED

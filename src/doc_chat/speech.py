@@ -8,11 +8,12 @@ import os
 import sys
 import time
 import wave
-from collections.abc import Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lan_speech.pause import NoiseFloor, PauseDetector
 from lan_speech.protocol import (
     CancelMessage,
     DoneMessage,
@@ -85,6 +86,37 @@ class SpokenTurn:
     sentences: list[str]
 
 
+@dataclass(frozen=True)
+class HeardTurn:
+    """What the speech server made of one spoken turn, and when.
+
+    ``repair`` is the server's summary of the name-repair step (rung, question, matches) when the
+    Parakeet engine is running; ``raw_text`` is the recogniser's words before repair.
+    """
+
+    text: str
+    raw_text: str | None
+    repair: dict[str, Any] | None
+    t_speech_end: float  # perf_counter at the last sound of speech (mic) or the end of the audio
+    t_final: float  # perf_counter when the final transcript arrived
+    finalize_sent: float | None  # perf_counter when this client asked the server to end the turn
+
+    @property
+    def stt_ms(self) -> float:
+        """From the last speech to the final transcript (the client's pause included)."""
+        return (self.t_final - self.t_speech_end) * 1000.0
+
+    @property
+    def server_ms(self) -> float | None:
+        """How long the server took to answer our `finalize` (None if it ended the turn itself)."""
+        if self.finalize_sent is None:
+            return None
+        return (self.t_final - self.finalize_sent) * 1000.0
+
+
+DEFAULT_NOISE_HINT = 0.015  # about -36 dBFS: a quiet room; replaced once the real room is measured
+
+
 class DocChatSpeechClient:
     """Manages STT and TTS WebSocket sessions."""
 
@@ -96,6 +128,7 @@ class DocChatSpeechClient:
         self._stt_ws: Any = None
         self._tts_ws: Any = None
         self.tts_sample_rate: int = 24000
+        self._noise = NoiseFloor()
         self._current_context: int = 0
         self._active_speak_task: asyncio.Task[Any] | None = None
 
@@ -116,15 +149,14 @@ class DocChatSpeechClient:
             await self._tts_ws.close()
             self._tts_ws = None
 
-    async def send_stt_wav(
+    async def hear_wav(
         self,
         wav_path: Path | str,
         chunk_ms: int = 100,
-    ) -> tuple[str, float, float]:
-        """Stream a 16kHz WAV file paced at real time.
-
-        Returns (transcript, stt_final_ms, t_speech_end).
-        """
+        slot: str | None = None,
+        risk: str | None = None,
+    ) -> HeardTurn:
+        """Stream a WAV file at real time, ask the server to end the turn, return the result."""
         if self._stt_ws is None:
             raise RuntimeError("STT socket not connected")
 
@@ -132,8 +164,7 @@ class DocChatSpeechClient:
             rate = wf.getframerate()
             channels = wf.getnchannels()
             sampwidth = wf.getsampwidth()
-            n_frames = wf.getnframes()
-            pcm_data = wf.readframes(n_frames)
+            pcm_data = wf.readframes(wf.getnframes())
 
         if channels != 1 or sampwidth != 2:
             import numpy as np
@@ -145,25 +176,17 @@ class DocChatSpeechClient:
 
         # Send start, then a short lead-in of silence: the streaming models drop a word that
         # begins right at sample 0, which a live microphone stream never does
-        await self._stt_ws.send(StartMessage(sample_rate=rate).to_json())
+        await self._stt_ws.send(StartMessage(sample_rate=rate, slot=slot, risk=risk).to_json())
         await self._stt_ws.send(b"\x00\x00" * int(rate * WAV_LEAD_IN_S))
 
         chunk_bytes = int(rate * (chunk_ms / 1000.0) * 2)
-        total_len = len(pcm_data)
-        offset = 0
-
-        while offset < total_len:
-            end = min(offset + chunk_bytes, total_len)
-            chunk = pcm_data[offset:end]
-            offset = end
-            await self._stt_ws.send(chunk)
+        for offset in range(0, len(pcm_data), chunk_bytes):
+            await self._stt_ws.send(pcm_data[offset : offset + chunk_bytes])
             await asyncio.sleep(chunk_ms / 1000.0)
 
         t_speech_end = time.perf_counter()
         await self._stt_ws.send(FinalizeMessage().to_json())
 
-        # Wait for final transcript
-        transcript_text = ""
         while True:
             msg_raw = await self._stt_ws.recv()
             if isinstance(msg_raw, bytes):
@@ -171,40 +194,36 @@ class DocChatSpeechClient:
             parsed = parse_message(msg_raw)
             if isinstance(parsed, TranscriptMessage):
                 if parsed.is_final or parsed.end_of_turn:
-                    transcript_text = parsed.text
-                    break
+                    return HeardTurn(
+                        parsed.text,
+                        parsed.raw_text,
+                        parsed.repair,
+                        t_speech_end,
+                        time.perf_counter(),
+                        t_speech_end,
+                    )
             elif isinstance(parsed, ErrorMessage):
                 raise RuntimeError(f"STT error: {parsed.reason}")
 
-        t_final = time.perf_counter()
-        stt_final_ms = (t_final - t_speech_end) * 1000.0
-        return transcript_text, stt_final_ms, t_speech_end
-
-    async def listen_mic(
+    async def send_stt_wav(
         self,
-        on_partial: Callable[[str], None] | None = None,
-        block_ms: int = 100,
-    ) -> tuple[str, float]:
-        """Stream the default microphone until the server ends a non-empty turn.
+        wav_path: Path | str,
+        chunk_ms: int = 100,
+    ) -> tuple[str, float, float]:
+        """Stream a WAV file; returns (transcript, stt_final_ms, t_speech_end)."""
+        heard = await self.hear_wav(wav_path, chunk_ms)
+        return heard.text, heard.stt_ms, heard.t_speech_end
 
-        Returns (transcript, t_final) where t_final is when the end-of-turn transcript arrived.
-        """
-        if self._stt_ws is None:
-            raise RuntimeError("STT socket not connected")
+    async def _mic_chunks(self, rate: int, block_ms: int) -> AsyncIterator[bytes]:
+        """The default microphone as 100 ms blocks of 16-bit samples; closes it when dropped."""
         import sounddevice as sd
 
-        rate = 16000
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[bytes] = asyncio.Queue()
 
         def on_audio(indata: Any, frames: int, time_info: Any, status: Any) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, bytes(indata))
 
-        async def pump() -> None:
-            while True:
-                await self._stt_ws.send(await queue.get())
-
-        await self._stt_ws.send(StartMessage(sample_rate=rate).to_json())
         with sd.RawInputStream(
             samplerate=rate,
             channels=1,
@@ -212,24 +231,94 @@ class DocChatSpeechClient:
             blocksize=rate * block_ms // 1000,
             callback=on_audio,
         ):
-            pump_task = asyncio.create_task(pump())
-            try:
-                while True:
-                    raw = await self._stt_ws.recv()
-                    if isinstance(raw, bytes):
-                        continue
-                    parsed = parse_message(raw)
-                    if isinstance(parsed, TranscriptMessage):
-                        if parsed.end_of_turn and parsed.text.strip():
-                            return parsed.text.strip(), time.perf_counter()
-                        if on_partial is not None and parsed.text.strip():
-                            on_partial(parsed.text.strip())
-                    elif isinstance(parsed, ErrorMessage):
-                        raise RuntimeError(f"STT error: {parsed.reason}")
-            finally:
-                pump_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await pump_task
+            while True:
+                yield await queue.get()
+
+    async def listen_turn(
+        self,
+        *,
+        slot: str | None = None,
+        risk: str | None = None,
+        vad_hold: float = 0.6,
+        on_partial: Callable[[str], None] | None = None,
+        block_ms: int = 100,
+        audio: AsyncIterator[bytes] | None = None,
+    ) -> HeardTurn:
+        """Listen until one non-empty turn is transcribed.
+
+        The turn ends when this client has heard ``vad_hold`` seconds of quiet after speech and
+        sent `finalize` (what the Pi's VAD does), or when the server ends it first. With
+        ``vad_hold`` 0 only the server decides, which on Kroko takes 1.5 to 2.5 s. ``audio`` is a
+        source of 16 kHz 16-bit blocks; the microphone when omitted.
+        """
+        if self._stt_ws is None:
+            raise RuntimeError("STT socket not connected")
+        import numpy as np
+
+        rate = 16000
+        ws = self._stt_ws
+        hint = self._noise.value if self._noise.value is not None else DEFAULT_NOISE_HINT
+        detector = PauseDetector(vad_hold, noise=hint)
+        state: dict[str, float | None] = {"last_voiced": None, "finalize_sent": None}
+        source = audio if audio is not None else self._mic_chunks(rate, block_ms)
+
+        async def pump() -> None:
+            async for chunk in source:
+                x = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                level = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
+                voiced, pause = detector.feed(level, len(chunk) / 2 / rate)
+                if voiced:
+                    state["last_voiced"] = time.perf_counter()
+                await ws.send(chunk)
+                if pause and vad_hold > 0:
+                    state["finalize_sent"] = time.perf_counter()
+                    await ws.send(FinalizeMessage().to_json())
+
+        await ws.send(StartMessage(sample_rate=rate, slot=slot, risk=risk).to_json())
+        pump_task = asyncio.create_task(pump())
+        try:
+            while True:
+                raw = await ws.recv()
+                if isinstance(raw, bytes):
+                    continue
+                parsed = parse_message(raw)
+                if isinstance(parsed, TranscriptMessage):
+                    text = parsed.text.strip()
+                    if parsed.end_of_turn and text:
+                        now = time.perf_counter()
+                        return HeardTurn(
+                            text,
+                            parsed.raw_text,
+                            parsed.repair,
+                            state["last_voiced"] or now,
+                            now,
+                            state["finalize_sent"],
+                        )
+                    if parsed.end_of_turn:
+                        state["finalize_sent"] = None  # nothing was said: keep listening
+                    elif on_partial is not None and text:
+                        on_partial(text)
+                elif isinstance(parsed, ErrorMessage):
+                    raise RuntimeError(f"STT error: {parsed.reason}")
+        finally:
+            pump_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pump_task
+            if detector.measured:
+                self._noise.value = detector.noise
+            aclose = getattr(source, "aclose", None)
+            if aclose is not None:
+                with contextlib.suppress(Exception):
+                    await aclose()
+
+    async def listen_mic(
+        self,
+        on_partial: Callable[[str], None] | None = None,
+        block_ms: int = 100,
+    ) -> tuple[str, float]:
+        """Listen with only the server deciding when the turn ends; returns (text, t_final)."""
+        heard = await self.listen_turn(vad_hold=0, on_partial=on_partial, block_ms=block_ms)
+        return heard.text, heard.t_final
 
     async def speak_text(
         self,
