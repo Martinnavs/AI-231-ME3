@@ -29,7 +29,11 @@ from typing import Any
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "src"))  # run without PYTHONPATH
 SR = 16000
+
+
+from lan_speech.hotwords import write_hotwords, write_vocab  # noqa: E402
 
 
 def _load(name: str) -> Any:
@@ -75,8 +79,8 @@ class Bench:
             pcm = self.sc.read_wav(clips_dir / m["file"]).astype(np.float32) / 32768
             self.clips.append((m["text"], pcm))
         self.tmp = Path(tempfile.mkdtemp(prefix="latbench_"))
-        self.ev.write_vocab(self.ev.MODEL / "tokens.txt", self.tmp / "pk.vocab")
-        self.ev.write_hotwords(names, 1.0, self.tmp / "hot.txt")
+        write_vocab(self.ev.MODEL / "tokens.txt", self.tmp / "pk.vocab")
+        write_hotwords(names, 1.0, self.tmp / "hot.txt")
 
     def recognizer(self, threads: int, hotwords: bool) -> Any:
         if not hotwords:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from lan_speech.protocol import (
@@ -180,3 +182,25 @@ def test_pauses_are_shorter_for_commas_than_sentence_ends() -> None:
     assert COMMA_PAUSE_S < pauses["yes;"] < SENTENCE_PAUSE_S
     assert chunks[-1][1] == 0.0
     assert COMMA_PAUSE_S < SENTENCE_PAUSE_S
+
+
+def test_start_hints_round_trip_and_are_omitted_when_unset() -> None:
+    plain = json.loads(StartMessage().to_json())
+    assert set(plain) == {"type", "sample_rate"}
+    hinted = StartMessage(sample_rate=16000, slot="contact", risk="high")
+    assert StartMessage.from_json(hinted.to_json()) == hinted
+    assert parse_message(hinted.to_json()) == hinted
+
+
+def test_transcript_repair_details_round_trip_and_are_omitted_when_unset() -> None:
+    plain = json.loads(TranscriptMessage("hi", True, True).to_json())
+    assert "raw_text" not in plain and "repair" not in plain
+    msg = TranscriptMessage(
+        "call Angelo",
+        True,
+        True,
+        t_audio_end_s=1.5,
+        raw_text="call angeilo",
+        repair={"rung": "silent", "matches": [{"heard": "angeilo", "entity": "Angelo"}]},
+    )
+    assert TranscriptMessage.from_json(msg.to_json()) == msg

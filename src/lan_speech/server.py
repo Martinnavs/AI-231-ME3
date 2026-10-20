@@ -10,7 +10,7 @@ import os
 from collections.abc import Set
 from typing import Any
 
-from lan_speech.engines import STTEngine, STTStream, TTSEngine
+from lan_speech.engines import STTDecodeResult, STTEngine, STTStream, TTSEngine
 from lan_speech.protocol import (
     COMMA_PAUSE_S,
     SENTENCE_PAUSE_S,
@@ -275,9 +275,28 @@ class LanSpeechServer:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await current_task
 
+    def _new_stt_stream(self, sample_rate: int, slot: str | None, risk: str | None) -> STTStream:
+        """Create a stream and hand it the agent's hints (engines that repair names use them)."""
+        stream = self.stt_engine.create_stream(sample_rate)
+        set_context = getattr(stream, "set_context", None)
+        if set_context is not None:
+            set_context(slot, risk)
+        return stream
+
+    @staticmethod
+    def _finalize_stream(stream: STTStream) -> STTDecodeResult:
+        """Finish the turn, with repair details when the engine provides them."""
+        detailed = getattr(stream, "finalize_result", None)
+        if detailed is not None:
+            result: STTDecodeResult = detailed()
+            return result
+        return STTDecodeResult(text=stream.finalize(), is_final=True, end_of_turn=True)
+
     async def _handle_stt(self, ws: Any) -> None:
         has_started = False
         sample_rate = 16000
+        slot: str | None = None
+        risk: str | None = None
         stream: STTStream | None = None
         total_samples = 0
 
@@ -296,7 +315,7 @@ class LanSpeechServer:
 
                     if stream is None:
                         try:
-                            stream = self.stt_engine.create_stream(sample_rate)
+                            stream = self._new_stt_stream(sample_rate, slot, risk)
                         except Exception:
                             logger.exception("STT engine failed to create stream")
                             await ws.send(ErrorMessage(status=500, reason="engine error").to_json())
@@ -314,6 +333,8 @@ class LanSpeechServer:
                                     is_final=res.is_final,
                                     end_of_turn=res.end_of_turn,
                                     t_audio_end_s=t_end,
+                                    raw_text=res.raw_text,
+                                    repair=res.repair,
                                 ).to_json()
                             )
                             if res.end_of_turn:
@@ -332,9 +353,10 @@ class LanSpeechServer:
                     if isinstance(msg, StartMessage):
                         has_started = True
                         sample_rate = msg.sample_rate
+                        slot, risk = msg.slot, msg.risk
                         total_samples = 0
                         try:
-                            stream = self.stt_engine.create_stream(sample_rate)
+                            stream = self._new_stt_stream(sample_rate, slot, risk)
                         except Exception:
                             logger.exception("STT stream creation failed on start")
                             await ws.send(ErrorMessage(status=500, reason="engine error").to_json())
@@ -342,14 +364,16 @@ class LanSpeechServer:
                     elif isinstance(msg, FinalizeMessage):
                         if stream is not None:
                             try:
-                                final_text = await asyncio.to_thread(stream.finalize)
+                                final = await asyncio.to_thread(self._finalize_stream, stream)
                                 t_end = total_samples / sample_rate
                                 await ws.send(
                                     TranscriptMessage(
-                                        text=final_text,
+                                        text=final.text,
                                         is_final=True,
                                         end_of_turn=True,
                                         t_audio_end_s=t_end,
+                                        raw_text=final.raw_text,
+                                        repair=final.repair,
                                     ).to_json()
                                 )
                             except Exception:

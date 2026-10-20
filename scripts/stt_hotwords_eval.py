@@ -23,6 +23,10 @@ from typing import Any
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "src"))  # run without PYTHONPATH
+
+from lan_speech.hotwords import write_hotwords, write_vocab  # noqa: E402
+
 MODEL = Path("models/stt-candidates/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8")
 
 
@@ -33,20 +37,6 @@ def load_compare() -> Any:
     sys.modules.setdefault("stt_compare", mod)
     spec.loader.exec_module(mod)
     return mod
-
-
-def write_vocab(tokens: Path, out: Path) -> None:
-    """Write the 'piece<TAB>score' file sherpa needs to encode hotwords (rank-based scores)."""
-    with out.open("w", encoding="utf-8") as f:
-        for line in tokens.read_text(encoding="utf-8").splitlines():
-            piece, idx = line.rsplit(" ", 1)
-            f.write(f"{piece}\t{-float(idx) / 100:.4f}\n")
-
-
-def write_hotwords(names: list[str], score: float, out: Path) -> None:
-    """Each name in lower and Title case: the model's vocabulary is cased."""
-    lines = sorted({f"{form} :{score}" for n in names for form in (n.lower(), n.title())})
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def frac(hit: dict[bool, int], tot: dict[bool, int], k: bool) -> str:

@@ -41,11 +41,15 @@ from lan_speech.transcript_repair import (
 )
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "src"))  # run without PYTHONPATH
 CACHE = Path("out/stt_compare/repair-cache.json")
 SETS = {
     "hard": (Path("bench/stt_hard.json"), Path("bench/mic_hard")),
     "heldout": (Path("bench/stt_heldout.json"), Path("bench/mic_heldout")),
 }
+
+
+from lan_speech.hotwords import write_hotwords, write_vocab  # noqa: E402
 
 
 def _load(name: str) -> Any:
@@ -61,8 +65,8 @@ def decode_all(sets: dict[str, Any], names: list[str], threads: int) -> dict[str
     ev = _load("stt_hotwords_eval")
     sc = ev.load_compare()
     tmp = Path(tempfile.mkdtemp(prefix="repair_"))
-    ev.write_vocab(ev.MODEL / "tokens.txt", tmp / "pk.vocab")
-    ev.write_hotwords(names, 1.0, tmp / "hot.txt")
+    write_vocab(ev.MODEL / "tokens.txt", tmp / "pk.vocab")
+    write_hotwords(names, 1.0, tmp / "hot.txt")
     hot = ev.recognizer(
         ev.MODEL,
         threads,
