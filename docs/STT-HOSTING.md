@@ -104,9 +104,39 @@ WER by kind, greedy -> hotwords 1.0: in-list 13.8% -> 5.0%; out-of-list 19.7% ->
 
 `stream.result.ys_log_probs` exists on the offline recognizer (one log-probability per token). Aggregating to word level (geometric mean) on the 59 hard clips: 408 words, 30 wrong. AUROC for separating correct from wrong words is **0.87** (0.85 using the minimum token probability). Flagging words with confidence below 0.9 catches 73% of wrong words but flags 16% of all words (33% precision); below 0.7 flags 3% of words at 50% precision but catches only 20%. So confidence is a useful gate for "check this word against the entity list", not a clean error detector on its own.
 
-## Name matcher prototype (optimistic)
+## Entity repair ladder (`src/lan_speech/transcript_repair.py`)
 
-A crude phonetic matcher (`.scratch/speech-hosting/scripts/match.py`) over a ~230-entity list raised entities found: Kroko 47% -> 71%, Parakeet v2 60% -> 80% at distance <= 0.2 with WER roughly flat. **Caveats:** the threshold was picked on the same clips, the list contains the answers, and a real music library is far larger, so false matches will be higher. Looser thresholds corrupt correct words (WER 35%). It shows the direction, not the size, of the gain.
+After Parakeet and hotwords, the transcript goes through a phonetic matcher and a five-rung ladder: **silent** replacement of a close, clear match; **implicit** replacement with the name echoed back (low-risk actions); **confirm** ("Did you mean X?", for plausible-but-unsafe matches and risky actions such as calls); **targeted** ("Which contact was that?" when the action needs a name and none was found); **reprompt**. Sound distance is a small rule-based grapheme-to-sound pass plus a weighted edit distance (vowels, b/p, d/t, f/p, v/b, s/z... are cheap substitutions); no model or G2P library. Thresholds are in `RepairConfig`. Names are `Entity(name, category)`, with categories in `bench/entities_v1.json` (contact, music, place, brand).
+
+Evaluate (decodes once, caches in `out/stt_compare/repair-cache.json`; thresholds are tuned on the hard set and reported on held-out):
+
+```bash
+PYTHONPATH=src uv run --group laptop python scripts/stt_repair_eval.py [--refresh] [--verbose]
+```
+
+What it took to stop doing harm (first version: 18-31 false fixes and up to 11 broken names, WER up to 21%):
+
+1. **Never touch part of a name that is already right.** "Dela" inside "Moira Dela Torre" was being turned into "Adele".
+2. **Dictionary guard.** A span made only of ordinary English words (CMUdict, 126k words, plus a short list of command words) is never repaired. "dollars" is not "Dolores". Adds the `cmudict` package to the `laptop` dependency group only.
+3. **Length gate** on the sound strings, so "angelo hello" cannot become "Angelo".
+4. **Slot awareness.** Match only against names of the kind the agent expects (contact for "call", music for "play"). This removed the remaining false fixes.
+
+Result with all four (hotword decode as input; hard = tuning set with the answers in the list, held-out = names mostly not in the list):
+
+| mode | set | entities after hotwords | + auto repair | + asks counted | false fixes | names broken | WER |
+|---|---|---|---|---|---|---|---|
+| global list | hard | 88% | 89% | 90% | 2 | 1 | 4.7% -> 4.4% |
+| global list | held-out | 63% | 60% | 63% | 2-3 | 1 | 9.3% -> 10.0% |
+| **slot-aware** | hard | 88% | 89% | 92% | 1 | 1 | 4.7% -> 4.4% |
+| **slot-aware** | held-out | 63% | 63% | 65% | **0** | **0** | **9.3% -> 9.3%** |
+
+Held-out, slot-aware: 4 "did you mean" questions (1 offered the right name) and 9 "which <slot>" questions, 7 of them on clips where the name was in fact mis-heard. The sweep on the hard set preferred silent 0.08, implicit 0.20, confirm 0.40, margin 0.04 over the defaults in `RepairConfig` (0.16 / 0.26 / 0.38 / 0.06); both gave the same held-out result, so the defaults were left as they are.
+
+**Read this honestly:**
+- **The automatic fix adds little once hotwords are on** (+2 entities hard, 0 held-out). Hotwords already recover most of what sound matching can; what is left is mostly names not in the list, which no list-based matcher can fix. The earlier prototype's 71-80% was an unguarded matcher against a list containing the answers and should be ignored.
+- **The ladder's value is safety, not recall:** with slot awareness it never breaks a correct transcript, and it knows when a required name was not found, so the agent can ask instead of calling the wrong person.
+- **Decoder confidence added nothing** (identical results with and without a greedy-pass confidence per word), so the design needs no second decode. Note that with hotwords on, `ys_log_probs` of boosted tokens are positive (the bonus is baked in), so confidence from the hotword decode is not usable anyway.
+- Fragile spots: `COMMON_WORDS`/CMUdict also contains many names ("Binnie" is a CMU entry), so those are protected from repair; slot labels come from the caller and were assigned by hand for the test clips (`slot` field in the clip scripts); risk (high for call/text/message/send) is inferred from the first word; the sample is 95 clips from one speaker.
 
 ## Hosting and cost
 
