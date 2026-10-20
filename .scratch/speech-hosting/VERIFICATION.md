@@ -70,3 +70,6 @@ Earlier hard-set figures for Parakeet were understated by digit output; the tabl
 
 ## Held-out hotword check (bench/stt_heldout.json, 36 clips, list frozen in bench/hotwords_v1.txt)
 greedy 11.6% WER, in-list 10/16, out-of-list 15/27 -> hotwords 1.0: 9.3%, 13/16, 14/27. By kind: in-list 13.8->5.0%, out-of-list 19.7->22.7%, open-world 6.9->5.6%, complex 7.5->6.5%. Criteria met; sample is small. Scorer fixed for thousands separators and numbers up to 999,999.
+
+## Repair ladder evaluation (scripts/stt_repair_eval.py)
+Unguarded matcher on hotword output: false fixes 18 (hard) / 31 (held-out), names broken 11 / 10, WER 4.7->9.6% / 9.3->21.5%. After protecting right names, CMUdict guard, length gate and slot awareness: held-out 0 false, 0 broken, WER 9.3->9.3; hard +2 entities. Greedy-pass confidence made no difference. The earlier prototype numbers (71-80%) are superseded.

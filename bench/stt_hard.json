@@ -6,7 +6,8 @@
    "opalite",
    "taylor swift"
   ],
-  "id": "01"
+  "id": "01",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -15,7 +16,8 @@
    "blinding lights",
    "the weeknd"
   ],
-  "id": "02"
+  "id": "02",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -23,7 +25,8 @@
   "entities": [
    "bad bunny"
   ],
-  "id": "03"
+  "id": "03",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -32,7 +35,8 @@
    "espresso",
    "sabrina carpenter"
   ],
-  "id": "04"
+  "id": "04",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -42,7 +46,8 @@
    "lady gaga",
    "bruno mars"
   ],
-  "id": "05"
+  "id": "05",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -50,7 +55,8 @@
   "entities": [
    "billie eilish"
   ],
-  "id": "06"
+  "id": "06",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -59,7 +65,8 @@
    "golden",
    "kpop demon hunters"
   ],
-  "id": "07"
+  "id": "07",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -68,7 +75,8 @@
    "pantropiko",
    "bini"
   ],
-  "id": "08"
+  "id": "08",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -76,7 +84,8 @@
   "entities": [
    "sb19"
   ],
-  "id": "09"
+  "id": "09",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -84,7 +93,8 @@
   "entities": [
    "ben and ben"
   ],
-  "id": "10"
+  "id": "10",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -93,7 +103,8 @@
    "tadhana",
    "up dharma down"
   ],
-  "id": "11"
+  "id": "11",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -102,7 +113,8 @@
    "ere",
    "juan karlos"
   ],
-  "id": "12"
+  "id": "12",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -110,7 +122,8 @@
   "entities": [
    "moira dela torre"
   ],
-  "id": "13"
+  "id": "13",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -119,7 +132,8 @@
    "ariana grande",
    "dua lipa"
   ],
-  "id": "14"
+  "id": "14",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -127,7 +141,8 @@
   "entities": [
    "kendrick lamar"
   ],
-  "id": "15"
+  "id": "15",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -136,7 +151,8 @@
    "shape of you",
    "ed sheeran"
   ],
-  "id": "16"
+  "id": "16",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -145,7 +161,8 @@
    "coldplay",
    "imagine dragons"
   ],
-  "id": "17"
+  "id": "17",
+  "slot": "music"
  },
  {
   "kind": "music",
@@ -153,7 +170,8 @@
   "entities": [
    "eraserheads"
   ],
-  "id": "18"
+  "id": "18",
+  "slot": "music"
  },
  {
   "kind": "contact",
@@ -161,7 +179,8 @@
   "entities": [
    "jocelyn"
   ],
-  "id": "19"
+  "id": "19",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -170,7 +189,8 @@
    "angelo",
    "ten"
   ],
-  "id": "20"
+  "id": "20",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -178,7 +198,8 @@
   "entities": [
    "mary grace"
   ],
-  "id": "21"
+  "id": "21",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -186,7 +207,8 @@
   "entities": [
    "kristine"
   ],
-  "id": "22"
+  "id": "22",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -194,7 +216,8 @@
   "entities": [
    "ezekiel reyes"
   ],
-  "id": "23"
+  "id": "23",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -202,7 +225,8 @@
   "entities": [
    "jericho"
   ],
-  "id": "24"
+  "id": "24",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -211,7 +235,8 @@
    "ysabel",
    "dela cruz"
   ],
-  "id": "25"
+  "id": "25",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -221,7 +246,8 @@
    "bea",
    "eight"
   ],
-  "id": "26"
+  "id": "26",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -229,7 +255,8 @@
   "entities": [
    "tita cora"
   ],
-  "id": "27"
+  "id": "27",
+  "slot": "contact"
  },
  {
   "kind": "contact",
@@ -238,7 +265,8 @@
    "joshua santos",
    "friday"
   ],
-  "id": "28"
+  "id": "28",
+  "slot": "contact"
  },
  {
   "kind": "place",
@@ -246,7 +274,8 @@
   "entities": [
    "quezon city"
   ],
-  "id": "29"
+  "id": "29",
+  "slot": "place"
  },
  {
   "kind": "place",
@@ -254,7 +283,8 @@
   "entities": [
    "makati"
   ],
-  "id": "30"
+  "id": "30",
+  "slot": "place"
  },
  {
   "kind": "place",
@@ -262,7 +292,8 @@
   "entities": [
    "cebu"
   ],
-  "id": "31"
+  "id": "31",
+  "slot": "place"
  },
  {
   "kind": "place",
@@ -270,7 +301,8 @@
   "entities": [
    "davao"
   ],
-  "id": "32"
+  "id": "32",
+  "slot": "place"
  },
  {
   "kind": "place",
@@ -278,7 +310,8 @@
   "entities": [
    "tokyo"
   ],
-  "id": "33"
+  "id": "33",
+  "slot": "place"
  },
  {
   "kind": "brand",
@@ -287,7 +320,8 @@
    "jollibee",
    "noon"
   ],
-  "id": "34"
+  "id": "34",
+  "slot": "brand"
  },
  {
   "kind": "brand",
@@ -296,7 +330,8 @@
    "globe",
    "monday"
   ],
-  "id": "35"
+  "id": "35",
+  "slot": "brand"
  },
  {
   "kind": "brand",
@@ -304,7 +339,8 @@
   "entities": [
    "gcash"
   ],
-  "id": "36"
+  "id": "36",
+  "slot": "brand"
  },
  {
   "kind": "brand",
@@ -312,7 +348,8 @@
   "entities": [
    "shopee"
   ],
-  "id": "37"
+  "id": "37",
+  "slot": "brand"
  },
  {
   "kind": "brand",
@@ -321,7 +358,8 @@
    "grab",
    "bonifacio global city"
   ],
-  "id": "38"
+  "id": "38",
+  "slot": "brand"
  },
  {
   "kind": "number",
@@ -329,7 +367,8 @@
   "entities": [
    "twelve"
   ],
-  "id": "39"
+  "id": "39",
+  "slot": "none"
  },
  {
   "kind": "number",
@@ -337,7 +376,8 @@
   "entities": [
    "six forty five"
   ],
-  "id": "40"
+  "id": "40",
+  "slot": "none"
  },
  {
   "kind": "number",
@@ -345,7 +385,8 @@
   "entities": [
    "five fifteen"
   ],
-  "id": "41"
+  "id": "41",
+  "slot": "none"
  },
  {
   "kind": "number",
@@ -354,7 +395,8 @@
    "one hour",
    "thirty"
   ],
-  "id": "42"
+  "id": "42",
+  "slot": "none"
  },
  {
   "kind": "number",
@@ -362,7 +404,8 @@
   "entities": [
    "twenty two"
   ],
-  "id": "43"
+  "id": "43",
+  "slot": "none"
  },
  {
   "kind": "number",
@@ -371,7 +414,8 @@
    "seven thirty",
    "saturday"
   ],
-  "id": "44"
+  "id": "44",
+  "slot": "none"
  },
  {
   "kind": "number",
@@ -379,7 +423,8 @@
   "entities": [
    "nine fifty"
   ],
-  "id": "45"
+  "id": "45",
+  "slot": "none"
  },
  {
   "kind": "number",
@@ -387,7 +432,8 @@
   "entities": [
    "forty"
   ],
-  "id": "46"
+  "id": "46",
+  "slot": "none"
  },
  {
   "kind": "everyday",
@@ -395,7 +441,8 @@
   "entities": [
    "kitchen"
   ],
-  "id": "47"
+  "id": "47",
+  "slot": "none"
  },
  {
   "kind": "everyday",
@@ -403,31 +450,36 @@
   "entities": [
    "bedroom"
   ],
-  "id": "48"
+  "id": "48",
+  "slot": "none"
  },
  {
   "kind": "everyday",
   "text": "Make it a little warmer in here",
   "entities": [],
-  "id": "49"
+  "id": "49",
+  "slot": "none"
  },
  {
   "kind": "everyday",
   "text": "What is on my reminders for today",
   "entities": [],
-  "id": "50"
+  "id": "50",
+  "slot": "none"
  },
  {
   "kind": "everyday",
   "text": "Stop the music",
   "entities": [],
-  "id": "51"
+  "id": "51",
+  "slot": "none"
  },
  {
   "kind": "everyday",
   "text": "Cancel the timer",
   "entities": [],
-  "id": "52"
+  "id": "52",
+  "slot": "none"
  },
  {
   "kind": "everyday",
@@ -436,7 +488,8 @@
    "living room",
    "blue"
   ],
-  "id": "53"
+  "id": "53",
+  "slot": "none"
  },
  {
   "kind": "correction",
@@ -445,7 +498,8 @@
    "taylor swift",
    "opalite"
   ],
-  "id": "54"
+  "id": "54",
+  "slot": "music"
  },
  {
   "kind": "correction",
@@ -454,7 +508,8 @@
    "angelo",
    "jocelyn"
   ],
-  "id": "55"
+  "id": "55",
+  "slot": "contact"
  },
  {
   "kind": "correction",
@@ -462,7 +517,8 @@
   "entities": [
    "six thirty"
   ],
-  "id": "56"
+  "id": "56",
+  "slot": "none"
  },
  {
   "kind": "correction",
@@ -470,7 +526,8 @@
   "entities": [
    "kristine"
   ],
-  "id": "57"
+  "id": "57",
+  "slot": "contact"
  },
  {
   "kind": "correction",
@@ -480,7 +537,8 @@
    "kitchen",
    "bedroom"
   ],
-  "id": "58"
+  "id": "58",
+  "slot": "music"
  },
  {
   "kind": "correction",
@@ -489,6 +547,7 @@
    "ten",
    "fifteen"
   ],
-  "id": "59"
+  "id": "59",
+  "slot": "contact"
  }
 ]
