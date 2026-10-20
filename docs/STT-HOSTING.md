@@ -230,6 +230,22 @@ So hotwords help a little even on open reading (names like GCash and David Foste
 - The saved audio was missing the start of most turns. My `--save` code cleared its buffer when a final arrived and so filed the half second you spoke while the server was still answering `finalize` under the *previous* turn. The server itself received that audio correctly (the live text has "Things are better if I stay", "Every unhappy family"; the saved WAVs begin mid-word). Replaying the saved WAVs therefore overstates errors (5.5% vs 4.5% live), and a "pre-roll" experiment I ran on them (0.4 s of the previous turn put in front: 5.5% -> 5.2%, 1.0 s: 4.5%, 1.5 s: 11.3%) was measuring that bug, not a server problem. Fixed: audio up to the moment `finalize` was sent is saved with that final, the rest goes to the next turn (`take_turn_audio`). Earlier sessions' WAVs have this defect.
 - The slot guesser asked "Which place was that?" after a statement beginning "Far out in the uncharted backwaters ...", because "far" looked like a place cue. A bare "far" or "near" is no longer a cue ("how far" is), and an utterance longer than 14 words is never treated as a command.
 
+### Latency of the live path, measured on that session (2026-10-20)
+
+`scripts/stt_finalize_latency.py` builds the server's engine with its default settings (Kroko 2 threads, Parakeet 2 threads with hotwords, padding 0.5 s + 1.0 s, repair on), streams each saved turn into it as the server would, and times `finalize` until the final transcript exists. Laptop on AC, `balanced` profile, a browser using some CPU in the background. 24 measured finalizes of your 25 turns (these are long: mean 5.6 s, because you read lines; commands are typically 2-3 s).
+
+| part | p50 | p95 | max |
+|---|---|---|---|
+| **finalize total (what the server adds after the pause)** | **722 ms** | 1070 ms | 1117 ms |
+| Parakeet decode of the padded audio | 662 ms | 1016 ms | 1044 ms |
+| Kroko finishing the turn + name repair | 47 ms | 79 ms | 120 ms |
+
+By length of the turn: under 3 s, p50 460 ms (max 558); 3-5 s, 598 ms; 5-8 s, 829 ms; over 8 s, 979 ms. Parakeet is an offline model, so the whole turn is decoded after it ends and the cost grows with the length of what was said (about 70 ms per second of audio plus about 280 ms fixed, which is also what the synthetic benchmark found).
+
+What a user waits, from the end of their speech to a transcript the agent can use: the client's pause (0.5 s here) plus the server's time. For a 2-3 s command that is about 0.5 + 0.46 = **1.0 s**; for a 5-8 s sentence about 0.5 + 0.83 = **1.3 s**; for 8 s and over about 1.5 s. The LLM's first token and the first audio of the reply come on top of that (TTS first audio was measured at about 320 ms with Supertonic alone; the LLM was not measured here). The target of about 500 ms to first audio is not met by speech recognition alone, and these figures do not include the 1.5-1.65x slowdown measured when TTS runs on the same CPU.
+
+Levers, with what is known: **start the decode at the first short pause** (0.2 s) and discard it if the user keeps talking (on synthetic clips the words matched the 0.5 s-tail decode on 94% of clips; not built); **a shorter pause hold** (0.5 s ended turns mid-sentence when reading in chunks, but a command is a single burst); **a faster host for Parakeet** (the phone benchmark is the open question; a GPU would cut the decode to tens of milliseconds); **give the LLM Kroko's streaming text early** and let Parakeet correct it (the fast partial is available while the user speaks; not built). Smaller: a 1.0 s tail pad costs about 70 ms against 0.5 s but the shorter pad was worse on the hard set (6.1% vs 4.9%); 2 and 4 threads are equal; the `performance` power profile gains about 10%.
+
 ## Speed experiments on synthetic speech (no recordings needed)
 
 `scripts/make_synth_clips.py` renders the clip scripts with Kokoro (95 clips, mean 2.5 s, two voices) and `scripts/stt_latency_bench.py` times Parakeet on them. **Speed only**: clean synthetic speech says nothing reliable about accuracy. Laptop: i5-1145G7, on AC, governor `powersave`; main run with profile `balanced` (EPP `balance_performance`), repeated with `scripts/power_mode.sh max` (profile `performance`, EPP `performance`; restored to `balanced` afterwards). Padding in all rows except the padding table is 0.5 s lead + 1.5 s tail.
