@@ -10,6 +10,7 @@ SHERPA_DIR = "sherpa-zipformer-en-2023-06-26"
 KROKO_DIR = "kroko-en"
 KOKORO_DIR = "kokoro-v1.0"
 SUPERTONIC_DIR = "supertonic-3"
+PARAKEET_DIR = "stt-candidates/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
 
 _SHERPA_URL = (
     "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26/resolve/main/"
@@ -20,6 +21,10 @@ _KROKO_URL = (
 )
 _KOKORO_GH = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 _KOKORO_HF = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/"
+_PARAKEET_URL = (
+    "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
+    "/resolve/1ab9323565ddb038682214b292f588070a538ce2/"
+)
 _SUPERTONIC_URL = "https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b/"
 
 LICENSES: dict[str, str] = {
@@ -35,6 +40,11 @@ LICENSES: dict[str, str] = {
     KOKORO_DIR: (
         "Apache-2.0 — hexgrad/Kokoro-82M weights and voices "
         "(ONNX exports: onnx-community/Kokoro-82M-v1.0-ONNX, thewh1teagle/kokoro-onnx MIT)"
+    ),
+    PARAKEET_DIR: (
+        "CC-BY-4.0 — nvidia/parakeet-tdt-0.6b-v2 (sherpa-onnx int8 export: "
+        "huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8); not part of the "
+        "server's required set, used by the offline STT evaluation scripts"
     ),
     SUPERTONIC_DIR: (
         "OpenRAIL-M — Supertone/supertonic-3 model weights "
@@ -107,6 +117,26 @@ MANIFEST: tuple[ModelFile, ...] = (
         f"{SHERPA_DIR}/joiner-{_STEM}.int8.onnx",
         _SHERPA_URL + f"joiner-{_STEM}.int8.onnx",
         "d944208d660d67c8d72cd2acaeac971fa5ceb8c80e76c1968148846fedd6e297",
+    ),
+    ModelFile(
+        f"{PARAKEET_DIR}/tokens.txt",
+        _PARAKEET_URL + "tokens.txt",
+        "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+    ),
+    ModelFile(
+        f"{PARAKEET_DIR}/encoder.int8.onnx",
+        _PARAKEET_URL + "encoder.int8.onnx",
+        "a32b12d17bbbc309d0686fbbcc2987b5e9b8333a7da83fa6b089f0a2acd651ab",
+    ),
+    ModelFile(
+        f"{PARAKEET_DIR}/decoder.int8.onnx",
+        _PARAKEET_URL + "decoder.int8.onnx",
+        "b6bb64963457237b900e496ee9994b59294526439fbcc1fecf705b31a15c6b4e",
+    ),
+    ModelFile(
+        f"{PARAKEET_DIR}/joiner.int8.onnx",
+        _PARAKEET_URL + "joiner.int8.onnx",
+        "7946164367946e7f9f29a122407c3252b680dbae9a51343eb2488d057c3c43d2",
     ),
     ModelFile(
         f"{KOKORO_DIR}/kokoro-v1.0.onnx",
@@ -241,9 +271,10 @@ def required_dirs(stt_model: str) -> frozenset[str]:
     return frozenset({STT_MODELS[stt_model], SUPERTONIC_DIR})
 
 
+def in_dirs(path: str, dirs: frozenset[str] | None) -> bool:
+    """True when `path` is inside one of `dirs` (folder names may be nested, like PARAKEET_DIR)."""
+    return dirs is None or any(path.startswith(d + "/") for d in dirs)
+
+
 def verify_all(models: Path, dirs: frozenset[str] | None = None) -> list[str]:
-    return [
-        p
-        for e in MANIFEST
-        if (dirs is None or e.path.split("/", 1)[0] in dirs) and (p := verify(models, e))
-    ]
+    return [p for e in MANIFEST if in_dirs(e.path, dirs) and (p := verify(models, e))]

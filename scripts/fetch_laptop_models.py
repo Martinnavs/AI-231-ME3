@@ -1,6 +1,8 @@
 """Download the laptop speech-server model files into models/ and verify SHA-256.
 
 Run: uv run python scripts/fetch_laptop_models.py [--models models] [--check] [--server-only]
+Without --server-only it also fetches Parakeet-TDT 0.6B v2 int8 (~660 MB) for
+scripts/stt_hotwords_eval.py.
 Exit 2 names the file on a missing download or checksum mismatch. The manifest lives in
 src/lan_speech/models.py so the server and this script share one list.
 """
@@ -21,6 +23,7 @@ from lan_speech.models import (
     SHERPA_DIR,
     SUPERTONIC_DIR,
     ModelFile,
+    in_dirs,
     required_dirs,
     sha256_of,
     verify,
@@ -65,7 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"license {name}: {lic}")
     problems = []
     for entry in MANIFEST:
-        if wanted is not None and entry.path.split("/", 1)[0] not in wanted:
+        if not in_dirs(entry.path, wanted):
             continue
         problem = verify(args.models, entry)
         if problem and not args.check:

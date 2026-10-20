@@ -10,6 +10,7 @@ from lan_speech import models
 from lan_speech.models import (
     KROKO_DIR,
     MANIFEST,
+    PARAKEET_DIR,
     SHERPA_DIR,
     SUPERTONIC_DIR,
     required_dirs,
@@ -54,4 +55,31 @@ def test_real_kroko_files_match_the_pinned_hashes_when_present() -> None:
     entries = [e for e in MANIFEST if e.path.startswith(f"{KROKO_DIR}/")]
     if not all((root / e.path).is_file() for e in entries):
         pytest.skip("Kroko files not downloaded")
+    assert all(sha256_of(root / e.path) == e.sha256 for e in entries)
+
+
+def test_parakeet_is_pinned_but_not_required_by_the_server() -> None:
+    entries = [e for e in MANIFEST if e.path.startswith(f"{PARAKEET_DIR}/")]
+    assert {e.path.rsplit("/", 1)[1] for e in entries} == {
+        "tokens.txt",
+        "encoder.int8.onnx",
+        "decoder.int8.onnx",
+        "joiner.int8.onnx",
+    }
+    assert all("/resolve/1ab9323565ddb038682214b292f588070a538ce2/" in e.url for e in entries)
+    assert all(PARAKEET_DIR not in required_dirs(name) for name in ("kroko", "zipformer"))
+    assert "CC-BY-4.0" in models.LICENSES[PARAKEET_DIR]
+
+
+def test_nested_folder_names_filter_by_prefix(tmp_path: Path) -> None:
+    problems = verify_all(tmp_path, frozenset({PARAKEET_DIR}))
+    assert len(problems) == 4
+    assert all(p.startswith(f"{PARAKEET_DIR}/") for p in problems)
+
+
+def test_real_parakeet_files_match_the_pinned_hashes_when_present() -> None:
+    root = Path("models")
+    entries = [e for e in MANIFEST if e.path.startswith(f"{PARAKEET_DIR}/")]
+    if not all((root / e.path).is_file() for e in entries):
+        pytest.skip("Parakeet files not downloaded")
     assert all(sha256_of(root / e.path) == e.sha256 for e in entries)
