@@ -57,3 +57,48 @@ It does behave well on conversational, disfluent speech, which is not what we se
 4. Test on more than one speaker; every number here is from one voice.
 
 Not done: running it inside the live loop, or under Parakeet load.
+
+## Text-based check (Turnsense, added after the audio result)
+
+The audio model judged request-style pauses wrongly, so I tried a model that reads the words:
+[Turnsense](https://huggingface.co/latishab/turnsense) (Apache-2.0, SmolLM2-135M, int8 ONNX 176 MB,
+`models/turn-detector/`, outputs P(finished)). Not used: LiveKit's turn-detector, whose licence
+allows use "only with the LiveKit Agents framework", not standalone or with other frameworks.
+
+Cost: 24 ms p50 per check on 1 thread (16 ms for short texts), unpadded input. The sample code
+pads to 256 tokens, which costs about 195 ms for the same answer; do not do that.
+
+`scripts/text_turn_eval.py` (words from Parakeet, same cuts as above), threshold 0.5:
+
+| set | finished turns ended | dangling cuts wrongly ended |
+|---|---|---|
+| commands, words as Parakeet writes them | 98% (93/95) | 13% (31/234) |
+| commands, lower case no punctuation | 92% (87/95) | 13% |
+| read prose | 80% (20/25) | 15% (15/99) |
+| commands, threshold 0.7 (Parakeet-written) | 88% | 3% (6/234) |
+
+The audio model wrongly ended 99% of the same dangling cuts. Words are a far better signal for
+requests. But Parakeet's words only exist about 340 ms after a pause starts, no earlier than the
+fixed 0.5 s hold. What exists at a 200 ms pause is Kroko's interim text, which lags the speech
+(it had 83% of the words at the end of finished clips and often a cut-off last word:
+"put on blinding", "play some bad bunny in the living ro"). `scripts/text_turn_kroko.py`:
+
+| pause | threshold | finished turns ended | dangling wrongly ended |
+|---|---|---|---|
+| 200 ms | 0.5 | 69% (66/95) | 34% (79/234) |
+| 200 ms | 0.7 | 48% | 21% |
+| 500 ms | 0.5 | 80% (76/95) | 39% (92/234) |
+| 500 ms | 0.7 | 55% | 26% |
+
+So on the words available early, the text check ends 69% of finished turns about 300 ms sooner
+but also cuts off a third of the unfinished ones. "Other cuts" such as "play opalite" (62% judged
+complete) are ambiguous by nature: the speaker may be done or may go on.
+
+## Reading
+
+Neither model is a drop-in replacement for the fixed pause. The text model is the better signal
+but needs good words early, and the early words are Kroko's. Where it does help without risk is
+as a veto after the pause: if the transcript clearly ends on a dangling word, do not send it
+as is. That is the place for a "got it, anything to add?" prompt (proposed, not built).
+
+Not done: the continuation prompt and stitching; any run inside the live loop; other speakers.
