@@ -434,6 +434,7 @@ _PLACE_CUES = _wordset(
     "weather rain raining temperature forecast navigate directions route far near nearest traffic"
 )
 _BRAND_VERBS = _wordset("order buy book pay")
+_PRONOUNS = _wordset("me it this that them us you him her myself yourself")
 
 
 _SUFFIXES = frozenset({"", "s", "es", "d", "ed", "ing"})
@@ -456,6 +457,8 @@ def infer_context(text: str) -> tuple[str | None, Risk]:
         return None, Risk.LOW
     first = words[0]
     if _is_verb(first, _CONTACT_VERBS):
+        if len(words) > 1 and words[1] in _PRONOUNS:
+            return None, Risk.LOW  # "call me Ishmael", "text me", "send it": no name to look up
         return "contact", Risk.HIGH
     if _is_verb(first, _MUSIC_VERBS) or words[:2] == ["put", "on"]:
         return "music", Risk.LOW

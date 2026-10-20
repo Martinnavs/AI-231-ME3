@@ -54,6 +54,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--hotword-score", type=float, default=1.0, help="Hotword boost (default: 1.0; >=1.5 hurts)"
     )
     ap.add_argument(
+        "--pad-lead", type=float, default=0.5, help="zeros before the speech for Parakeet (s)"
+    )
+    ap.add_argument(
+        "--pad-tail",
+        type=float,
+        default=1.0,
+        help="zeros after the speech for Parakeet (s); 0.5 + 1.0 beat no padding on labelled clips",
+    )
+    ap.add_argument(
         "--no-repair",
         action="store_true",
         help="with --stt-model parakeet: hotwords only, skip the name repair ladder",
@@ -114,6 +123,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parakeet_threads=args.parakeet_threads,
                 hotword_score=args.hotword_score,
                 endpoint_silence=args.endpoint_silence,
+                pad_lead_s=args.pad_lead,
+                pad_tail_s=args.pad_tail,
                 repair=not args.no_repair,
             )
         else:
