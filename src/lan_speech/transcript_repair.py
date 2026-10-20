@@ -492,14 +492,17 @@ def repair_text(
     """Run the ladder on a plain-text transcript. None when there is no list for this slot.
 
     ``slot`` may name several kinds joined with "+"; the names of all of them are searched
-    together and no "which one was that?" question is asked.
+    together and no "which one was that?" question is asked. A trailing "?" ("doc?") marks the
+    slot as optional: names are repaired if heard, and a sentence without one is left alone
+    instead of being asked about (right for open questions about a document set).
     """
-    kinds = [k for k in (slot or "").split("+") if k in matchers]
+    optional = (slot or "").endswith("?")
+    kinds = [k for k in (slot or "").rstrip("?").split("+") if k in matchers]
     if not kinds:
         return None
     if len(kinds) == 1:
         matcher = matchers[kinds[0]]
-        expected: str | None = kinds[0]
+        expected: str | None = None if optional else kinds[0]
     else:
         matcher = EntityMatcher(
             [e for k in kinds for e in matchers[k].entities], known_words=matchers[kinds[0]].known

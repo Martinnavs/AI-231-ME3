@@ -20,7 +20,8 @@ from doc_chat.chain import (
     build_sentence_streamer,
 )
 from doc_chat.corpus import load_and_split_corpus, tokenize
-from doc_chat.speech import DocChatSpeechClient, SpokenTurn
+from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
+from doc_chat.speech import DocChatSpeechClient, HeardTurn, SpokenTurn
 
 _QUIT_WORDS = {"quit", "exit", "goodbye", "stop"}
 
@@ -51,6 +52,11 @@ def _warn(error: str | None) -> None:
 
 def timing_line(rec: dict[str, Any]) -> str:
     parts: list[str] = []
+    if rec.get("stt_final_ms") and rec.get("stt_server_ms") is not None:
+        parts.append(
+            f"stt {rec['stt_final_ms']:.0f} ms (pause {rec.get('pause_ms') or 0:.0f} + "
+            f"server {rec['stt_server_ms']:.0f})"
+        )
     for key, label in (
         ("stt_final_ms", "stt"),
         ("retrieval_ms", "retrieval"),
@@ -59,7 +65,7 @@ def timing_line(rec: dict[str, Any]) -> str:
         ("tts_first_audio_ms", "tts first audio"),
     ):
         value = rec.get(key)
-        if value:
+        if value and not (key == "stt_final_ms" and rec.get("stt_server_ms") is not None):
             parts.append(f"{label} {value:.0f} ms")
     heard = rec.get("speech_end_to_first_audio_ms")
     if heard is not None:
@@ -92,19 +98,80 @@ class Session:
     chain: Any | None = None
     streamer: Callable[[str], SentenceStream] | None = None
     records: list[dict[str, Any]] = field(default_factory=list)
+    history: ChatHistory = field(default_factory=lambda: ChatHistory(0))
+    pending: Clarification | None = None
 
     def log(self, rec: dict[str, Any]) -> None:
         self.log_file.write(json.dumps(rec) + "\n")
         self.log_file.flush()
         self.records.append(rec)
 
+    async def say(self, text: str) -> None:
+        """Speak one short line of our own (a clarifying question), outside the LLM path."""
+        from doc_chat.playback import Player
+
+        print(f"bot:  {text}", flush=True)
+        player = Player(self.client.tts_sample_rate) if self.args.play else None
+        try:
+            await self.client.speak_text(
+                text, voice=self.args.voice, on_chunk=player.push if player else None
+            )
+        finally:
+            if player is not None:
+                await asyncio.to_thread(player.close)
+
+    async def handle(self, idx: int, heard: HeardTurn) -> None:
+        """What to do with a heard turn: answer it, or ask something first."""
+        text = heard.text.strip()
+        if self.pending is not None:
+            pending, self.pending = self.pending, None
+            reply = parse_yes_no(text) if pending.kind == "confirm" else None
+            if reply == "yes" and pending.if_yes:
+                print(f"you:  {text}   -> {pending.if_yes}", flush=True)
+                await self.turn(idx, pending.if_yes, heard.t_speech_end, heard.stt_ms, heard)
+                return
+            if reply == "no":
+                await self.say("Okay. Please say it again.")
+                self.log(self._clarification_record(idx, text, "declined", heard))
+                return
+            # anything else is a fresh question: they rephrased instead of answering
+        else:
+            clarification = clarification_for(text, heard.repair)
+            if clarification is not None:
+                print(f"you:  {text}", flush=True)
+                self.pending = clarification if clarification.kind == "confirm" else None
+                await self.say(clarification.question)
+                self.log(self._clarification_record(idx, text, clarification.question, heard))
+                return
+        await self.turn(idx, text, heard.t_speech_end, heard.stt_ms, heard)
+
+    @staticmethod
+    def _clarification_record(
+        idx: int, text: str, asked: str, heard: HeardTurn | None
+    ) -> dict[str, Any]:
+        return {
+            "turn": idx,
+            "question": text,
+            "answer_words": 0,
+            "clarification": asked,
+            "repair_rung": (heard.repair or {}).get("rung") if heard else None,
+            "stt_final_ms": round(heard.stt_ms, 2) if heard else None,
+        }
+
     async def turn(
-        self, idx: int, question: str, t_speech_end: float, stt_final_ms: float | None
+        self,
+        idx: int,
+        question: str,
+        t_speech_end: float,
+        stt_final_ms: float | None,
+        heard: HeardTurn | None = None,
     ) -> None:
         """Answer one question and speak it; records the timing of every stage."""
         from doc_chat.playback import Player
 
         print(f"you:  {question}", flush=True)
+        if heard is not None and heard.raw_text and heard.raw_text != heard.text:
+            print(f"      (recognised as: {heard.raw_text})", flush=True)
         player = Player(self.client.tts_sample_rate) if self.args.play else None
         on_chunk = player.push if player else None
         try:
@@ -157,7 +224,16 @@ class Session:
             "cancel_to_silence_ms": None,
             "source": source,
         }
+        if heard is not None:
+            rec["pause_ms"] = (
+                None
+                if heard.finalize_sent is None
+                else rounded((heard.finalize_sent - heard.t_speech_end) * 1000.0)
+            )
+            rec["stt_server_ms"] = rounded(heard.server_ms)
+            rec["repair_rung"] = (heard.repair or {}).get("rung")
         self.log(rec)
+        self.history.add(question, " ".join(spoken.sentences))
         print(timing_line(rec), flush=True)
 
     async def run_text(self) -> None:
@@ -170,34 +246,40 @@ class Session:
         for idx, wav_item in enumerate(self.args.wav, start=1):
             wav_file = Path(wav_item)
             try:
-                transcript, stt_final_ms, t_speech_end = await self.client.send_stt_wav(wav_file)
-                question = transcript.strip()
-                if not question:
+                heard = await self.client.hear_wav(
+                    wav_file, slot=self.args.slot, risk=self.args.risk
+                )
+                if not heard.text.strip():
                     rec = _failed_record(idx, "", RuntimeError(""))
                     rec.pop("error")
-                    rec["stt_final_ms"] = round(stt_final_ms, 2)
+                    rec["stt_final_ms"] = round(heard.stt_ms, 2)
                     self.log(rec)
                     continue
-                await self.turn(idx, question, t_speech_end, stt_final_ms)
+                await self.handle(idx, heard)
             except Exception as exc:
                 self.log(_failed_record(idx, str(wav_file), exc))
 
     async def run_mic(self) -> None:
-        print("Listening... speak, then pause. Say 'quit' or press Ctrl-C to stop.", flush=True)
+        hold = self.args.vad_hold
+        how = f"a pause of {hold:g} s ends your turn" if hold > 0 else "pause to end your turn"
+        print(f"Listening... speak ({how}). Say 'quit' or press Ctrl-C to stop.", flush=True)
         idx = 0
         while True:
             idx += 1
-            question, t_speech_end = await self.client.listen_mic(
-                on_partial=lambda t: print(f"\r  hearing: {t[:70]:<70}", end="", flush=True)
+            heard = await self.client.listen_turn(
+                slot=self.args.slot,
+                risk=self.args.risk,
+                vad_hold=hold,
+                on_partial=lambda t: print(f"\r  hearing: {t[:70]:<70}", end="", flush=True),
             )
             print("\r" + " " * 90 + "\r", end="")
-            if question.lower().strip(" .!?") in _QUIT_WORDS:
+            if heard.text.lower().strip(" .!?") in _QUIT_WORDS:
                 break
             try:
-                await self.turn(idx, question, t_speech_end, None)
+                await self.handle(idx, heard)
             except Exception as exc:
                 print(f"  [turn failed - {type(exc).__name__}]", file=sys.stderr, flush=True)
-                self.log(_failed_record(idx, question, exc))
+                self.log(_failed_record(idx, heard.text, exc))
 
 
 def _summary(records: list[dict[str, Any]]) -> None:
@@ -264,20 +346,31 @@ async def async_main(args: argparse.Namespace) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
 
     with log_path.open("a", encoding="utf-8") as log_file:
-        session = Session(args=args, client=client, log_file=log_file, out_dir=out_dir)
+        session = Session(
+            args=args,
+            client=client,
+            log_file=log_file,
+            out_dir=out_dir,
+            history=ChatHistory(args.history if llm is not None else 0),
+        )
+        past = session.history.pairs
         if args.stream:
             assert llm is not None
             session.streamer = build_sentence_streamer(
-                retriever, llm, max_words=args.max_words, system_prompt=system_prompt
+                retriever, llm, max_words=args.max_words, system_prompt=system_prompt, history=past
             )
         elif retriever is None:
             assert llm is not None
             session.chain = build_chat_chain(
-                llm, max_words=args.max_words, system_prompt=system_prompt
+                llm, max_words=args.max_words, system_prompt=system_prompt, history=past
             )
         else:
             session.chain = build_answer_chain(
-                retriever, max_words=args.max_words, llm=llm, system_prompt=system_prompt
+                retriever,
+                max_words=args.max_words,
+                llm=llm,
+                system_prompt=system_prompt,
+                history=past,
             )
         try:
             if args.text is not None:
@@ -341,6 +434,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--no-docs",
         action="store_true",
         help="Skip retrieval: send each question straight to Qwen (needs --llm qwen)",
+    )
+    parser.add_argument(
+        "--vad-hold",
+        type=float,
+        default=0.6,
+        help="seconds of quiet after you speak before this client ends the turn (default: 0.6); "
+        "0 leaves it to the speech server, which is slower",
+    )
+    parser.add_argument(
+        "--slot",
+        default="doc?",
+        help="kind of name to repair, sent to the speech server (default: doc?, optional names "
+        "from --entities; harmless when the server has no such list)",
+    )
+    parser.add_argument("--risk", choices=["low", "high"], help="how costly a misheard name is")
+    parser.add_argument(
+        "--history",
+        type=int,
+        default=4,
+        help="earlier question/answer pairs sent to the model with each new question (default: 4)",
     )
     qwen = parser.add_argument_group("Qwen options (with --llm qwen)")
     qwen.add_argument(

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.runnables import Runnable, RunnableLambda
 
+from doc_chat.dialogue import history_messages
 from doc_chat.qwen import describe_failure
 from lan_speech.protocol import split_sentences
 
@@ -103,10 +104,32 @@ def render_system(template: str | None, context: str | None) -> str:
     return text.replace("{context}", context)
 
 
-def _messages(system: str, question: str) -> list[Any]:
+HistoryFn = Callable[[], list[tuple[str, str]]]
+
+_SHORT_FOLLOW_UP_WORDS = 5
+
+
+def retrieval_query(question: str, history: list[tuple[str, str]]) -> str:
+    """The text to search the documents with.
+
+    A short follow-up ("and her sister?") says nothing on its own, so the previous question is
+    searched with it.
+    """
+    if history and len(question.split()) <= _SHORT_FOLLOW_UP_WORDS:
+        return f"{history[-1][0]} {question}"
+    return question
+
+
+def _messages(
+    system: str, question: str, history: list[tuple[str, str]] | None = None
+) -> list[Any]:
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    return [SystemMessage(content=system), HumanMessage(content=question)]
+    return [
+        SystemMessage(content=system),
+        *history_messages(history or []),
+        HumanMessage(content=question),
+    ]
 
 
 def clean_llm_reply(text: str) -> str:
@@ -123,21 +146,29 @@ def _visible_so_far(raw: str) -> str:
     return raw if open_at == -1 else raw[:open_at]
 
 
-def _ask_llm(llm: BaseChatModel, system: str, question: str) -> str:
-    reply = llm.invoke(_messages(system, question))
+def _ask_llm(
+    llm: BaseChatModel, system: str, question: str, history: list[tuple[str, str]] | None = None
+) -> str:
+    reply = llm.invoke(_messages(system, question, history))
     content = reply.content if isinstance(reply.content, str) else str(reply.content)
     return clean_llm_reply(content)
 
 
 def build_chat_chain(
-    llm: BaseChatModel, *, max_words: int = 40, system_prompt: str | None = None
+    llm: BaseChatModel,
+    *,
+    max_words: int = 40,
+    system_prompt: str | None = None,
+    history: HistoryFn | None = None,
 ) -> Runnable[str, Answer]:
-    """One-shot chat with no documents and no history."""
+    """Chat with no documents; with ``history`` the earlier turns go to the model too."""
 
     def _chat_fn(question: str) -> Answer:
         t0 = time.perf_counter()
         try:
-            reply = _ask_llm(llm, render_system(system_prompt, None), question)
+            reply = _ask_llm(
+                llm, render_system(system_prompt, None), question, history() if history else None
+            )
         except Exception as exc:
             return Answer(
                 text=_LLM_DOWN_TEXT,
@@ -173,11 +204,13 @@ def build_answer_chain(
     max_words: int = 40,
     llm: BaseChatModel | None = None,
     system_prompt: str | None = None,
+    history: HistoryFn | None = None,
 ) -> Runnable[str, Answer]:
     """Build a Runnable that takes a question string and returns an Answer dataclass."""
 
     def _answer_fn(question: str) -> Answer:
-        docs, retrieval_ms = _retrieve(retriever, question)
+        past = history() if history else []
+        docs, retrieval_ms = _retrieve(retriever, retrieval_query(question, past))
         if not docs:
             return Answer(text=_NO_HIT_TEXT, source=None, retrieval_ms=retrieval_ms)
 
@@ -196,7 +229,7 @@ def build_answer_chain(
         context = "\n\n".join(_doc_text(d) for d in docs)
         t1 = time.perf_counter()
         try:
-            reply = _ask_llm(llm, render_system(system_prompt, context), question)
+            reply = _ask_llm(llm, render_system(system_prompt, context), question, past)
         except Exception as exc:
             return Answer(
                 text=truncate_to_max_words(passage, max_words) or _NO_HIT_TEXT,
@@ -230,6 +263,7 @@ class SentenceStream:
         fallback: str,
         max_words: int,
         system_prompt: str | None,
+        history: list[tuple[str, str]] | None = None,
     ) -> None:
         self.source = source
         self.retrieval_ms = retrieval_ms
@@ -242,6 +276,7 @@ class SentenceStream:
         self._system = render_system(system_prompt, context)
         self._fallback = fallback
         self._max_words = max_words
+        self._history = history
 
     def __iter__(self) -> Iterator[str]:
         t0 = time.perf_counter()
@@ -251,7 +286,7 @@ class SentenceStream:
         words = 0
         stopped = False
         try:
-            for chunk in self._llm.stream(_messages(self._system, self._question)):
+            for chunk in self._llm.stream(_messages(self._system, self._question, self._history)):
                 piece = chunk.content if isinstance(chunk.content, str) else ""
                 if piece and self.first_token_ms is None:
                     self.first_token_ms = (time.perf_counter() - t0) * 1000.0
@@ -303,10 +338,12 @@ def build_sentence_streamer(
     *,
     max_words: int = 40,
     system_prompt: str | None = None,
+    history: HistoryFn | None = None,
 ) -> Callable[[str], SentenceStream]:
     """Like the answer chains, but returns a SentenceStream so speech can start early."""
 
     def _start(question: str) -> SentenceStream:
+        past = history() if history else []
         if retriever is None:
             return SentenceStream(
                 llm,
@@ -317,8 +354,9 @@ def build_sentence_streamer(
                 fallback=_LLM_DOWN_TEXT,
                 max_words=max_words,
                 system_prompt=system_prompt,
+                history=past,
             )
-        docs, retrieval_ms = _retrieve(retriever, question)
+        docs, retrieval_ms = _retrieve(retriever, retrieval_query(question, past))
         passage = _doc_text(docs[0]) if docs else ""
         source = docs[0].metadata.get("source") if docs and hasattr(docs[0], "metadata") else None
         return SentenceStream(
@@ -330,6 +368,7 @@ def build_sentence_streamer(
             fallback=truncate_to_max_words(passage, max_words) or _NO_HIT_TEXT,
             max_words=max_words,
             system_prompt=system_prompt,
+            history=past,
         )
 
     return _start
