@@ -149,7 +149,7 @@ uv run --group laptop python scripts/try_stt.py       # in another terminal: liv
 uv run --group laptop python scripts/try_stt.py --wav out/synth/stt_heldout-06.wav   # a file
 ```
 
-`try_stt.py` acts like the Pi: it streams audio, and after `--vad-hold` seconds of quiet (0.5) sends `finalize`. It prints Kroko's interim text, then the final line, the raw Parakeet text if repair changed it, what the ladder did, and the delay: "client pause + server". Useful flags: `--slot contact --risk high` (hints the agent would send), `--vad-hold 0` (wait for the server's own end-of-turn), `--device N` (microphone).
+`try_stt.py` acts like the Pi: it streams audio and, after `--vad-hold` seconds of quiet (default 0.5), sends `finalize`. Its pause detector is adaptive: the first second only measures the room, then speech is anything well above the noise floor, so steady hum or a fan does not count as speech (an earlier fixed bar did, see below). It prints Kroko's interim text, then the final line (with what Kroko had streamed when Parakeet's version differs, which is the improvement you see between the interim and final text), the raw Parakeet text if repair changed it, whether name repair ran (it only runs for requests with a name list: call/text, play, book/order, weather-style, or `--slot`; open-ended questions skip it by design, the Parakeet re-decode still happens), and who ended the turn: this client after the pause (with the server's answer time), or the server's own detector (no timing claim, since it ends turns late). Useful flags: `--slot contact --risk high` (hints the agent would send), `--save DIR` (keep each turn's audio and result for offline scoring), `--levels` (live microphone level and noise floor), `--vad-hold 0` (let the server decide), `--device N` (microphone).
 
 **Server flags:** `--entities config/entities.json` (default), `--parakeet-threads 2`, `--hotword-score 1.0` (1.5 or more hurts), `--no-repair` (hotwords only), `--endpoint-silence`. Startup takes about 30 s (three models).
 
@@ -164,6 +164,12 @@ uv run --group laptop python scripts/try_stt.py --wav out/synth/stt_heldout-06.w
 - Names the dictionary knows (CMUdict has many first names) are protected from repair unless they sound identical to a listed name.
 - Hotwords are fixed at startup; per-request lists would need a different mechanism.
 - The CPU is shared: Kroko (2 threads) + Parakeet (2) + Supertonic (2) on 8 logical cores. Decoding while TTS runs was measured at 1.5-1.65x slower.
+
+### First live microphone tryout (2026-10-20, owner, 14 turns, no ground truth)
+
+Open-domain talk transcribed with punctuation and mostly well: "Do you know what gen alpha means when they say six seven?", "Can you tell me the biography of Frederick Nietzsche?", "Do you know what the phenomenology of spirit is?", "How many dictators does it take to turn an empire into a union of ruinous states?". Two attempts at the woodchuck tongue twister came out garbled both times (to be expected for a tongue twister). "John Dewey II times two plus one." looks wrong but what was said is not known. Digits and words were not consistent ("square root of 2" vs "of two"); the LLM can absorb that. No name list applied to any of these (none were call/play/book requests), as designed.
+
+Two things in that run were artifacts of the test tool, now fixed: the delays it printed ("arrived 5-28 ms after the last speech") were meaningless because a fixed loudness bar counted room noise as speech, so the client never saw a pause and the turns were ended by Kroko's slow endpoint instead; and one line showed a negative client pause when sound arrived after `finalize` was sent. Also visible: "The phenomenology of spirit is." was cut off as a fragment and then repeated in full, so a 0.5 s pause ends a turn in the middle of a thinking pause; real use will want a longer hold or smarter turn detection, and the right value has not been measured. On a synthetic 14-word request with a natural pause in the middle, a 0.5 s hold cut the sentence after the first half; a 1.0 s hold kept it all but the final arrived about 1.85 s after the end of speech (0.5 s hold: about 0.9 s). The test client now warns when a pause ends a WAV clip early.
 
 ## Speed experiments on synthetic speech (no recordings needed)
 
