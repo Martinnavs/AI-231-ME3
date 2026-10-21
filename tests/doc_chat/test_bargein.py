@@ -444,7 +444,7 @@ async def test_stop_and_wait_only_silence_it_and_do_not_quit_or_start_an_answer(
 
 from pathlib import Path  # noqa: E402
 
-SILERO = Path("models/silero-vad/pipecat_silero_vad.onnx")
+SILERO = Path("assets/silero_vad.onnx")
 needs_silero = pytest.mark.skipif(
     not SILERO.exists(), reason="Pipecat's silero_vad.onnx not present"
 )

@@ -126,7 +126,13 @@ class SileroOnset:
     WINDOW = 512
     CONTEXT = 64
 
-    def __init__(self, model_path: str, confidence: float = 0.7, min_s: float = 0.25) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        confidence: float = 0.7,
+        min_s: float = 0.25,
+        keep_history: bool = False,
+    ) -> None:
         import numpy as np
         import onnxruntime as ort
 
@@ -144,6 +150,7 @@ class SileroOnset:
         self._pending = np.zeros(0, dtype="float32")
         self._speech_s = 0.0
         self.last_confidence = 0.0
+        self.history: list[float] | None = [] if keep_history else None  # one value per window
 
     def _confidence(self, window: object) -> float:
         np = self._np
@@ -162,6 +169,8 @@ class SileroOnset:
         while len(self._pending) >= self.WINDOW:
             window, self._pending = self._pending[: self.WINDOW], self._pending[self.WINDOW :]
             self.last_confidence = self._confidence(window)
+            if self.history is not None:
+                self.history.append(self.last_confidence)
             if self.last_confidence >= self.confidence:
                 self._speech_s += self.WINDOW / 16000
             else:

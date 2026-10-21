@@ -1,0 +1,18 @@
+{
+ "replies": {
+  "reply-01.wav": "Where did my neighbour carry the bicycle? What happened to the narrow umbrella in the market?",
+  "reply-02.wav": "Last night the old teacher followed twelve bright windows. Please carry the cold notebook behind the school.",
+  "reply-03.wav": "Where did the nurse carry the window? Where did a young pilot repair the kettle?",
+  "reply-04.wav": "Our guide painted the wooden notebook across the field every winter. There was a small notebook near the station, and our guide borrowed it.",
+  "reply-05.wav": "Where did the old teacher carry the umbrella? Where did the old teacher follow the notebook?",
+  "reply-06.wav": "Can you borrow the ladder near the station last night? How many ladders did our guide carry this morning?"
+ },
+ "prompts": [
+  "Where did the old teacher polish the violin?",
+  "The baker painted the cold candle by the river every winter.",
+  "How many violins did the baker open on Tuesday?",
+  "On Tuesday our guide followed three broken ladders.",
+  "How many lanterns did the old teacher polish after the storm?",
+  "Can you paint the lantern near the station before sunrise?"
+ ]
+}
