@@ -135,3 +135,122 @@ async def test_what_the_recogniser_heard_is_shown_when_repair_changed_it(
     s, _, _ = session()
     await s.handle(1, heard("Who is Hermione?", None, raw="Who is hermoine?"))
     assert "recognised as: Who is hermoine?" in capsys.readouterr().out
+
+
+# ---- ask-to-add: an unfinished sentence is followed up, then joined ----
+
+from doc_chat.speech import NoSpeech  # noqa: E402
+
+
+class FakeModel:
+    """P(finished) by lookup: 'play something by' hangs, everything else is done."""
+
+    def prob(self, text: str) -> float:
+        return 0.05 if text.lower().rstrip(".").endswith(" by") else 0.9
+
+
+class FollowUpClient(FakeClient):
+    def __init__(self, replies: list[Any]) -> None:
+        super().__init__()
+        self.replies = replies
+        self.joined: list[bytes] = []
+
+    async def listen_turn(self, **kw: Any) -> HeardTurn:
+        self.listen_kwargs = kw
+        reply = self.replies.pop(0)
+        if reply is NoSpeech:
+            raise NoSpeech
+        return reply  # type: ignore[no-any-return]
+
+    async def hear_pcm(self, pcm: bytes, **kw: Any) -> HeardTurn:
+        self.joined.append(pcm)
+        return heard("Play something by Taylor Swift.")
+
+
+def adding_session(replies: list[Any]) -> tuple[Session, FollowUpClient, FakeChain]:
+    client, chain = FollowUpClient(replies), FakeChain()
+    args = argparse.Namespace(
+        play=False,
+        voice="F1",
+        slot="doc?",
+        risk=None,
+        add_threshold=0.3,
+        add_wait=3.0,
+        vad_hold=0.6,
+    )
+    s = Session(
+        args=args,
+        client=client,  # type: ignore[arg-type]
+        log_file=io.StringIO(),
+        out_dir=None,
+        chain=chain,
+        history=ChatHistory(4),
+        turn_model=FakeModel(),  # type: ignore[arg-type]
+        add_prompts=[("Got it. Anything to add?", b"\x01\x00" * 4)],
+    )
+    return s, client, chain
+
+
+def with_audio(turn: HeardTurn, pcm: bytes) -> HeardTurn:
+    from dataclasses import replace
+
+    return replace(turn, pcm=pcm)
+
+
+async def test_a_finished_turn_is_not_questioned() -> None:
+    s, client, _ = adding_session([])
+    first = heard("What is the capital of France?")
+    assert await s.complete_turn(first) is first
+    assert not hasattr(client, "listen_kwargs")  # it never listened for more
+
+
+async def test_an_unfinished_turn_is_asked_about_and_the_audio_is_joined() -> None:
+    first = with_audio(heard("Play something by"), b"\x02\x00" * 6)
+    more = with_audio(heard("Taylor Swift."), b"\x03\x00" * 5)
+    s, client, _ = adding_session([more])
+
+    result = await s.complete_turn(first)
+
+    assert result.text == "Play something by Taylor Swift."
+    assert len(client.joined) == 1
+    assert client.joined[0].startswith(b"\x02\x00" * 6) and client.joined[0].endswith(
+        b"\x03\x00" * 5
+    )
+    assert len(client.joined[0]) > 11 * 2  # a stretch of silence sits between the parts
+    assert client.listen_kwargs["first_speech_timeout"] == 3.0
+    assert s.add_note == {"asked_to_add": True, "unfinished_score": 0.05, "added": "Taylor Swift."}
+
+
+async def test_silence_keeps_the_turn_as_it_was() -> None:
+    s, client, _ = adding_session([NoSpeech])
+    first = heard("Play something by")
+    assert await s.complete_turn(first) is first
+    assert client.joined == []
+    assert s.add_note is not None and s.add_note["added"] is None
+
+
+async def test_a_no_keeps_the_turn_as_it_was() -> None:
+    s, client, _ = adding_session([heard("No, that's all.")])
+    first = heard("Play something by")
+    assert await s.complete_turn(first) is first
+    assert client.joined == []
+
+
+async def test_a_doubtful_name_goes_down_the_clarification_path_instead() -> None:
+    s, client, _ = adding_session([])
+    first = heard("Is dumbledor a by", CONFIRM)
+    assert await s.complete_turn(first) is first
+    assert client.spoken == []
+
+
+async def test_the_joined_turn_is_answered_and_the_note_is_logged() -> None:
+    first = with_audio(heard("Play something by"), b"\x02\x00" * 6)
+    more = with_audio(heard("Taylor Swift."), b"\x03\x00" * 5)
+    s, _client, chain = adding_session([more])
+
+    joined = await s.complete_turn(first)
+    await s.handle(1, joined)
+
+    assert chain.questions == ["Play something by Taylor Swift."]
+    assert s.records[-1]["asked_to_add"] is True and s.records[-1]["added"] == "Taylor Swift."
+    assert s.add_note is None  # consumed by the record

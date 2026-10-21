@@ -167,3 +167,55 @@ async def test_the_room_noise_carries_over_to_the_next_turn() -> None:
         c.listen_turn(audio=stream(*quiet, 0.4, 0.4, *quiet[:8]), vad_hold=0.3), timeout=5
     )
     assert c._noise.value is not None and c._noise.value < 0.01
+
+
+async def test_the_result_carries_the_audio_up_to_the_finalize() -> None:
+    ws = FakeSTTSocket(on_finalize=transcript("who is dumbledore"))
+    heard = await asyncio.wait_for(
+        client(ws).listen_turn(
+            audio=stream(0.0, 0.0, 0.4, 0.4, 0.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            vad_hold=0.5,
+        ),
+        timeout=5,
+    )
+    sent = [m for m in ws.sent if isinstance(m, bytes)]
+    assert heard.pcm and len(heard.pcm) % (SR // 10 * 2) == 0
+    # the audio recorded after the finalize (while the server worked) is not part of this turn
+    assert len(heard.pcm) <= sum(len(b) for b in sent)
+    assert heard.pcm == b"".join(sent)[: len(heard.pcm)]
+
+
+async def test_nothing_said_within_the_wait_raises_no_speech() -> None:
+    from doc_chat.speech import NoSpeech
+
+    ws = FakeSTTSocket()
+    with pytest.raises(NoSpeech):
+        await asyncio.wait_for(
+            client(ws).listen_turn(audio=stream(0.0, 0.0, 0.0), first_speech_timeout=0.4),
+            timeout=5,
+        )
+
+
+async def test_speech_inside_the_wait_is_not_cut_off() -> None:
+    ws = FakeSTTSocket(on_finalize=transcript("by taylor swift"))
+    heard = await asyncio.wait_for(
+        client(ws).listen_turn(
+            audio=stream(0.0, 0.4, 0.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            vad_hold=0.4,
+            first_speech_timeout=1.5,
+        ),
+        timeout=5,
+    )
+    assert heard.text == "by taylor swift"
+
+
+async def test_hear_pcm_sends_the_audio_unpaced_then_asks_for_the_end() -> None:
+    ws = FakeSTTSocket(on_finalize=transcript("play something by taylor swift"))
+    pcm = block(0.4) * 12
+    heard = await asyncio.wait_for(
+        client(ws).hear_pcm(pcm, slot="doc?", t_speech_end=123.0), timeout=5
+    )
+    assert [m["type"] for m in ws.messages()] == ["start", "finalize"]
+    assert b"".join(m for m in ws.sent if isinstance(m, bytes)) == pcm
+    assert heard.text == "play something by taylor swift"
+    assert heard.t_speech_end == 123.0 and heard.pcm == pcm
