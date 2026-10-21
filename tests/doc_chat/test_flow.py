@@ -300,3 +300,37 @@ def test_session_info_records_code_and_settings(tmp_path: Any) -> None:
     assert info["note"] == "quiet room, headset" and info["llm"] == "gemini"
     assert info["settings"]["add_threshold"] == 0.3 and "note" not in info["settings"]
     assert info["started"] and info["python"]
+
+
+# ---- the echo responder and random phrases (speech tests without a language model) ----
+
+
+def test_random_phrases_repeat_for_the_same_seed_and_differ_between_seeds() -> None:
+    from doc_chat.phrases import phrases, split_in_two
+
+    assert phrases("a", 3) == phrases("a", 3)
+    assert phrases("a", 3) != phrases("b", 3)
+    first, second = split_in_two(phrases("a")[0] + " and more words here")
+    assert first and second and (first + " " + second).split()[0] == first.split()[0]
+
+
+def test_the_echo_model_repeats_the_question_then_reads_random_sentences() -> None:
+    from langchain_core.messages import HumanMessage
+
+    from doc_chat.echo import EchoChatModel
+
+    model = EchoChatModel(first_token_ms=0, word_delay_ms=0, random_sentences=3)
+    text = model.invoke([HumanMessage(content="hello there")]).content
+    assert isinstance(text, str) and text.startswith("I heard you say: hello there.")
+    assert text == model.invoke([HumanMessage(content="hello there")]).content  # repeatable
+    assert sum(text.count(c) for c in ".?") >= 4
+    streamed = "".join(c.content for c in model.stream([HumanMessage(content="hello there")]))  # type: ignore[misc]
+    assert streamed.strip() == text.strip()
+
+
+def test_llm_echo_is_accepted_without_documents(capsys: pytest.CaptureFixture[str]) -> None:
+    from doc_chat.__main__ import main
+
+    # --no-docs/--stream are fine with the echo model; the text path answers straight away
+    assert main(["--text", "hi there", "--no-docs", "--llm", "echo", "--echo-delay-ms", "0"]) == 0
+    assert "I heard you say: hi there" in capsys.readouterr().out

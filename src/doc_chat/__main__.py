@@ -645,6 +645,18 @@ async def async_main(args: argparse.Namespace) -> int:
             temperature=args.llm_temperature,
         )
 
+    elif args.llm == "echo":
+        from doc_chat.echo import EchoChatModel
+
+        args.max_words = max(args.max_words, 120)  # the reply is long on purpose
+
+        echo_args: dict[str, Any] = {
+            "first_token_ms": args.echo_delay_ms,
+            "random_sentences": args.echo_random,
+        }
+        if args.echo_text:
+            echo_args["passage"] = Path(args.echo_text).read_text(encoding="utf-8")
+        llm = EchoChatModel(**echo_args)
     elif args.llm == "gemini":
         from doc_chat.gemini import build_gemini_chat_model
 
@@ -786,9 +798,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--llm",
-        choices=["none", "qwen", "gemini"],
+        choices=["none", "qwen", "gemini", "echo"],
         default="none",
-        help="LLM backend choice (none, qwen or gemini; default: none)",
+        help="LLM backend: none, qwen, gemini, or echo (no model: repeats what it heard, then "
+        "reads a fixed passage, for testing speech and interruptions). Default: none",
     )
     parser.add_argument(
         "--no-docs",
@@ -873,6 +886,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--turn-model", default="models/turn-detector", help="folder of the turn model"
     )
+    parser.add_argument(
+        "--echo-text", help="with --llm echo: a text file to read instead of the built-in passage"
+    )
+    parser.add_argument(
+        "--echo-random",
+        type=int,
+        default=0,
+        metavar="N",
+        help="with --llm echo: read N random sentences (fixed by the question), not a passage",
+    )
+    parser.add_argument(
+        "--echo-delay-ms",
+        type=float,
+        default=300.0,
+        help="with --llm echo: delay before the first word, in place of the model (default: 300)",
+    )
     qwen = parser.add_argument_group("LLM options (with --llm qwen or gemini)")
     qwen.add_argument(
         "--stream",
@@ -896,7 +925,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.ask_to_add and not args.mic:
         print("--ask-to-add needs --mic", file=sys.stderr)
         return 2
-    if (args.no_docs or args.stream) and args.llm not in ("qwen", "gemini"):
+    if (args.no_docs or args.stream) and args.llm not in ("qwen", "gemini", "echo"):
         print("--no-docs and --stream need --llm qwen or --llm gemini", file=sys.stderr)
         return 2
     try:
