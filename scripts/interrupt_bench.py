@@ -85,7 +85,17 @@ def run_trial(spec: dict[str, Any]) -> dict[str, Any]:
             self.writer: int | None = None
 
         def start(self) -> None: ...
-        def stop(self) -> None: ...
+
+        def stop(self) -> None:
+            # the Player stops the device from its writing thread when it is cut off; its main
+            # thread calls stop() too when a reply simply finishes
+            if self.writer is not None and threading.get_ident() == self.writer:
+                self.aborted = True
+                last_sample["at_abort"] = last_sample["v"]
+                clock.setdefault("abort", time.perf_counter())
+                with lock:
+                    echo_q.clear()
+
         def close(self) -> None: ...
 
         def abort(self) -> None:
@@ -281,7 +291,7 @@ def run_trial(spec: dict[str, Any]) -> dict[str, Any]:
 # =============================== orchestration ===============================
 
 
-def trial(spec: dict[str, Any], timeout: float = 100) -> dict[str, Any] | None:
+def trial(spec: dict[str, Any], timeout: float = 150) -> dict[str, Any] | None:
     spec = {**spec, "out": tempfile.mkdtemp(prefix="intr_")}
     try:
         proc = subprocess.run(

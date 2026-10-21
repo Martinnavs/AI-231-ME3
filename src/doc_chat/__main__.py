@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import json
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -16,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
-from doc_chat.bargein import OnsetDetector, PreRoll
+from doc_chat.bargein import EchoModel, OnsetDetector, PreRoll, looks_like_echo
 from doc_chat.chain import (
     SentenceStream,
     build_answer_chain,
@@ -36,7 +37,12 @@ from doc_chat.speech import (
 )
 from doc_chat.turnend import ADD_PROMPTS, TextTurnModel, declines_to_add
 
-_QUIT_WORDS = {"quit", "exit", "goodbye", "stop"}
+_QUIT_WORDS = {"quit", "exit", "goodbye"}
+# said to make it stop talking, not to ask anything: it goes quiet and listens, nothing else
+_STOP_WORDS = {
+    "stop", "wait", "wait wait", "hold on", "hang on", "pause", "okay stop", "ok stop",
+    "stop it", "stop stop", "shush", "enough", "never mind", "nevermind",
+}  # fmt: skip
 
 
 def _p50_p95(vals: list[float]) -> tuple[float, float]:
@@ -367,6 +373,7 @@ class Session:
             if player is not None:
                 await asyncio.to_thread(player.close)
 
+        underruns = getattr(player, "underruns", None)
         if self.out_dir is not None:
             save_wav(self.out_dir / f"turn{idx:02d}.wav", spoken.pcm, self.client.tts_sample_rate)
 
@@ -386,6 +393,7 @@ class Session:
             "tts_total_ms": round(spoken.total_ms, 2),
             "speech_end_to_first_audio_ms": round(spoken.speech_end_to_first_ms, 2),
             "cancel_to_silence_ms": None,
+            "audio_underruns": underruns,
             "source": source,
         }
         if heard is not None:
@@ -449,8 +457,23 @@ class Session:
             idx += 1
             if heard is None:
                 heard = await self.hear()
-            if heard.text.lower().strip(" .!?") in _QUIT_WORDS:
+            said = re.sub(r"[^a-z' ]", " ", heard.text.lower()).split()
+            if " ".join(said) in _QUIT_WORDS:
                 break
+            if " ".join(said) in _STOP_WORDS:
+                print(f"you:  {heard.text}   (it stopped; listening)", flush=True)
+                self.log(
+                    {
+                        "turn": idx,
+                        "question": heard.text,
+                        "answer_words": 0,
+                        "stop_word": True,
+                        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    }
+                )
+                heard = None
+                idx -= 1
+                continue
             interruption: Interruption | None = None
             try:
                 if self.pending is None:
@@ -464,7 +487,22 @@ class Session:
             if interruption is None:
                 heard = None
                 continue
+            spoken = " ".join(self._spoken)
             heard = await self.follow_up(heard, interruption)
+            if interruption.kind == "barge_in" and looks_like_echo(heard.text, spoken):
+                print(f"  [ignored: that was my own voice ({heard.text!r})]", flush=True)
+                self.log(
+                    {
+                        "turn": idx,
+                        "question": heard.text,
+                        "answer_words": 0,
+                        "ignored_echo": True,
+                        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    }
+                )
+                heard = None
+                idx -= 1
+                continue
             if interruption.kind == "resumed":
                 idx -= 1  # the cut-off turn and what followed are one turn
 
@@ -564,14 +602,30 @@ class Session:
         step = 3200  # 100 ms of 16-bit samples
         blocks = [tail[i : i + step] for i in range(0, len(tail), step)]
 
+        echo = EchoModel(
+            prior=float(getattr(self.args, "barge_echo_prior", 0.5)),
+            margin=float(getattr(self.args, "barge_echo_margin", 1.8)),
+        )
+        use_echo = echo.margin > 0
+
         def feed(block: bytes) -> bool:
             import numpy as np
 
             roll.push(block)
             x = np.frombuffer(block, dtype=np.int16).astype(np.float32) / 32768.0
             level = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
-            detector = idle if self._answer_started is None else playing
-            return detector.feed(level, len(block) / 2 / 16000)
+            dur = len(block) / 2 / 16000
+            if self._answer_started is None:
+                return idle.feed(level, dur)
+            played = 0.0
+            level_of = getattr(self._player, "level_recent", None)
+            if use_echo and level_of is not None:
+                played = float(level_of())
+            extra = echo.expected(played) if played > 0.01 else 0.0
+            fired = playing.feed(level, dur, extra)
+            if played > 0.01 and level <= max(playing.threshold, extra):
+                echo.learn(level, played)  # not the user: this is what the speaker sounds like here
+            return fired
 
         for block in blocks:  # speech that went on while the server was still answering
             if feed(block):
@@ -848,6 +902,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=4.0,
         help="how far above the room noise you must be while it is talking (default: 4; raise it "
         "if its own voice stops it)",
+    )
+    parser.add_argument(
+        "--barge-echo-margin",
+        type=float,
+        default=1.8,
+        help="while it speaks, you must be this many times louder than its own voice coming back "
+        "through the microphone (learned as it speaks); 0 turns the echo allowance off",
+    )
+    parser.add_argument(
+        "--barge-echo-prior",
+        type=float,
+        default=0.5,
+        help="share of its voice assumed to come back before it is measured (default: 0.5)",
     )
     parser.add_argument(
         "--record",

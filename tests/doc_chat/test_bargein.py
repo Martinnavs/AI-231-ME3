@@ -332,3 +332,109 @@ async def test_the_mic_loop_resumes_a_cut_off_turn_under_the_same_number() -> No
     await asyncio.wait_for(s.run_mic(), timeout=10)
 
     assert seen == [(1, "Break from the document."), (1, "joined sentence")]
+
+
+# ---- echo awareness: the assistant's own voice coming back through the microphone ----
+
+from doc_chat.bargein import EchoModel, looks_like_echo  # noqa: E402
+
+
+def test_the_echo_model_assumes_a_cautious_coupling_until_it_has_measured() -> None:
+    m = EchoModel(prior=0.5, margin=2.0, min_samples=4)
+    assert m.coupling == 0.5 and m.expected(0.1) == pytest.approx(0.1)
+    for _ in range(4):
+        m.learn(mic_level=0.002, played_level=0.1)  # a headset: almost nothing comes back
+    assert m.coupling == pytest.approx(0.02)
+    assert m.expected(0.1) == pytest.approx(0.004)
+
+
+def test_quiet_playback_teaches_nothing() -> None:
+    m = EchoModel(min_samples=1)
+    m.learn(0.5, 0.005)  # the speaker is nearly silent: the ratio would be meaningless
+    assert m.coupling == m.prior
+
+
+def test_one_loud_block_does_not_move_the_median() -> None:
+    m = EchoModel(min_samples=3, window=9)
+    for _ in range(8):
+        m.learn(0.025, 0.1)
+    m.learn(0.5, 0.1)  # a cough
+    assert m.coupling == pytest.approx(0.25)
+
+
+def test_the_extra_bar_stops_an_echo_from_counting_as_speech() -> None:
+    d = OnsetDetector(noise=0.005, ratio=4.0, min_s=0.3)
+    assert not any(d.feed(0.03, 0.1, extra=0.05) for _ in range(20))  # below the echo allowance
+    d2 = OnsetDetector(noise=0.005, ratio=4.0, min_s=0.3)
+    assert any(d2.feed(0.03, 0.1) for _ in range(5))  # the same level without the allowance
+
+
+def test_its_own_words_are_recognised_as_an_echo() -> None:
+    spoken = "I heard you say hello. Our guide found the bright umbrella by the river every winter."
+    assert looks_like_echo("guide found the bright umbrella by the river", spoken)
+    assert looks_like_echo("Our guide found the bright umbrella.", spoken)
+
+
+def test_what_the_user_says_is_not_taken_for_an_echo() -> None:
+    spoken = "I heard you say hello. Our guide found the bright umbrella by the river every winter."
+    assert not looks_like_echo("Stop.", spoken)  # too short to tell
+    assert not looks_like_echo("What is the weather today?", spoken)
+    assert not looks_like_echo(
+        "Can you repeat the river part please", spoken
+    )  # only a bit overlaps
+
+
+async def test_the_watcher_ignores_an_echo_that_the_plain_threshold_would_have_accepted() -> None:
+    s, client = session()
+
+    class Speaker:
+        def level_recent(self) -> float:
+            return 0.1  # it is playing loudly
+
+    async def handle(idx: int, heard: HeardTurn) -> None:
+        s._answer_started = 1.0
+        s._player = Speaker()  # type: ignore[assignment]
+        await asyncio.sleep(0.6)
+
+    s.handle = handle  # type: ignore[method-assign]
+    # the microphone hears 0.05 (well above 4x the noise) = a quarter-ish of what is played
+    client.hub.put(*([0.05] * 12))
+    assert await s.respond(1, turn("who is hermione")) is None
+
+
+async def test_the_same_level_does_interrupt_when_it_is_far_above_the_learned_echo() -> None:
+    s, client = session()
+
+    class Speaker(FakePlayer):
+        def level_recent(self) -> float:
+            return 0.1
+
+    async def handle(idx: int, heard: HeardTurn) -> None:
+        s._answer_started = 1.0
+        s._player = Speaker()  # type: ignore[assignment]
+        await asyncio.sleep(10)
+
+    s.handle = handle  # type: ignore[method-assign]
+    # 0.6 s of faint echo (coupling 0.02) teaches the estimate, then a real voice
+    client.hub.put(*([0.002] * 6), *([0.2] * 6))
+    result = await asyncio.wait_for(s.respond(1, turn("who is hermione")), timeout=5)
+    assert result is not None and result.kind == "barge_in"
+
+
+# ---- "stop" is said to make it stop talking; it does not quit the session ----
+
+
+async def test_stop_and_wait_only_silence_it_and_do_not_quit_or_start_an_answer() -> None:
+    s, client = session()
+    s.args.ask_to_add = False
+    answered: list[str] = []
+
+    async def handle(idx: int, heard: HeardTurn) -> None:
+        answered.append(heard.text)
+
+    s.handle = handle  # type: ignore[method-assign]
+    client.heard.extend([turn("Stop."), turn("Wait, wait."), turn("Who is Ron?"), turn("Quit.")])
+    await asyncio.wait_for(s.run_mic(), timeout=10)
+
+    assert answered == ["Who is Ron?"]  # "stop" and "wait" neither ended the run nor were answered
+    assert [r.get("stop_word") for r in s.records[:2]] == [True, True]
