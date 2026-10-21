@@ -76,6 +76,8 @@ Models are fetched with `uv run python scripts/fetch_laptop_models.py --server-o
 
 Every question is a fresh one-shot call: no conversation history is kept.
 
+> A step-by-step real-voice test with recording and a report: `docs/IRL-RECIPE.md`.
+
 ## Asking "anything to add?" when you trail off (`--ask-to-add`)
 
 When what the speech server heard ends like an unfinished sentence ("tell me about the Order of

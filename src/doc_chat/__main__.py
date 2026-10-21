@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import platform
+import subprocess
 import sys
 import time
 import wave
@@ -74,6 +76,43 @@ def timing_line(rec: dict[str, Any]) -> str:
     return "  [" + " | ".join(parts) + "]"
 
 
+def _git(*cmd: str) -> str | None:
+    try:
+        out = subprocess.run(
+            ["git", "-c", f"safe.directory={Path.cwd()}", *cmd],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def write_session_info(directory: Path, args: argparse.Namespace, llm: Any | None) -> None:
+    """session.json: what this run was (code, settings, models), for comparing runs later."""
+    info = {
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "note": args.note,
+        "git_commit": _git("rev-parse", "--short", "HEAD"),
+        "git_branch": _git("branch", "--show-current"),
+        "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "llm": args.llm,
+        "llm_model": getattr(llm, "model_name", None) or args.llm_model,
+        "settings": {
+            k: v
+            for k, v in vars(args).items()
+            if k not in {"note", "text", "wav"}  # nothing in the arguments is secret
+        },
+        "server": args.server,
+        "server_note": "start the speech server with the flags you want recorded in --note",
+    }
+    (directory / "session.json").write_text(json.dumps(info, indent=1, default=str) + "\n")
+
+
 def _failed_record(turn: int, question: str, exc: Exception) -> dict[str, Any]:
     return {
         "turn": turn,
@@ -104,6 +143,7 @@ class Session:
     turn_model: TextTurnModel | None = None  # set with --ask-to-add
     add_prompts: list[tuple[str, bytes]] = field(default_factory=list)  # (text, audio), recorded
     add_note: dict[str, Any] | None = None  # how the last turn was completed, for the log
+    record_dir: Path | None = None  # --record: session.json, turns.jsonl, audio/, bot/
     _prompt_count: int = 0
 
     def log(self, rec: dict[str, Any]) -> None:
@@ -146,19 +186,23 @@ class Session:
         the turn as it was. Turns the speech server wants to clarify (a doubtful name) are left to
         that path.
         """
+        self.add_note = None
         model = self.turn_model
-        if model is None or not self.add_prompts:
+        if model is None or not heard.text.strip():
             return heard
         if clarification_for(heard.text, heard.repair) is not None:
             return heard
         p = model.prob(heard.text)
-        if p >= self.args.add_threshold:
+        note: dict[str, Any] = {"unfinished_score": round(p, 3), "asked_to_add": False}
+        asking = getattr(self.args, "ask_to_add", True) and bool(self.add_prompts)
+        if not asking or p >= self.args.add_threshold:
+            self.add_note = note  # scored and logged only: --log-turn-score
             return heard
         text, pcm = self.add_prompts[self._prompt_count % len(self.add_prompts)]
         self._prompt_count += 1
         print(f"you:  {heard.text}   (sounds unfinished: {p:.2f})", flush=True)
         await self.play_pcm(text, pcm)
-        note: dict[str, Any] = {"asked_to_add": True, "unfinished_score": round(p, 3)}
+        note["asked_to_add"] = True
         try:
             more = await self.client.listen_turn(
                 slot=self.args.slot,
@@ -302,6 +346,15 @@ class Session:
             )
             rec["stt_server_ms"] = rounded(heard.server_ms)
             rec["repair_rung"] = (heard.repair or {}).get("rung")
+            rec["heard"] = heard.text
+            rec["raw_text"] = heard.raw_text
+            rec["partial"] = heard.partial or None
+            rec["audio_s"] = round(len(heard.pcm) / 2 / 16000, 2) if heard.pcm else None
+            rec["repair"] = heard.repair
+        rec["ts"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        rec["llm"] = getattr(self.args, "llm", None)
+        floor = getattr(self.client, "noise_floor", None)
+        rec["noise_floor"] = None if floor is None else round(floor, 5)
         if self.add_note is not None:
             rec.update(self.add_note)
             self.add_note = None
@@ -351,6 +404,8 @@ class Session:
             try:
                 if self.pending is None:
                     heard = await self.complete_turn(heard)
+                if self.record_dir is not None and heard.pcm:
+                    save_wav(self.record_dir / "audio" / f"turn{idx:02d}.wav", heard.pcm, 16000)
                 await self.handle(idx, heard)
             except Exception as exc:
                 print(f"  [turn failed - {type(exc).__name__}]", file=sys.stderr, flush=True)
@@ -424,9 +479,20 @@ async def async_main(args: argparse.Namespace) -> int:
     client = DocChatSpeechClient(server_url=args.server)
     await client.connect()
 
-    log_path = Path(args.log) if args.log else Path("out/doc_chat/turns.jsonl")
+    record_dir = Path(args.record) if args.record else None
+    if record_dir is not None:  # one folder per run: everything needed to look back at it
+        record_dir.mkdir(parents=True, exist_ok=True)
+        (record_dir / "audio").mkdir(exist_ok=True)
+        write_session_info(record_dir, args, llm)
+    log_path = (
+        record_dir / "turns.jsonl"
+        if record_dir is not None
+        else Path(args.log)
+        if args.log
+        else Path("out/doc_chat/turns.jsonl")
+    )
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    out_dir = Path(args.out) if args.out else None
+    out_dir = Path(args.out) if args.out else (record_dir / "bot" if record_dir else None)
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -437,21 +503,23 @@ async def async_main(args: argparse.Namespace) -> int:
             log_file=log_file,
             out_dir=out_dir,
             history=ChatHistory(args.history if llm is not None else 0),
+            record_dir=record_dir,
         )
-        if args.ask_to_add:
+        if args.ask_to_add or args.log_turn_score:
             try:
                 session.turn_model = TextTurnModel(args.turn_model)
             except Exception as exc:
                 print(
-                    f"--ask-to-add needs the turn model in {args.turn_model} "
+                    f"--ask-to-add / --log-turn-score need the turn model in {args.turn_model} "
                     f"(python scripts/fetch_turn_model.py): {type(exc).__name__}",
                     file=sys.stderr,
                 )
                 await client.close()
                 return 2
-            for line in ADD_PROMPTS:  # recorded once, so the prompt starts without waiting
-                pcm, *_ = await client.speak_text(line, voice=args.voice)
-                session.add_prompts.append((line, pcm))
+            if args.ask_to_add:
+                for line in ADD_PROMPTS:  # recorded once, so the prompt starts without waiting
+                    pcm, *_ = await client.speak_text(line, voice=args.voice)
+                    session.add_prompts.append((line, pcm))
         past = session.history.pairs
         if args.stream:
             assert llm is not None
@@ -553,6 +621,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         default=4,
         help="earlier question/answer pairs sent to the model with each new question (default: 4)",
+    )
+    parser.add_argument(
+        "--record",
+        metavar="DIR",
+        help="keep this run in DIR: session.json (code version, settings), turns.jsonl (one line "
+        "per turn), audio/ (what you said, one WAV per turn) and bot/ (what it said)",
+    )
+    parser.add_argument(
+        "--note", default="", help="free text stored in session.json (server flags, room, headset)"
+    )
+    parser.add_argument(
+        "--log-turn-score",
+        action="store_true",
+        help="score every turn with the turn-end model and log it, without asking anything "
+        "(use it to pick --add-threshold; --ask-to-add does this too)",
     )
     parser.add_argument(
         "--ask-to-add",

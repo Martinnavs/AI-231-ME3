@@ -101,6 +101,7 @@ class HeardTurn:
     t_final: float  # perf_counter when the final transcript arrived
     finalize_sent: float | None  # perf_counter when this client asked the server to end the turn
     pcm: bytes = b""  # the audio of this turn as sent to the server (16 kHz, 16-bit mono)
+    partial: str = ""  # the last interim text the streaming model showed before the final
 
     @property
     def stt_ms(self) -> float:
@@ -138,6 +139,11 @@ class DocChatSpeechClient:
         self._noise = NoiseFloor()
         self._current_context: int = 0
         self._active_speak_task: asyncio.Task[Any] | None = None
+
+    @property
+    def noise_floor(self) -> float | None:
+        """The room's background level (RMS, 0-1) measured while you were quiet, once known."""
+        return self._noise.value
 
     async def connect(self) -> None:
         self._stt_ws = await connect_ws(self.stt_url, self.token)
@@ -212,6 +218,14 @@ class DocChatSpeechClient:
             elif isinstance(parsed, ErrorMessage):
                 raise RuntimeError(f"STT error: {parsed.reason}")
 
+    async def _drain(self, quiet_s: float = 0.03) -> None:
+        """Throw away anything the server sent that nobody read (a late end-of-turn)."""
+        while True:
+            try:
+                await asyncio.wait_for(self._stt_ws.recv(), timeout=quiet_s)
+            except TimeoutError:
+                return
+
     async def hear_pcm(
         self,
         pcm: bytes,
@@ -230,6 +244,7 @@ class DocChatSpeechClient:
             raise RuntimeError("STT socket not connected")
         ws = self._stt_ws
         rate = 16000
+        await self._drain()
         await ws.send(StartMessage(sample_rate=rate, slot=slot, risk=risk).to_json())
         step = int(rate * block_ms / 1000) * 2
         for offset in range(0, len(pcm), step):
@@ -313,10 +328,13 @@ class DocChatSpeechClient:
         hint = self._noise.value if self._noise.value is not None else DEFAULT_NOISE_HINT
         detector = PauseDetector(vad_hold, noise=hint)
         state: dict[str, float | None] = {"last_voiced": None, "finalize_sent": None}
+        partial = [""]  # the latest interim text
         sent = bytearray()  # every block sent, so the turn's audio can be joined with a follow-up
-        cut: list[int] = []  # length of `sent` when we asked for the end of the turn
         t_start = time.perf_counter()
         source = audio if audio is not None else self._mic_chunks(rate, block_ms)
+
+        awaiting = [False]  # finalize sent, final not back yet: hold audio instead of sending it
+        held: list[bytes] = []
 
         async def pump() -> None:
             async for chunk in source:
@@ -325,11 +343,21 @@ class DocChatSpeechClient:
                 voiced, pause = detector.feed(level, len(chunk) / 2 / rate)
                 if voiced:
                     state["last_voiced"] = time.perf_counter()
+                if awaiting[0]:
+                    # audio sent now would start a new stream on the server whose end-of-turn
+                    # would arrive later as a stale transcript; it is released only if the
+                    # server's answer turns out to be empty (nothing was said)
+                    held.append(chunk)
+                    continue
+                for old in held:
+                    await ws.send(old)
+                    sent.extend(old)
+                held.clear()
                 await ws.send(chunk)
                 sent.extend(chunk)
                 if pause and vad_hold > 0:
                     state["finalize_sent"] = time.perf_counter()
-                    cut[:] = [len(sent)]
+                    awaiting[0] = True
                     await ws.send(FinalizeMessage().to_json())
 
         await ws.send(StartMessage(sample_rate=rate, slot=slot, risk=risk).to_json())
@@ -355,11 +383,9 @@ class DocChatSpeechClient:
                     text = parsed.text.strip()
                     if parsed.end_of_turn and text:
                         now = time.perf_counter()
-                        # a final that answers our `finalize` owns the audio up to that moment;
-                        # what was recorded while the server worked is the next turn's start
-                        own = (
-                            bytes(sent[: cut[0]]) if cut and state["finalize_sent"] else bytes(sent)
-                        )
+                        own = bytes(
+                            sent
+                        )  # nothing is sent once finalize is out, so this is the turn
                         return HeardTurn(
                             text,
                             parsed.raw_text,
@@ -368,11 +394,19 @@ class DocChatSpeechClient:
                             now,
                             state["finalize_sent"],
                             own,
+                            partial[0],
                         )
                     if parsed.end_of_turn:
                         state["finalize_sent"] = None  # nothing was said: keep listening
-                    elif on_partial is not None and text:
-                        on_partial(text)
+                        while held:  # release what was held back, in order, then carry on
+                            block = held.pop(0)
+                            await ws.send(block)
+                            sent.extend(block)
+                        awaiting[0] = False
+                    elif text:
+                        partial[0] = text
+                        if on_partial is not None:
+                            on_partial(text)
                 elif isinstance(parsed, ErrorMessage):
                     raise RuntimeError(f"STT error: {parsed.reason}")
         finally:

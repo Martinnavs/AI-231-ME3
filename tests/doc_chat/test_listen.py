@@ -219,3 +219,48 @@ async def test_hear_pcm_sends_the_audio_unpaced_then_asks_for_the_end() -> None:
     assert b"".join(m for m in ws.sent if isinstance(m, bytes)) == pcm
     assert heard.text == "play something by taylor swift"
     assert heard.t_speech_end == 123.0 and heard.pcm == pcm
+
+
+async def test_no_audio_is_sent_after_finalize_until_the_server_answers() -> None:
+    """Audio sent then would start a stream on the server whose late end-of-turn comes back as a
+    stale transcript in the next turn."""
+    ws = FakeSTTSocket()  # never answers the finalize
+    task = asyncio.create_task(
+        client(ws).listen_turn(
+            audio=stream(0.0, 0.4, 0.4, *([0.0] * 10), 0.4, 0.4, 0.4, pace=0.01), vad_hold=0.3
+        )
+    )
+    await asyncio.sleep(0.5)
+    types = [json.loads(m)["type"] if isinstance(m, str) else "audio" for m in ws.sent]
+    assert "finalize" in types
+    assert types[types.index("finalize") + 1 :] == []  # nothing after the finalize
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_audio_held_back_is_sent_after_an_empty_answer() -> None:
+    ws = FakeSTTSocket()
+    task = asyncio.create_task(
+        client(ws).listen_turn(
+            audio=stream(0.0, 0.4, 0.4, *([0.0] * 6), 0.4, 0.4, 0.4, 0.4, pace=0.01), vad_hold=0.3
+        )
+    )
+    await asyncio.sleep(0.3)
+    assert "finalize" in [m["type"] for m in ws.messages()]
+    before = len([m for m in ws.sent if isinstance(m, bytes)])
+    await ws.inbox.put(json.dumps({"type": "transcript", **transcript("")}))  # nothing was said
+    ws.on_finalize = transcript("then I said more")
+    await asyncio.sleep(0.5)
+    after = len([m for m in ws.sent if isinstance(m, bytes)])
+    assert after > before  # the held audio went out once the server said the turn was empty
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_a_stale_message_is_ignored_by_the_stitched_decode() -> None:
+    ws = FakeSTTSocket(on_finalize=transcript("play something by taylor swift"))
+    await ws.inbox.put(json.dumps({"type": "transcript", **transcript("a late end of turn")}))
+    heard = await asyncio.wait_for(client(ws).hear_pcm(block(0.4) * 4), timeout=5)
+    assert heard.text == "play something by taylor swift"
