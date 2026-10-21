@@ -30,7 +30,7 @@ Cells are counts of trials; 'self' = it stopped itself with nobody speaking (x l
 - **energy**: loudness above 4x the room noise for 0.3 s, no allowance for its own voice.
 - **+echo**: it learns how loud its own voice comes back and requires you to exceed 1.8x that.
 - **+guard**: an "interruption" made of its own words is ignored.
-- **silero**: the Silero VAD model main's design uses (Pipecat's file, confidence 0.7, 250 ms; 150 ms in the second row).
+- **silero**: the Silero VAD model main's design uses (Pipecat's file, `assets/silero_vad.onnx`, confidence 0.7, 250 ms; 150 ms in the second row).
 - **silero&echo**: Silero says speech AND the level is above the echo allowance.
 
 ## Reading
@@ -56,3 +56,11 @@ Silero and the others at -30/-24 dB or with perfect echo cancellation (the heads
 coughs and knocks (the burst is white noise); room echo and delay (the leak is a flat gain);
 more than one voice; more than 2 repetitions. The "+echo -12" column only looks at the first 2 s of
 the reply, which is why Silero shows "by itself" there.
+
+## Update 2026-10-21 (after the ablation)
+
+- The industry research (`docs/ECHO-RESEARCH.md`) agrees with the ablation: echo is solved at the endpoint (hardware or WebRTC cancellation, headsets in development), not in the detector.
+- What was measured before this ablation, on this laptop, with real playback (`docs/BARGE-IN.md`): PipeWire WebRTC cancellation took false Silero triggers from 91-92% of blocks to 0%.
+- **The next step is the Pi with its USB speakerphone:** `docs/PI-TEST-PLAN.md`. Its outcomes decide whether `EchoModel` (the echo-learning code, `--barge-echo-*`) is deleted and whether `--vad silero` becomes the default; see `docs/HANDOFF.md` section 5.
+- Not yet done: Silero at -30/-24 dB and with perfect cancellation (the headset case) in the simulated bench; a duck-then-stop controller in `doc_chat`.
+- The Silero model used everywhere is `assets/silero_vad.onnx` (vendored, see `assets/README.md`); do not swap in the GitHub `master` copy.

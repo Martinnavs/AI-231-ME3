@@ -1,6 +1,6 @@
 # Interrupting the assistant (barge-in) on the laptop
 
-Status: design agreed, **step 0 (measurements) done**, building not started. Plan and decisions below; the code will land in `doc_chat/duplex.py` behind `--barge-in`.
+Status (updated 2026-10-21): step 0 measurements done (below). Barge-in **was built differently from this design**, in `doc_chat` (`--barge-in`, on by default with `--mic`; `src/doc_chat/speech.py`, `bargein.py`): recognition stays open, a detector (loudness or Silero, `--vad`) decides you started talking, the speaker stops at once with a short fade, and a cut-off turn is joined to what you say next. Not built from the plan below: pausing and resuming the speech, confirming with recognised words before stopping, `--aec`, the 3 s start grace. What was measured since, and what to do next: `docs/INTERRUPTS.md`, `docs/ECHO-RESEARCH.md`, `docs/PI-TEST-PLAN.md`. The original design is kept below for reference.
 
 ## Design
 
