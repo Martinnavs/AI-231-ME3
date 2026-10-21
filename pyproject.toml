@@ -29,6 +29,13 @@ laptop = [
     "websockets>=17.2",
 ]
 
+# Raspberry Pi: only what scripts/pi_echo_check.py needs (the base dependencies + these). The Pi runs
+# no speech model; the Silero VAD file is in assets/. Install with: uv sync --group pi --no-group dev
+pi = [
+    "onnxruntime>=1.18",
+    "sounddevice>=0.5.6",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

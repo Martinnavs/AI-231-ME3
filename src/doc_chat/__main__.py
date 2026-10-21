@@ -614,7 +614,7 @@ class Session:
 
         silero = (
             SileroOnset(
-                str(getattr(self.args, "vad_model", "models/silero-vad/pipecat_silero_vad.onnx")),
+                str(getattr(self.args, "vad_model", "assets/silero_vad.onnx")),
                 confidence=float(getattr(self.args, "vad_confidence", 0.7)),
                 min_s=min_s,
             )
@@ -934,7 +934,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "(energy, with the echo allowance), the Silero VAD model main's design uses (silero), or "
         "both (Silero says it is speech AND it is clearly above the echo)",
     )
-    parser.add_argument("--vad-model", default="models/silero-vad/pipecat_silero_vad.onnx")
+    parser.add_argument("--vad-model", default="assets/silero_vad.onnx")
     parser.add_argument(
         "--vad-confidence", type=float, default=0.7, help="Silero speech confidence (default: 0.7)"
     )

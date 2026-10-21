@@ -2074,6 +2074,10 @@ laptop = [
     { name = "tokenizers" },
     { name = "websockets" },
 ]
+pi = [
+    { name = "onnxruntime" },
+    { name = "sounddevice" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -2106,6 +2110,10 @@ laptop = [
     { name = "supertonic", specifier = ">=1.3.1" },
     { name = "tokenizers", specifier = ">=0.21" },
     { name = "websockets", specifier = ">=17.2" },
+]
+pi = [
+    { name = "onnxruntime", specifier = ">=1.18" },
+    { name = "sounddevice", specifier = ">=0.5.6" },
 ]
 
 [[package]]
