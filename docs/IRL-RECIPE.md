@@ -131,6 +131,10 @@ lets me replay any turn that went wrong.
 
 If the error is something else, copy the first 10 lines and the `turns.jsonl` of that run.
 
+## 7c. Other detectors for talking over it
+
+`--vad energy` (default) decides by loudness above the room noise; `--vad silero` uses the Silero model (`--barge-ms 150` makes it quicker and lets a bare "stop" through); `--vad both` needs both. Silero ignores knocks and noise bursts but cannot tell the assistant's voice from yours, so it only works with a headset or working echo cancellation. Measured comparison: `docs/INTERRUPTS.md`. To test this on the Raspberry Pi hardware: `docs/PI-TEST-PLAN.md`.
+
 ## 8. Known limits (so they are not mistaken for bugs)
 
 - One speaker, one room; accents other than yours are untested.
