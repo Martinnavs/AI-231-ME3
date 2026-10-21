@@ -8,7 +8,7 @@ Needs a speech server (Parakeet) and a Gemini key. Start the server, then:
         uv run --group laptop python -W ignore scripts/e2e_ask_to_add.py continue
 
 Scenarios: continue (answers the prompt), silence (no answer), decline ("No, that's all."),
-finished (a complete question, no prompt). Prints the turn and writes out/doc_chat/e2e-<name>.jsonl.
+finished (a complete question, no prompt). Records the run in out/sessions/e2e-<name>/.
 """
 
 import asyncio
@@ -81,8 +81,8 @@ sys.exit(
             "gemini",
             "--stream",
             "--ask-to-add",
-            "--log",
-            f"out/doc_chat/e2e-{scenario}.jsonl",
+            "--record",
+            f"out/sessions/e2e-{scenario}",
             "--vad-hold",
             "0.6",
         ]

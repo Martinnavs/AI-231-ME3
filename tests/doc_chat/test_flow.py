@@ -254,3 +254,49 @@ async def test_the_joined_turn_is_answered_and_the_note_is_logged() -> None:
     assert chain.questions == ["Play something by Taylor Swift."]
     assert s.records[-1]["asked_to_add"] is True and s.records[-1]["added"] == "Taylor Swift."
     assert s.add_note is None  # consumed by the record
+
+
+# ---- recording: scores logged without asking, per-turn metadata, session.json ----
+
+
+async def test_the_score_is_logged_even_when_nothing_is_asked() -> None:
+    s, client, _ = adding_session([])
+    s.args.ask_to_add = False  # --log-turn-score only
+    first = heard("Play something by")
+    assert await s.complete_turn(first) is first
+    assert s.add_note == {"unfinished_score": 0.05, "asked_to_add": False}
+    assert not hasattr(client, "listen_kwargs")
+
+
+async def test_a_turn_record_keeps_what_is_needed_to_look_back() -> None:
+    s, _client, _ = adding_session([])
+    turn = heard("Who is Hermione?", raw="who is hermoin")
+    from dataclasses import replace
+
+    turn = replace(turn, pcm=b"\x00\x00" * 32000, partial="who is")
+    await s.handle(1, turn)
+    rec = s.records[-1]
+    assert rec["heard"] == "Who is Hermione?" and rec["raw_text"] == "who is hermoin"
+    assert rec["partial"] == "who is" and rec["audio_s"] == 2.0
+    assert rec["ts"] and "repair" in rec and "noise_floor" in rec
+
+
+def test_session_info_records_code_and_settings(tmp_path: Any) -> None:
+    from doc_chat.__main__ import write_session_info
+
+    args = argparse.Namespace(
+        note="quiet room, headset",
+        llm="gemini",
+        llm_model=None,
+        server="ws://127.0.0.1:8765",
+        add_threshold=0.3,
+        text=None,
+        wav=None,
+    )
+    write_session_info(tmp_path, args, None)
+    import json
+
+    info = json.loads((tmp_path / "session.json").read_text())
+    assert info["note"] == "quiet room, headset" and info["llm"] == "gemini"
+    assert info["settings"]["add_threshold"] == 0.3 and "note" not in info["settings"]
+    assert info["started"] and info["python"]
