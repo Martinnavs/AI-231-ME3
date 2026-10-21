@@ -521,7 +521,7 @@ class Session:
         await self.client.send_tts_cancel()
         work.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
-            await work
+            await asyncio.wait_for(work, timeout=2.0)  # a stuck device must not freeze us
         cancel_ms = (time.perf_counter() - t0) * 1000.0
         kind = "barge_in" if started is not None else "resumed"
         spoken = " ".join(self._spoken)

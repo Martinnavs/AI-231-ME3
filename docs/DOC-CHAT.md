@@ -89,7 +89,7 @@ speaking, because speakers leak into the microphone). Then:
   The pending answer is cancelled and your two parts are joined as audio and decoded once; the
   turn keeps its number.
 - **While it is speaking** you are cutting in. The speech and the model call stop at once
-  (`Player.abort`, a cancel to the speech server, `SentenceStream.cancel`), what you say becomes
+  (`Player.abort`, which makes the writing thread stop the device within 50 ms; a cancel to the speech server; `SentenceStream.cancel`), what you say becomes
   the next turn, and the interrupted answer is remembered as far as it was spoken.
 
 Audio the client held back while the server was finalising a turn is checked first, so speech that

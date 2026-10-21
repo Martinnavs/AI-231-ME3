@@ -120,6 +120,17 @@ lets me replay any turn that went wrong.
 | The joined sentence is wrong after you add | listen to `audio/turnNN.wav`; the gap between the parts is 0.4 s | `STITCH_GAP_S` in `src/doc_chat/speech.py` |
 | Server time above 500 ms | charger, `scripts/power_mode.sh max`, close other CPU-heavy programs | |
 
+## 7b. If something goes wrong
+
+| You see | Meaning |
+|---|---|
+| A wall of `Expression 'res' failed in 'src/hostapi/alsa/pa_linux_alsa.c'` / `PaAlsaStream_EndProcessing` lines, and it stays silent or freezes for many seconds after you cut in | the speaker was stopped from the wrong thread (fixed in the player: it now stops within about 15 ms). A report from before that fix shows `cancel_to_silence_ms` in the thousands. |
+| A few `ALSA lib ... Unknown PCM` / `jack server is not running` lines at start | harmless noise from PortAudio probing devices |
+| `ALSA ... underrun occurred` while it speaks | the CPU was busy; try `scripts/power_mode.sh max` |
+| `Invalid number of channels` / no input | wrong default device: list with `python -m sounddevice`, set the default input in your sound settings |
+
+If the error is something else, copy the first 10 lines and the `turns.jsonl` of that run.
+
 ## 8. Known limits (so they are not mistaken for bugs)
 
 - One speaker, one room; accents other than yours are untested.
