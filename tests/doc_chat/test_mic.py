@@ -89,13 +89,21 @@ def _fake_sounddevice(played: list[bytes]) -> types.ModuleType:
                 self._cb(b"\x00" * self._block, self._block // 2, None, None)
                 time.sleep(0.01)
 
-        def __enter__(self) -> RawInputStream:
+        def start(self) -> None:
             self._th.start()
+
+        def stop(self) -> None:
+            self._stop.set()
+            self._th.join(timeout=2.0)
+
+        def close(self) -> None: ...
+
+        def __enter__(self) -> RawInputStream:
+            self.start()
             return self
 
         def __exit__(self, *exc: object) -> None:
-            self._stop.set()
-            self._th.join(timeout=2.0)
+            self.stop()
 
     class RawOutputStream:
         def __init__(self, **kw: Any) -> None:

@@ -108,6 +108,39 @@ def section_latency(rows: list[dict[str, Any]]) -> dict[str, float]:
     return p50s
 
 
+def section_interrupts(rows: list[dict[str, Any]]) -> None:
+    cut = [r for r in rows if r.get("interrupted") == "resumed"]
+    barge = [r for r in rows if r.get("interrupted") == "barge_in"]
+    negative = [r for r in rows if r.get("pause_ms") is not None and r["pause_ms"] < 0]
+    print("## Interruptions")
+    turns = len([r for r in rows if r.get("interrupted") is None]) + len(cut) + len(barge)
+    print(
+        f"- you talked over the answer: {len(barge)} times; you went on after being cut off: {len(cut)} times (of {turns} turns)"
+    )
+    if negative:
+        print(
+            f"- {len(negative)} turns were ended while you were still speaking (negative pause): "
+            + ", ".join(str(r["turn"]) for r in negative[:12])
+        )
+    stops = [
+        float(r["cancel_to_silence_ms"])
+        for r in cut + barge
+        if r.get("cancel_to_silence_ms") is not None
+    ]
+    if stops:
+        print(
+            f"- it went quiet {statistics.median(stops):.0f} ms (p50), {max(stops):.0f} ms (max) after it heard you; add the 0.3 s you must be speaking first"
+        )
+    after = [
+        float(r["interrupt_after_answer_start_ms"])
+        for r in barge
+        if r.get("interrupt_after_answer_start_ms") is not None
+    ]
+    if after:
+        print(f"- you cut in {statistics.median(after) / 1000:.1f} s (p50) into its answer")
+    print()
+
+
 def section_recognition(directory: Path, rows: list[dict[str, Any]]) -> float | None:
     print("## Recognition")
     rungs: dict[str, int] = {}
@@ -224,6 +257,17 @@ def hints(
         out.append(
             f"- Word error is {wer:.1%}: look at the wrong turns above; add the missed names to `config/entities-docs.json` (or `python scripts/make_entities.py`), then raise `--hotword-score` a little."
         )
+    cut = [r for r in rows if r.get("interrupted") == "resumed"]
+    negative = [r for r in rows if r.get("pause_ms") is not None and r["pause_ms"] < 0]
+    if len(cut) + len(negative) >= max(2, len(rows) // 10):
+        out.append(
+            f"- You were cut off or went on after the turn ended {len(cut) + len(negative)} times: you pause longer than the hold mid-sentence. Raise `--vad-hold` (try 0.9); the join after an interruption catches the rest but costs a second."
+        )
+    stops = [float(r["cancel_to_silence_ms"]) for r in rows if r.get("cancel_to_silence_ms")]
+    if stops and statistics.median(stops) > 300:
+        out.append(
+            f"- It takes {statistics.median(stops):.0f} ms to go quiet once it hears you: check the audio output device latency."
+        )
     asked = [r for r in rows if r.get("asked_to_add")]
     declined = [r for r in asked if not r.get("added")]
     if asked and len(declined) / len(asked) > 0.5:
@@ -265,6 +309,7 @@ def main() -> int:
     with redirect_stdout(buf):
         section_run(info, rows)
         p50 = section_latency(rows)
+        section_interrupts(rows)
         wer = section_recognition(directory, rows)
         section_turn_end(rows)
         hints(p50, rows, wer, info)

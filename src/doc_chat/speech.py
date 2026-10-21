@@ -102,6 +102,7 @@ class HeardTurn:
     finalize_sent: float | None  # perf_counter when this client asked the server to end the turn
     pcm: bytes = b""  # the audio of this turn as sent to the server (16 kHz, 16-bit mono)
     partial: str = ""  # the last interim text the streaming model showed before the final
+    tail: bytes = b""  # audio heard after `finalize` and held back (the user may still be talking)
 
     @property
     def stt_ms(self) -> float:
@@ -125,6 +126,66 @@ STITCH_GAP_S = 0.4  # silence put between two parts of a turn when their audio i
 DEFAULT_NOISE_HINT = 0.015  # about -36 dBFS: a quiet room; replaced once the real room is measured
 
 
+class MicHub:
+    """One microphone stream kept open for the whole session.
+
+    The assistant needs to hear the user while it thinks and while it talks, so the stream cannot
+    be opened and closed per turn. Whoever is listening takes blocks with `get`; what nobody takes
+    piles up and is thrown away with `drain` (it is the assistant's own voice, mostly).
+    """
+
+    def __init__(self, rate: int = 16000, block_ms: int = 100) -> None:
+        self.rate = rate
+        self.block_ms = block_ms
+        self._queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._stream: Any = None
+
+    def start(self) -> None:
+        import sounddevice as sd
+
+        loop = asyncio.get_running_loop()
+
+        def on_audio(indata: Any, frames: int, time_info: Any, status: Any) -> None:
+            loop.call_soon_threadsafe(self._queue.put_nowait, bytes(indata))
+
+        self._stream = sd.RawInputStream(
+            samplerate=self.rate,
+            channels=1,
+            dtype="int16",
+            blocksize=self.rate * self.block_ms // 1000,
+            callback=on_audio,
+        )
+        self._stream.start()
+
+    def stop(self) -> None:
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+
+    def drain(self) -> int:
+        dropped = 0
+        while not self._queue.empty():
+            self._queue.get_nowait()
+            dropped += 1
+        return dropped
+
+    async def get(self) -> bytes:
+        return await self._queue.get()
+
+    async def blocks(self) -> AsyncIterator[bytes]:
+        while True:
+            yield await self.get()
+
+
+async def with_lead_in(lead: Iterable[bytes], rest: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    """Some blocks that were already heard, then the live ones."""
+    for block in lead:
+        yield block
+    async for block in rest:
+        yield block
+
+
 class DocChatSpeechClient:
     """Manages STT and TTS WebSocket sessions."""
 
@@ -138,6 +199,7 @@ class DocChatSpeechClient:
         self.tts_sample_rate: int = 24000
         self._noise = NoiseFloor()
         self._current_context: int = 0
+        self.hub: MicHub | None = None  # set to listen to the microphone across turns
         self._active_speak_task: asyncio.Task[Any] | None = None
 
     @property
@@ -280,6 +342,11 @@ class DocChatSpeechClient:
 
     async def _mic_chunks(self, rate: int, block_ms: int) -> AsyncIterator[bytes]:
         """The default microphone as 100 ms blocks of 16-bit samples; closes it when dropped."""
+        if self.hub is not None:
+            self.hub.drain()  # whatever piled up while nobody listened is the assistant's echo
+            async for block in self.hub.blocks():
+                yield block
+            return
         import sounddevice as sd
 
         loop = asyncio.get_running_loop()
@@ -395,6 +462,7 @@ class DocChatSpeechClient:
                             state["finalize_sent"],
                             own,
                             partial[0],
+                            b"".join(held),
                         )
                     if parsed.end_of_turn:
                         state["finalize_sent"] = None  # nothing was said: keep listening
@@ -536,6 +604,11 @@ class DocChatSpeechClient:
             spoken.append(sentence)
         total_ms = (time.perf_counter() - t0) * 1000.0
         return SpokenTurn(b"".join(parts), first_audio_ms, total_ms, speech_end_to_first, spoken)
+
+    async def send_tts_cancel(self) -> None:
+        """Tell the speech server to stop synthesising the current context (no task is touched)."""
+        if self._tts_ws is not None and self._current_context:
+            await self._tts_ws.send(CancelMessage(context=self._current_context).to_json())
 
     async def cancel_current(self) -> float:
         """Send cancel for current context and return cancel_to_silence_ms."""

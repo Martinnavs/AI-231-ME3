@@ -46,12 +46,19 @@ show up here and in the results later.
 ```bash
 RUN=out/sessions/$(date +%m%d-%H%M)
 uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter \
-    --llm gemini --stream --ask-to-add --record $RUN \
+    --llm gemini --stream --log-turn-score --record $RUN \
     --note "laptop mic, quiet room, headset, server defaults"
 ```
 
 It prints `Listening...`. Speak; a pause of 0.6 s ends your turn. Say "quit" to stop. Everything
 is saved in `$RUN/`.
+
+You can talk over it: the microphone stays open while it thinks and while it speaks. If you start
+talking after it has been cut off it joins your two parts; if you talk while it is answering it
+stops and takes what you say as the next question. (`--ask-to-add` is off here: in the first
+real run it asked 11 times and you never added anything, because people restart the sentence.
+`--log-turn-score` still records what it would have asked. Use a headset: speakers can make it
+interrupt itself; if that happens raise `--barge-ratio`.)
 
 ## 4. What to say (about 25 turns, in this order)
 
@@ -66,6 +73,7 @@ and remember the turn number. After each block look at the screen: the line
 | C. Follow-ups (4) | "Who is Ron Weasley?" then "And his sister?" then "What house is she in?" then "Thanks." | history: does the second question make sense without repeating the subject |
 | D. Trailing off (6) | Say the first part, stay silent about a second, then (a) finish it after the prompt: "Tell me about the Order of the ..." -> "Phoenix." (b) "What did Dumbledore say to ..." -> "Harry about the prophecy?" (c) "Who is the headmaster of ..." -> "Hogwarts?" Then (d) trail off and say nothing; (e) trail off and answer the prompt with "No, that's all."; (f) trail off, say "um" and carry on. | the ask-to-add path: does it ask, does the joined sentence come out right, does it leave you alone when you say no |
 | E. Normal speed (3) | Three complete questions without any pause inside them, at your usual speaking speed. | false prompts: it should NOT ask anything here |
+| G. Interruptions (6) | (a) say half a sentence, pause about one second, then finish it ("Tell me what Harry thinks about ..." -> "... his friend Ron"). (b) Ask something that gets a long answer, and while it speaks say "stop" (c) Ask a long-answer question, and while it speaks ask a different question. (d) Cough or tap the desk while it speaks. (e) Say "uh" mid-sentence and go on. (f) Speak over it very early, right as it starts. | cut-off join (a, e), barge-in (b, c, f), and that a cough does not stop it (d) |
 | F. Hard conditions (3) | One question while a fan or music plays; one spoken softly; one a little farther from the microphone. | how fast the quality falls |
 
 Finish with "quit".
@@ -89,7 +97,7 @@ lets me replay any turn that went wrong.
 | File | Content |
 |---|---|
 | `session.json` | when, code commit (and whether there were uncommitted changes), the model, every setting, your `--note` |
-| `turns.jsonl` | one line per turn: `heard` (final text), `raw_text` (before name repair), `partial` (the streaming text just before the end), `repair` (rung and matches), `audio_s`, `noise_floor`, `pause_ms` (your pause), `stt_server_ms`, `llm_first_token_ms`, `llm_ms`, `tts_first_audio_ms`, `speech_end_to_first_audio_ms`, `unfinished_score`, `asked_to_add`, `added`, `ts` |
+| `turns.jsonl` | one line per turn (an interruption has its own line with `interrupted` = `resumed` or `barge_in`, `cancel_to_silence_ms`, `interrupt_after_final_ms`, `interrupt_after_answer_start_ms`, `spoken`): `heard` (final text), `raw_text` (before name repair), `partial` (the streaming text just before the end), `repair` (rung and matches), `audio_s`, `noise_floor`, `pause_ms` (your pause), `stt_server_ms`, `llm_first_token_ms`, `llm_ms`, `tts_first_audio_ms`, `speech_end_to_first_audio_ms`, `unfinished_score`, `asked_to_add`, `added`, `ts` |
 | `audio/turnNN.wav` | what you said in turn NN (joined audio if you were asked to add) |
 | `bot/turnNN.wav` | what it said |
 | `truth.tsv` | your correction of each turn (you write it) |
@@ -105,6 +113,10 @@ lets me replay any turn that went wrong.
 | Wrong names | add the missing names; raise the name bonus a little (above ~1.5 over-boosts) | `config/entities-docs.json` or `scripts/make_entities.py`, server `--hotword-score` |
 | It asks "anything to add?" when you were done (E block) | lower the threshold | `--add-threshold 0.2` |
 | It does not ask when you trailed off (D block) | raise the threshold, or the recogniser completed your phrase on its own (see `heard` vs `partial`) | `--add-threshold 0.5` |
+| It stops talking when you did not speak (its own voice, a cough) | `--barge-ratio 6` or `--barge-ms 450` | doc_chat flags |
+| It keeps talking when you cut in, or reacts late | `--barge-ms 200` (lower = quicker, more false stops) | doc_chat flags |
+| It cannot be interrupted at all, or you want the old behaviour | `--no-barge-in` | doc_chat flags |
+| You went on after a pause and it answered the first half | the pause is longer than the hold: `--vad-hold 0.9` | doc_chat flags |
 | The joined sentence is wrong after you add | listen to `audio/turnNN.wav`; the gap between the parts is 0.4 s | `STITCH_GAP_S` in `src/doc_chat/speech.py` |
 | Server time above 500 ms | charger, `scripts/power_mode.sh max`, close other CPU-heavy programs | |
 
@@ -116,7 +128,9 @@ lets me replay any turn that went wrong.
   nothing is asked.
 - Starting the answer early (deciding at a 200 ms pause) is not built; the fixed 0.6 s pause is
   always in the latency.
-- The microphone is closed while the assistant speaks: there is no barge-in.
+- Barge-in needs 0.3 s of speech before it stops (so a cough does not), and with speakers its own
+  voice can trip it; the bar is higher while it speaks (4x the room noise) than while it thinks (3x).
+- After a barge-in the cut-off answer is remembered only as far as it was spoken.
 - Cloud model latency depends on the network you are on (phone hotspot included); note it in
   `--note` when you change networks.
 
