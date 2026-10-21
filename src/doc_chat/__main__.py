@@ -329,6 +329,16 @@ async def async_main(args: argparse.Namespace) -> int:
             temperature=args.llm_temperature,
         )
 
+    elif args.llm == "gemini":
+        from doc_chat.gemini import build_gemini_chat_model
+
+        llm = build_gemini_chat_model(
+            model=args.llm_model,
+            timeout=args.llm_timeout,
+            max_tokens=args.llm_max_tokens,
+            temperature=args.llm_temperature,
+        )
+
     retriever = None
     if not args.no_docs:
         chunks = load_and_split_corpus(args.docs)
@@ -426,14 +436,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--llm",
-        choices=["none", "qwen"],
+        choices=["none", "qwen", "gemini"],
         default="none",
-        help="LLM backend choice (none or qwen; default: none)",
+        help="LLM backend choice (none, qwen or gemini; default: none)",
     )
     parser.add_argument(
         "--no-docs",
         action="store_true",
-        help="Skip retrieval: send each question straight to Qwen (needs --llm qwen)",
+        help="Skip retrieval: send each question straight to the model (needs --llm)",
     )
     parser.add_argument(
         "--vad-hold",
@@ -455,13 +465,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=4,
         help="earlier question/answer pairs sent to the model with each new question (default: 4)",
     )
-    qwen = parser.add_argument_group("Qwen options (with --llm qwen)")
+    qwen = parser.add_argument_group("LLM options (with --llm qwen or gemini)")
     qwen.add_argument(
         "--stream",
         action="store_true",
-        help="Speak each sentence as Qwen produces it instead of waiting for the whole reply",
+        help="Speak each sentence as the model produces it instead of waiting for the whole reply",
     )
-    qwen.add_argument("--llm-model", help="Model id (default: from ONIT_MODEL or opencode config)")
+    qwen.add_argument(
+        "--llm-model",
+        help="Model id (default: qwen from ONIT_MODEL or opencode, gemini from GEMINI_MODEL)",
+    )
     qwen.add_argument("--llm-timeout", type=float, default=30.0, help="Seconds (default: 30)")
     qwen.add_argument("--llm-max-tokens", type=int, default=160, help="Reply cap (default: 160)")
     qwen.add_argument("--llm-temperature", type=float, default=0.2, help="Default: 0.2")
@@ -472,8 +485,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    if (args.no_docs or args.stream) and args.llm != "qwen":
-        print("--no-docs and --stream need --llm qwen", file=sys.stderr)
+    if (args.no_docs or args.stream) and args.llm not in ("qwen", "gemini"):
+        print("--no-docs and --stream need --llm qwen or --llm gemini", file=sys.stderr)
         return 2
     try:
         return asyncio.run(async_main(args))

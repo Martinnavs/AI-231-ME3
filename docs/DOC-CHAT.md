@@ -76,6 +76,19 @@ Models are fetched with `uv run python scripts/fetch_laptop_models.py --server-o
 
 Every question is a fresh one-shot call: no conversation history is kept.
 
+## Gemini as the model
+
+`--llm gemini` uses Google's OpenAI-compatible endpoint with `gemini-3.1-flash-lite` (change it
+with `--llm-model` or env `GEMINI_MODEL`). The key is read from
+`~/.secrets/google-ai-studio/api_key.txt` or `api-key.txt` (override the folder with
+`GOOGLE_AI_SECRETS_DIR`), then env `GEMINI_API_KEY`; it is never printed. Check it with
+`python -m doc_chat.gemini` (prints only OK or the failure class). Everything else (history,
+`--stream`, `--no-docs`) works as with Qwen.
+
+Measured from this machine (6 streamed replies of two short sentences): first token about 0.9 s
+(0.74-1.27 s), whole reply about 1.0 s; the thinking setting made no difference. That first token
+is the largest single item in the latency budget.
+
 ## Testing Qwen
 
 **1. Credentials.** The key is read from `~/.secrets/onit/api_key.txt` and the server address from `~/.secrets/onit/host_address.txt` (falling back to env `ONIT_API_KEY` / `ONIT_BASE_URL`, then opencode's `upd-ai` provider; a bare `host:port` becomes `http://host:port/v1`). The model id comes from `--llm-model`, env `ONIT_MODEL` or opencode's config. `ONIT_SECRETS_DIR` points at another folder. Nothing here ever prints a key or an address.
