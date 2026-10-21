@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
-from doc_chat.bargein import EchoModel, OnsetDetector, PreRoll, looks_like_echo
+from doc_chat.bargein import EchoModel, OnsetDetector, PreRoll, SileroOnset, looks_like_echo
 from doc_chat.chain import (
     SentenceStream,
     build_answer_chain,
@@ -489,7 +489,11 @@ class Session:
                 continue
             spoken = " ".join(self._spoken)
             heard = await self.follow_up(heard, interruption)
-            if interruption.kind == "barge_in" and looks_like_echo(heard.text, spoken):
+            if (
+                interruption.kind == "barge_in"
+                and getattr(self.args, "echo_text_guard", True)
+                and looks_like_echo(heard.text, spoken)
+            ):
                 print(f"  [ignored: that was my own voice ({heard.text!r})]", flush=True)
                 self.log(
                     {
@@ -608,23 +612,42 @@ class Session:
         )
         use_echo = echo.margin > 0
 
+        silero = (
+            SileroOnset(
+                str(getattr(self.args, "vad_model", "models/silero-vad/pipecat_silero_vad.onnx")),
+                confidence=float(getattr(self.args, "vad_confidence", 0.7)),
+                min_s=min_s,
+            )
+            if getattr(self.args, "vad", "energy") in ("silero", "both")
+            else None
+        )
+        vad_mode = getattr(self.args, "vad", "energy")
+
         def feed(block: bytes) -> bool:
             import numpy as np
 
             roll.push(block)
+            if silero is not None and vad_mode == "silero":
+                return silero.feed(block)  # the model decides; loudness and echo are not looked at
             x = np.frombuffer(block, dtype=np.int16).astype(np.float32) / 32768.0
             level = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
             dur = len(block) / 2 / 16000
             if self._answer_started is None:
-                return idle.feed(level, dur)
+                fired_idle = idle.feed(level, dur)
+                if silero is not None:
+                    return silero.feed(block) and level > idle.threshold
+                return fired_idle
             played = 0.0
             level_of = getattr(self._player, "level_recent", None)
             if use_echo and level_of is not None:
                 played = float(level_of())
             extra = echo.expected(played) if played > 0.01 else 0.0
             fired = playing.feed(level, dur, extra)
-            if played > 0.01 and level <= max(playing.threshold, extra):
+            bar = max(playing.threshold, extra)
+            if played > 0.01 and level <= bar:
                 echo.learn(level, played)  # not the user: this is what the speaker sounds like here
+            if silero is not None:  # both: the model says speech, and it is above the echo
+                return silero.feed(block) and level > bar
             return fired
 
         for block in blocks:  # speech that went on while the server was still answering
@@ -902,6 +925,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=4.0,
         help="how far above the room noise you must be while it is talking (default: 4; raise it "
         "if its own voice stops it)",
+    )
+    parser.add_argument(
+        "--vad",
+        choices=["energy", "silero", "both"],
+        default="energy",
+        help="what decides that you started talking over it: loudness above the room noise "
+        "(energy, with the echo allowance), the Silero VAD model main's design uses (silero), or "
+        "both (Silero says it is speech AND it is clearly above the echo)",
+    )
+    parser.add_argument("--vad-model", default="models/silero-vad/pipecat_silero_vad.onnx")
+    parser.add_argument(
+        "--vad-confidence", type=float, default=0.7, help="Silero speech confidence (default: 0.7)"
+    )
+    parser.add_argument(
+        "--echo-text-guard",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="ignore an 'interruption' whose words are the assistant's own (its voice came back "
+        "through the microphone)",
     )
     parser.add_argument(
         "--barge-echo-margin",
