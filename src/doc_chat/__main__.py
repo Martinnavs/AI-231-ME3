@@ -21,7 +21,8 @@ from doc_chat.chain import (
 )
 from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
-from doc_chat.speech import DocChatSpeechClient, HeardTurn, SpokenTurn
+from doc_chat.speech import STITCH_GAP_S, DocChatSpeechClient, HeardTurn, NoSpeech, SpokenTurn
+from doc_chat.turnend import ADD_PROMPTS, TextTurnModel, declines_to_add
 
 _QUIT_WORDS = {"quit", "exit", "goodbye", "stop"}
 
@@ -100,6 +101,10 @@ class Session:
     records: list[dict[str, Any]] = field(default_factory=list)
     history: ChatHistory = field(default_factory=lambda: ChatHistory(0))
     pending: Clarification | None = None
+    turn_model: TextTurnModel | None = None  # set with --ask-to-add
+    add_prompts: list[tuple[str, bytes]] = field(default_factory=list)  # (text, audio), recorded
+    add_note: dict[str, Any] | None = None  # how the last turn was completed, for the log
+    _prompt_count: int = 0
 
     def log(self, rec: dict[str, Any]) -> None:
         self.log_file.write(json.dumps(rec) + "\n")
@@ -119,6 +124,71 @@ class Session:
         finally:
             if player is not None:
                 await asyncio.to_thread(player.close)
+
+    async def play_pcm(self, text: str, pcm: bytes) -> None:
+        """Play a line that was synthesised in advance (no waiting for the speech server)."""
+        from doc_chat.playback import Player
+
+        print(f"bot:  {text}", flush=True)
+        if not self.args.play:
+            return
+        player = Player(self.client.tts_sample_rate)
+        try:
+            player.push(pcm)
+        finally:
+            await asyncio.to_thread(player.close)
+
+    async def complete_turn(self, heard: HeardTurn) -> HeardTurn:
+        """If the words end like an unfinished sentence, ask whether there is more and join it.
+
+        The speaker is asked ("Got it. Anything to add?"); what they say next is joined to the
+        first part as audio and decoded once. A "no", or silence for --add-wait seconds, keeps
+        the turn as it was. Turns the speech server wants to clarify (a doubtful name) are left to
+        that path.
+        """
+        model = self.turn_model
+        if model is None or not self.add_prompts:
+            return heard
+        if clarification_for(heard.text, heard.repair) is not None:
+            return heard
+        p = model.prob(heard.text)
+        if p >= self.args.add_threshold:
+            return heard
+        text, pcm = self.add_prompts[self._prompt_count % len(self.add_prompts)]
+        self._prompt_count += 1
+        print(f"you:  {heard.text}   (sounds unfinished: {p:.2f})", flush=True)
+        await self.play_pcm(text, pcm)
+        note: dict[str, Any] = {"asked_to_add": True, "unfinished_score": round(p, 3)}
+        try:
+            more = await self.client.listen_turn(
+                slot=self.args.slot,
+                risk=self.args.risk,
+                vad_hold=self.args.vad_hold,
+                first_speech_timeout=self.args.add_wait,
+                on_partial=lambda t: print(f"\r  hearing: {t[:70]:<70}", end="", flush=True),
+            )
+        except NoSpeech:
+            print("  (nothing added)", flush=True)
+            self.add_note = {**note, "added": None}
+            return heard
+        print("\r" + " " * 90 + "\r", end="")
+        if declines_to_add(more.text):
+            print(f"you:  {more.text}   (nothing to add)", flush=True)
+            self.add_note = {**note, "added": None}
+            return heard
+        gap = b"\x00\x00" * int(16000 * STITCH_GAP_S)
+        joined = await self.client.hear_pcm(
+            heard.pcm + gap + more.pcm,
+            slot=self.args.slot,
+            risk=self.args.risk,
+            t_speech_end=more.t_speech_end,
+        )
+        if not joined.text.strip():
+            self.add_note = {**note, "added": None}
+            return heard
+        print(f"      (joined {heard.text!r} + {more.text!r})", flush=True)
+        self.add_note = {**note, "added": more.text}
+        return joined
 
     async def handle(self, idx: int, heard: HeardTurn) -> None:
         """What to do with a heard turn: answer it, or ask something first."""
@@ -232,6 +302,9 @@ class Session:
             )
             rec["stt_server_ms"] = rounded(heard.server_ms)
             rec["repair_rung"] = (heard.repair or {}).get("rung")
+        if self.add_note is not None:
+            rec.update(self.add_note)
+            self.add_note = None
         self.log(rec)
         self.history.add(question, " ".join(spoken.sentences))
         print(timing_line(rec), flush=True)
@@ -276,6 +349,8 @@ class Session:
             if heard.text.lower().strip(" .!?") in _QUIT_WORDS:
                 break
             try:
+                if self.pending is None:
+                    heard = await self.complete_turn(heard)
                 await self.handle(idx, heard)
             except Exception as exc:
                 print(f"  [turn failed - {type(exc).__name__}]", file=sys.stderr, flush=True)
@@ -363,6 +438,20 @@ async def async_main(args: argparse.Namespace) -> int:
             out_dir=out_dir,
             history=ChatHistory(args.history if llm is not None else 0),
         )
+        if args.ask_to_add:
+            try:
+                session.turn_model = TextTurnModel(args.turn_model)
+            except Exception as exc:
+                print(
+                    f"--ask-to-add needs the turn model in {args.turn_model} "
+                    f"(python scripts/fetch_turn_model.py): {type(exc).__name__}",
+                    file=sys.stderr,
+                )
+                await client.close()
+                return 2
+            for line in ADD_PROMPTS:  # recorded once, so the prompt starts without waiting
+                pcm, *_ = await client.speak_text(line, voice=args.voice)
+                session.add_prompts.append((line, pcm))
         past = session.history.pairs
         if args.stream:
             assert llm is not None
@@ -465,6 +554,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=4,
         help="earlier question/answer pairs sent to the model with each new question (default: 4)",
     )
+    parser.add_argument(
+        "--ask-to-add",
+        action="store_true",
+        help='when what you said ends like an unfinished sentence ("play something by"), ask '
+        '"anything to add?" and join your answer to the first part (needs --mic and the turn '
+        "model: python scripts/fetch_turn_model.py)",
+    )
+    parser.add_argument(
+        "--add-threshold",
+        type=float,
+        default=0.3,
+        help="ask when the turn model's P(finished) is below this (default: 0.3)",
+    )
+    parser.add_argument(
+        "--add-wait",
+        type=float,
+        default=3.0,
+        help='seconds to wait for an answer to "anything to add?" (default: 3)',
+    )
+    parser.add_argument(
+        "--turn-model", default="models/turn-detector", help="folder of the turn model"
+    )
     qwen = parser.add_argument_group("LLM options (with --llm qwen or gemini)")
     qwen.add_argument(
         "--stream",
@@ -485,6 +596,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    if args.ask_to_add and not args.mic:
+        print("--ask-to-add needs --mic", file=sys.stderr)
+        return 2
     if (args.no_docs or args.stream) and args.llm not in ("qwen", "gemini"):
         print("--no-docs and --stream need --llm qwen or --llm gemini", file=sys.stderr)
         return 2

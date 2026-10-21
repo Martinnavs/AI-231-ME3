@@ -76,6 +76,34 @@ Models are fetched with `uv run python scripts/fetch_laptop_models.py --server-o
 
 Every question is a fresh one-shot call: no conversation history is kept.
 
+## Asking "anything to add?" when you trail off (`--ask-to-add`)
+
+When what the speech server heard ends like an unfinished sentence ("tell me about the Order of
+the"), the agent says a short prerecorded line ("Got it. Anything to add?"), listens for
+`--add-wait` seconds (3), and joins your answer to the first part. The two parts' audio is sent to
+the speech server as one turn and decoded once (4.7% word error in the simulation, against 13.5% for
+joining the two texts). A "no", "that's all" or silence keeps the turn as it was. Turns the server
+wants to clarify (a doubtful name) take the "Did you mean?" path instead.
+
+```bash
+uv run python scripts/fetch_turn_model.py          # 176 MB text model, once
+uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter \
+    --llm gemini --stream --ask-to-add
+```
+
+`--add-threshold` (default 0.3) is how unfinished the words must look: lower asks less often.
+In the simulation 0.3 asked 2% of finished turns and caught about 60% of trailing-off pauses.
+Each ask is logged (`asked_to_add`, `unfinished_score`, `added`). Mic only; the early-send half of
+the policy in `docs/SMART-TURN.md` (start deciding at a 200 ms pause) needs the speech server to let a
+turn be resumed and is not built.
+
+Tried end to end with the real server, Gemini and a scripted microphone
+(`scripts/e2e_ask_to_add.py`): "Tell me about the Order of the" (score 0.11) -> prompt -> "Phoenix."
+-> joined and answered; silence and "no" kept the original. Limits seen: Parakeet sometimes
+completes a hanging phrase itself ("...what Dumbledore said to" came back as "...said to me.") and
+then nothing is asked; and the answer to the prompt is a second recognition pass, so the stitched
+turn took 1.1 s to transcribe (0.6 s of it server time).
+
 ## Gemini as the model
 
 `--llm gemini` uses Google's OpenAI-compatible endpoint with `gemini-3.1-flash-lite` (change it
