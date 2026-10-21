@@ -111,3 +111,61 @@ def looks_like_echo(heard: str, spoken: str, min_words: int = 3, share: float = 
         0, len(a), 0, len(b)
     )
     return match.size >= min_words and match.size / len(a) >= share
+
+
+class SileroOnset:
+    """Speech onset from the Silero VAD model, the way Pipecat's SileroVADAnalyzer runs it.
+
+    This is the voice detector main's design uses (the only model allowed on the Pi): 32 ms
+    windows of 512 samples with 64 samples of context, speech when the model's confidence is at
+    least ``confidence`` (Pipecat default 0.7), and an onset once that has held without a break for
+    ``min_s`` (Pipecat start_secs 0.2; main's config min_barge_in_ms 250). It does not look at
+    loudness, and it cannot tell the assistant's voice from the user's.
+    """
+
+    WINDOW = 512
+    CONTEXT = 64
+
+    def __init__(self, model_path: str, confidence: float = 0.7, min_s: float = 0.25) -> None:
+        import numpy as np
+        import onnxruntime as ort
+
+        opts = ort.SessionOptions()
+        opts.inter_op_num_threads = 1
+        opts.intra_op_num_threads = 1
+        self._sess = ort.InferenceSession(
+            model_path, providers=["CPUExecutionProvider"], sess_options=opts
+        )
+        self._np = np
+        self.confidence = confidence
+        self.min_s = min_s
+        self._state = np.zeros((2, 1, 128), dtype="float32")
+        self._context = np.zeros((1, self.CONTEXT), dtype="float32")
+        self._pending = np.zeros(0, dtype="float32")
+        self._speech_s = 0.0
+        self.last_confidence = 0.0
+
+    def _confidence(self, window: object) -> float:
+        np = self._np
+        x = np.concatenate((self._context, np.asarray(window)[None, :]), axis=1)
+        out, self._state = self._sess.run(
+            None, {"input": x, "state": self._state, "sr": np.array(16000, dtype="int64")}
+        )
+        self._context = x[..., -self.CONTEXT :]
+        return float(out[0][0])
+
+    def feed(self, block: bytes) -> bool:
+        """Take one block of 16-bit 16 kHz audio; True once speech has been heard long enough."""
+        np = self._np
+        x = np.frombuffer(block[: len(block) // 2 * 2], dtype=np.int16).astype(np.float32) / 32768.0
+        self._pending = np.concatenate((self._pending, x))
+        while len(self._pending) >= self.WINDOW:
+            window, self._pending = self._pending[: self.WINDOW], self._pending[self.WINDOW :]
+            self.last_confidence = self._confidence(window)
+            if self.last_confidence >= self.confidence:
+                self._speech_s += self.WINDOW / 16000
+            else:
+                self._speech_s = 0.0  # Pipecat: any non-speech window while starting resets it
+            if self._speech_s >= self.min_s:
+                return True
+        return False

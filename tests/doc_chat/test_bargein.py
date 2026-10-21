@@ -438,3 +438,37 @@ async def test_stop_and_wait_only_silence_it_and_do_not_quit_or_start_an_answer(
 
     assert answered == ["Who is Ron?"]  # "stop" and "wait" neither ended the run nor were answered
     assert [r.get("stop_word") for r in s.records[:2]] == [True, True]
+
+
+# ---- the Silero VAD, as main's design would run it ----
+
+from pathlib import Path  # noqa: E402
+
+SILERO = Path("models/silero-vad/pipecat_silero_vad.onnx")
+needs_silero = pytest.mark.skipif(
+    not SILERO.exists(), reason="Pipecat's silero_vad.onnx not present"
+)
+
+
+@needs_silero
+def test_silero_ignores_silence_and_noise_bursts() -> None:
+    from doc_chat.bargein import SileroOnset
+
+    rng = np.random.default_rng(0)
+    noise = (rng.normal(0, 0.12, SR) * 32767).astype(np.int16).tobytes()  # 1 s, loud
+    quiet = (rng.normal(0, 0.003, SR) * 32767).astype(np.int16).tobytes()
+    v = SileroOnset(str(SILERO))
+    for audio in (quiet, noise, quiet):
+        assert not any(v.feed(audio[i : i + 3200]) for i in range(0, len(audio), 3200))
+
+
+@needs_silero
+def test_silero_needs_the_speech_to_last_the_minimum_time() -> None:
+    from doc_chat.bargein import SileroOnset
+
+    # a synthetic vowel-like buzz is not speech to a neural model: this checks the plumbing only
+    v = SileroOnset(str(SILERO), min_s=0.25)
+    v.confidence = -1.0  # treat every window as speech
+    hits = [v.feed(block(0.1)) for _ in range(5)]
+    assert hits[:2] == [False, True] or hits[0] is False  # 100 ms blocks: 3 windows = 96 ms each
+    assert hits[-1] is True

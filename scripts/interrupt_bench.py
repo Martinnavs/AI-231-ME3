@@ -245,7 +245,7 @@ def run_trial(spec: dict[str, Any]) -> dict[str, Any]:
     out.mkdir(parents=True, exist_ok=True)
     argv = [
         "--mic", "--play", "--server", spec["server"], "--no-docs", "--llm", "echo", "--stream",
-        "--echo-random", "6", "--echo-delay-ms", "300", "--record", str(out / "run"),
+        "--echo-random", str(spec.get("sentences", 6)), "--echo-delay-ms", "300", "--record", str(out / "run"),
         "--vad-hold", "0.6", *spec.get("extra", []),
     ]  # fmt: skip
 
@@ -276,7 +276,7 @@ def run_trial(spec: dict[str, Any]) -> dict[str, Any]:
 
     def watchdog() -> None:  # a trial that never ends (a self-interrupting loop) is still a result
         time.sleep(spec.get("limit_s", 55))
-        print("TRIAL_RESULT " + json.dumps(result(-1)), flush=True)
+        print("\nTRIAL_RESULT " + json.dumps(result(-1)), flush=True)
         os._exit(0)
 
     threading.Thread(target=watchdog, daemon=True).start()
@@ -291,6 +291,19 @@ def run_trial(spec: dict[str, Any]) -> dict[str, Any]:
 # =============================== orchestration ===============================
 
 
+# name -> doc_chat flags. Everything else (fade, stop words, hold) is the same in all of them.
+CONFIGS: dict[str, list[str]] = {
+    "energy": ["--vad", "energy", "--barge-echo-margin", "0", "--no-echo-text-guard"],
+    "energy+echo": ["--vad", "energy", "--no-echo-text-guard"],
+    "energy+echo+guard": ["--vad", "energy"],
+    "silero": ["--vad", "silero", "--barge-ms", "250", "--no-echo-text-guard"],
+    "silero 150ms": ["--vad", "silero", "--barge-ms", "150", "--no-echo-text-guard"],
+    "silero+guard": ["--vad", "silero", "--barge-ms", "250"],
+    "silero&echo": ["--vad", "both", "--barge-ms", "250", "--no-echo-text-guard"],
+    "silero&echo+guard": ["--vad", "both", "--barge-ms", "250"],
+}
+
+
 def trial(spec: dict[str, Any], timeout: float = 150) -> dict[str, Any] | None:
     spec = {**spec, "out": tempfile.mkdtemp(prefix="intr_")}
     try:
@@ -303,8 +316,9 @@ def trial(spec: dict[str, Any], timeout: float = 150) -> dict[str, Any] | None:
     except subprocess.TimeoutExpired:
         return None
     for line in reversed(proc.stdout.splitlines()):
-        if line.startswith("TRIAL_RESULT "):
-            return json.loads(line[len("TRIAL_RESULT ") :])
+        at = line.find("TRIAL_RESULT ")  # progress output has no newline: it may be glued before it
+        if at >= 0:
+            return json.loads(line[at + len("TRIAL_RESULT ") :])
     print(f"  trial failed: {proc.stderr.strip().splitlines()[-1:]}", file=sys.stderr)
     return None
 
@@ -327,12 +341,22 @@ def main() -> int:
     ap.add_argument("--only", nargs="+", choices=["barge", "bargeecho", "cutoff", "echo", "noise"])
     ap.add_argument("--extra-args", default="", help="more doc_chat flags, e.g. '--barge-ratio 6'")
     ap.add_argument("--write", type=Path, help="save the results as JSON")
+    ap.add_argument(
+        "--ablation",
+        nargs="*",
+        metavar="CONFIG",
+        help="compare detector configurations on a reduced set of scenarios "
+        f"(all of them, or a subset of: {', '.join(CONFIGS)})",
+    )
     args = ap.parse_args()
 
     if args.trial:
         res = run_trial(json.loads(args.trial))
-        print("TRIAL_RESULT " + json.dumps(res))
+        print("\nTRIAL_RESULT " + json.dumps(res), flush=True)
         return 0
+
+    if args.ablation is not None:
+        return ablation(args, args.ablation or list(CONFIGS))
 
     extra = args.extra_args.split()
     reps = 1 if args.quick else args.reps
@@ -477,6 +501,122 @@ def main() -> int:
                         for r in v
                     ]
                     for k, v in results.items()
+                },
+                indent=1,
+            )
+        )
+    return 0
+
+
+SCENARIOS: list[tuple[str, dict[str, Any]]] = [
+    ("sentence", {"kind": "barge", "offset": 2.0}),
+    ("stop", {"kind": "barge", "offset": 2.0, "phrase": "stop"}),
+    ("sentence+echo-12", {"kind": "barge", "offset": 2.0, "echo_db": -12}),
+    ("echo-18", {"kind": "echo", "echo_db": -18}),
+    ("echo-12", {"kind": "echo", "echo_db": -12}),
+    ("echo-6", {"kind": "echo", "echo_db": -6}),
+    ("noise0.3", {"kind": "noise", "burst": 0.3, "at": 1.5}),
+]
+
+
+def ablation(args: argparse.Namespace, names: list[str]) -> int:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import score_tries as st
+
+    sc = st.load_compare()
+    reps = 1 if args.quick else args.reps
+    data: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for name in names:
+        flags = CONFIGS[name]
+        data[name] = {}
+        for label, sp in SCENARIOS:
+            for rep_i in range(reps):
+                r = trial(
+                    {
+                        "server": args.server,
+                        "extra": flags,
+                        "seed": rep_i,
+                        "sentences": 4,
+                        "limit_s": 40,
+                        **sp,
+                    }
+                )
+                print(
+                    f"  {name} | {label} rep {rep_i + 1}: {'ok' if r else 'no result'}", flush=True
+                )
+                data[name].setdefault(label, []).append(r or {"lost": True})
+
+    def stopped_itself(r: dict[str, Any]) -> int:
+        """How many times it cut itself off with nobody speaking (a loop shows as several)."""
+        return sum(1 for x in r.get("rows", []) if x.get("interrupted"))
+
+    def frac(n: int, d: int) -> str:
+        return f"{n}/{d}" if d else "-"
+
+    print(f"\n# Ablation of the interruption detector ({reps} rep(s) per cell)\n")
+    print(
+        "Cells are counts of trials; 'self' = it stopped itself with nobody speaking (x loops).\n"
+    )
+    head = "| configuration | sentence: stopped, p50 ms, word err | 'stop' heard | +echo -12: stopped by you / by itself | echo -18 self | echo -12 self | echo -6 self | noise 0.3 s self | lost |"
+    print(head)
+    print("|" + "---|" * 9)
+    for name in names:
+        cells: list[str] = []
+        lost = 0
+        for label, _ in SCENARIOS:
+            lost += sum(1 for r in data[name][label] if r.get("lost"))
+        # sentence
+        rs = [r for r in data[name]["sentence"] if not r.get("lost")]
+        react = [r["react_ms"] for r in rs if r["react_ms"] is not None and r["react_ms"] >= 0]
+        edits = total = 0
+        for r in rs:
+            truth = r["truth"].get("barge", "")
+            ref = sc.norm_words(truth)
+            best = min(
+                (
+                    sc.word_edits(ref, sc.norm_words(x["question"]))
+                    for x in r["rows"][1:]
+                    if x.get("question")
+                ),
+                default=len(ref),
+            )
+            edits, total = edits + best, total + len(ref)
+        cells.append(
+            f"{frac(len(react), len(rs))}, {pct(react, 0.5):.0f}, {edits / max(total, 1):.0%}"
+            if react
+            else f"0/{len(rs)}, -, -"
+        )
+        # stop
+        rs = [r for r in data[name]["stop"] if not r.get("lost")]
+        heard = sum(
+            any(x.get("stop_word") or "stop" in words(x.get("question", "")) for x in r["rows"])
+            for r in rs
+        )
+        stopped = sum(1 for r in rs if r["react_ms"] is not None and r["react_ms"] >= 0)
+        cells.append(f"stopped {frac(stopped, len(rs))}, heard {frac(heard, len(rs))}")
+        # barge with echo: by you vs by itself
+        rs = [r for r in data[name]["sentence+echo-12"] if not r.get("lost")]
+        you = sum(1 for r in rs if r["react_ms"] is not None and r["react_ms"] >= 0)
+        itself = sum(1 for r in rs if r["react_ms"] is not None and r["react_ms"] < 0)
+        cells.append(f"{frac(you, len(rs))} / {frac(itself, len(rs))}")
+        for label in ("echo-18", "echo-12", "echo-6", "noise0.3"):
+            rs = [r for r in data[name][label] if not r.get("lost")]
+            n_self = sum(1 for r in rs if stopped_itself(r) > 0)
+            loops = sum(stopped_itself(r) for r in rs)
+            cells.append(f"{frac(n_self, len(rs))}" + (f" (x{loops})" if loops > n_self else ""))
+        print(f"| {name} | " + " | ".join(cells) + f" | {lost} |")
+    if args.write:
+        args.write.write_text(
+            json.dumps(
+                {
+                    n: {
+                        k: [
+                            {kk: r.get(kk) for kk in ("react_ms", "rows", "truth", "lost")}
+                            for r in v
+                        ]
+                        for k, v in d.items()
+                    }
+                    for n, d in data.items()
                 },
                 indent=1,
             )
