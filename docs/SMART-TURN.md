@@ -101,4 +101,69 @@ but needs good words early, and the early words are Kroko's. Where it does help 
 as a veto after the pause: if the transcript clearly ends on a dangling word, do not send it
 as is. That is the place for a "got it, anything to add?" prompt (proposed, not built).
 
-Not done: the continuation prompt and stitching; any run inside the live loop; other speakers.
+
+## Simulation: end early, ask "anything to add?" when it looks unfinished
+
+`scripts/confirm_stitch_sim.py` (cached signals in `out/confirm_stitch_events.json`; thresholds
+re-sweep without decoding). Today's rule is a fixed 0.6 s hold. The policy:
+
+1. At a 200 ms pause the text model reads Kroko's interim words. If P(finished) > t1, start the
+   Parakeet decode now instead of at 0.6 s.
+2. The text model reads Parakeet's words (lower case, no punctuation). If P(finished) < t2, do not
+   send; at 0.6 s play a prerecorded "Got it, anything to add?" and stitch what the user says next.
+3. Otherwise send (200 ms + decode, or 0.6 s + decode).
+
+Events from the labelled command clips (one speaker): 95 finished turns, and 125 "trailing off"
+pauses cut after a word that cannot end a request, at the energy dip nearest the word boundary,
+kept only if Parakeet decodes that prefix as exactly those words (99 cuts failed that check and
+10 more still decoded as the whole clip; Parakeet's word times drift, so the earlier
+"dangling" tables above include some mis-placed cuts).
+
+Finished turns:
+
+| t1 | t2 | sent early (about 400 ms sooner) | sent at the normal time | asked unnecessarily |
+|---|---|---|---|---|
+| 0.5 | 0.3 | 68% | 29% | 2% |
+| 0.5 | 0.5 | 64% | 25% | 11% |
+| 0.7 | 0.3 | 47% | 51% | 2% |
+
+Mean time the transcript is ready: 280 ms earlier at t1 0.5, 195 ms earlier at 0.7.
+
+Trailing-off pauses, where the user resumes after L:
+
+| t1 / t2 | L = 0.4 s (before the hold) | L >= 0.8 s: still cut off | L >= 0.8 s: recovered by asking |
+|---|---|---|---|
+| 0.5 / 0.2 | 22% early decode wasted | 61% | 39% |
+| 0.5 / 0.3 | 15% wasted | 40% | 60% |
+| 0.5 / 0.5 | 13% wasted | 26% | 74% |
+
+Today's fixed hold cuts off 100% of the L >= 0.8 s pauses, so the policy never does worse there;
+at t2 = 0.3 it asks instead in 60% of them for 2% unnecessary prompts on finished turns. At
+t2 = 0.5 it recovers 74% but asks 1 in 9 finished users to add something.
+
+Stitching (135 splits, a 0.6 s pause between the halves; includes the 10 whole-clip cuts):
+
+| halves joined | word error |
+|---|---|
+| unsplit (reference) | 1.9% |
+| audio joined, decoded once | 4.7% (identical to the unsplit decode in 102 of 135) |
+| each half decoded, texts joined | 13.5% (identical in 49 of 135) |
+
+Join the audio, not the text: the second half alone has no context and loses words and names.
+
+What the text model still calls finished (the 26-40% that remain cut off): "Play something by
+Carlos.", "Send a message", "Text Angelo that I will be", "Message Paolo and Bea that dinner is".
+It is better at "by"/"and" than at a verb waiting for its object.
+
+Limits: one speaker; trailing-off pauses are cut from continuous speech with added room noise, not
+real hesitations; the user's reply to the prompt is not simulated (so the cost of a prompt, about
+1.5 s of audio plus the answer, is counted only as a count); the early path still depends on
+Kroko's lagging words; timings are the measured decode times, not an end-to-end run.
+
+## Verdict so far
+
+- Worth building: the early start at t1 0.5 (about 280 ms sooner on average), the ask-to-add
+  prompt at t2 about 0.3, and audio-level stitching. They keep today's behaviour as the floor.
+- Not enough on their own: 26-40% of unfinished sentences still get through, so the fixed hold
+  stays as the safety net and users can still be cut off.
+- Nothing has been wired into the live loop.
