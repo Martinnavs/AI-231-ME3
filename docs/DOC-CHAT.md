@@ -78,6 +78,27 @@ Every question is a fresh one-shot call: no conversation history is kept.
 
 > A step-by-step real-voice test with recording and a report: `docs/IRL-RECIPE.md`.
 
+## Talking over the assistant (barge-in, on with `--mic`)
+
+The microphone stays open for the whole session and is watched while the assistant thinks and
+speaks (`--no-barge-in` turns it off). Speech that lasts `--barge-ms` (300) above the room noise
+counts as you starting to talk (3x the noise while it is thinking, `--barge-ratio` 4x while it is
+speaking, because speakers leak into the microphone). Then:
+
+- **Before its answer has started** you were cut off by the pause (`--vad-hold`) and are going on.
+  The pending answer is cancelled and your two parts are joined as audio and decoded once; the
+  turn keeps its number.
+- **While it is speaking** you are cutting in. The speech and the model call stop at once
+  (`Player.abort`, a cancel to the speech server, `SentenceStream.cancel`), what you say becomes
+  the next turn, and the interrupted answer is remembered as far as it was spoken.
+
+Audio the client held back while the server was finalising a turn is checked first, so speech that
+continued across the end of the turn is not missed. Both cases were tried end to end with
+`scripts/e2e_barge_in.py cutoff|barge` (Parakeet server, Gemini, scripted voice, silent speaker at
+real speed). Limits: a cough shorter than 0.3 s is ignored on purpose; with loudspeakers the
+assistant's own voice can trip it (raise `--barge-ratio`); the 0.3 s of speech needed before it
+stops is added to the time it takes to go quiet.
+
 ## Asking "anything to add?" when you trail off (`--ask-to-add`)
 
 When what the speech server heard ends like an unfinished sentence ("tell me about the Order of

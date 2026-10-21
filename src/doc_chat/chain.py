@@ -277,6 +277,12 @@ class SentenceStream:
         self._fallback = fallback
         self._max_words = max_words
         self._history = history
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Stop producing sentences (the listener interrupted); the model call is dropped at its
+        next chunk and no fallback sentence is released."""
+        self._cancelled = True
 
     def __iter__(self) -> Iterator[str]:
         t0 = time.perf_counter()
@@ -287,6 +293,8 @@ class SentenceStream:
         stopped = False
         try:
             for chunk in self._llm.stream(_messages(self._system, self._question, self._history)):
+                if self._cancelled:
+                    return
                 piece = chunk.content if isinstance(chunk.content, str) else ""
                 if piece and self.first_token_ms is None:
                     self.first_token_ms = (time.perf_counter() - t0) * 1000.0
@@ -301,6 +309,8 @@ class SentenceStream:
                     released.append(out)
                     words += len(out.split())
                     yield out
+                    if self._cancelled:
+                        return
                 if stopped:
                     break
             if not stopped:

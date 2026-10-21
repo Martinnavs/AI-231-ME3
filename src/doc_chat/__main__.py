@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import platform
 import subprocess
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
+from doc_chat.bargein import OnsetDetector, PreRoll
 from doc_chat.chain import (
     SentenceStream,
     build_answer_chain,
@@ -23,7 +25,15 @@ from doc_chat.chain import (
 )
 from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
-from doc_chat.speech import STITCH_GAP_S, DocChatSpeechClient, HeardTurn, NoSpeech, SpokenTurn
+from doc_chat.speech import (
+    STITCH_GAP_S,
+    DocChatSpeechClient,
+    HeardTurn,
+    MicHub,
+    NoSpeech,
+    SpokenTurn,
+    with_lead_in,
+)
 from doc_chat.turnend import ADD_PROMPTS, TextTurnModel, declines_to_add
 
 _QUIT_WORDS = {"quit", "exit", "goodbye", "stop"}
@@ -129,6 +139,24 @@ def _failed_record(turn: int, question: str, exc: Exception) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True)
+class Interruption:
+    """The user started speaking while the assistant was busy.
+
+    ``kind`` is "resumed" (the answer had not started: the user was cut off and went on) or
+    "barge_in" (the assistant was speaking). ``blocks`` is what was heard around the start of it.
+    """
+
+    kind: str
+    blocks: list[bytes]
+    cancel_ms: float
+    after_final_ms: float
+
+
+RESUME_GAP_S = 0.2  # silence put between a cut-off turn and what the user said next
+IDLE_RATIO = 3.0  # how far above the room's noise counts as speech while the assistant is quiet
+
+
 @dataclass
 class Session:
     args: argparse.Namespace
@@ -144,6 +172,10 @@ class Session:
     add_prompts: list[tuple[str, bytes]] = field(default_factory=list)  # (text, audio), recorded
     add_note: dict[str, Any] | None = None  # how the last turn was completed, for the log
     record_dir: Path | None = None  # --record: session.json, turns.jsonl, audio/, bot/
+    _player: Any = None  # the Player of the answer being spoken, to cut it short
+    _stream: SentenceStream | None = None  # the model call behind it
+    _answer_started: float | None = None  # perf_counter of the first answer audio
+    _spoken: list[str] = field(default_factory=list)  # sentences begun so far
     _prompt_count: int = 0
 
     def log(self, rec: dict[str, Any]) -> None:
@@ -157,13 +189,24 @@ class Session:
 
         print(f"bot:  {text}", flush=True)
         player = Player(self.client.tts_sample_rate) if self.args.play else None
+        self._player = player
+        self._spoken.append(text)
         try:
-            await self.client.speak_text(
-                text, voice=self.args.voice, on_chunk=player.push if player else None
-            )
+            await self.client.speak_text(text, voice=self.args.voice, on_chunk=self._chunk(player))
         finally:
             if player is not None:
                 await asyncio.to_thread(player.close)
+
+    def _chunk(self, player: Any) -> Callable[[bytes], None]:
+        """What to do with each piece of synthesised audio: note the first, then play it."""
+
+        def push(pcm: bytes) -> None:
+            if self._answer_started is None:
+                self._answer_started = time.perf_counter()
+            if player is not None:
+                player.push(pcm)
+
+        return push
 
     async def play_pcm(self, text: str, pcm: bytes) -> None:
         """Play a line that was synthesised in advance (no waiting for the speech server)."""
@@ -287,17 +330,24 @@ class Session:
         if heard is not None and heard.raw_text and heard.raw_text != heard.text:
             print(f"      (recognised as: {heard.raw_text})", flush=True)
         player = Player(self.client.tts_sample_rate) if self.args.play else None
-        on_chunk = player.push if player else None
+        self._player = player
+        on_chunk = self._chunk(player)
+
+        def on_sentence(sentence: str) -> None:
+            self._spoken.append(sentence)
+            print(f"bot:  {sentence}", flush=True)
+
         try:
             stream: SentenceStream | None = None
             if self.streamer is not None:
                 stream = self.streamer(question)
+                self._stream = stream
                 spoken = await self.client.speak_sentences(
                     stream,
                     voice=self.args.voice,
                     t_speech_end=t_speech_end,
                     on_chunk=on_chunk,
-                    on_sentence=lambda s: print(f"bot:  {s}", flush=True),
+                    on_sentence=on_sentence,
                 )
                 _warn(stream.error)
                 source, retrieval_ms = stream.source, stream.retrieval_ms
@@ -306,7 +356,7 @@ class Session:
                 assert self.chain is not None
                 ans = await self.chain.ainvoke(question)
                 _warn(ans.llm_error)
-                print(f"bot:  {ans.text}", flush=True)
+                on_sentence(ans.text)
                 pcm, first_ms, total_ms, to_first = await self.client.speak_text(
                     ans.text, voice=self.args.voice, t_speech_end=t_speech_end, on_chunk=on_chunk
                 )
@@ -388,28 +438,164 @@ class Session:
     async def run_mic(self) -> None:
         hold = self.args.vad_hold
         how = f"a pause of {hold:g} s ends your turn" if hold > 0 else "pause to end your turn"
-        print(f"Listening... speak ({how}). Say 'quit' or press Ctrl-C to stop.", flush=True)
+        interrupts = " You can talk over it." if self.client.hub is not None else ""
+        print(
+            f"Listening... speak ({how}).{interrupts} Say 'quit' or press Ctrl-C to stop.",
+            flush=True,
+        )
         idx = 0
+        heard: HeardTurn | None = None
         while True:
             idx += 1
-            heard = await self.client.listen_turn(
-                slot=self.args.slot,
-                risk=self.args.risk,
-                vad_hold=hold,
-                on_partial=lambda t: print(f"\r  hearing: {t[:70]:<70}", end="", flush=True),
-            )
-            print("\r" + " " * 90 + "\r", end="")
+            if heard is None:
+                heard = await self.hear()
             if heard.text.lower().strip(" .!?") in _QUIT_WORDS:
                 break
+            interruption: Interruption | None = None
             try:
                 if self.pending is None:
                     heard = await self.complete_turn(heard)
                 if self.record_dir is not None and heard.pcm:
                     save_wav(self.record_dir / "audio" / f"turn{idx:02d}.wav", heard.pcm, 16000)
-                await self.handle(idx, heard)
+                interruption = await self.respond(idx, heard)
             except Exception as exc:
                 print(f"  [turn failed - {type(exc).__name__}]", file=sys.stderr, flush=True)
                 self.log(_failed_record(idx, heard.text, exc))
+            if interruption is None:
+                heard = None
+                continue
+            heard = await self.follow_up(heard, interruption)
+            if interruption.kind == "resumed":
+                idx -= 1  # the cut-off turn and what followed are one turn
+
+    async def hear(
+        self, lead_in: list[bytes] | None = None, first_speech_timeout: float | None = None
+    ) -> HeardTurn:
+        """Listen for the next turn (optionally starting with audio that was already heard)."""
+        audio = None
+        if lead_in is not None and self.client.hub is not None:
+            audio = with_lead_in(lead_in, self.client.hub.blocks())
+        heard = await self.client.listen_turn(
+            slot=self.args.slot,
+            risk=self.args.risk,
+            vad_hold=self.args.vad_hold,
+            on_partial=lambda t: print(f"\r  hearing: {t[:70]:<70}", end="", flush=True),
+            audio=audio,
+            first_speech_timeout=first_speech_timeout,
+        )
+        print("\r" + " " * 90 + "\r", end="")
+        return heard
+
+    async def respond(self, idx: int, heard: HeardTurn) -> Interruption | None:
+        """Answer the turn while listening; if the user starts talking, stop and say how."""
+        hub = self.client.hub
+        if hub is None or not getattr(self.args, "barge_in", True):
+            await self.handle(idx, heard)
+            return None
+        self._answer_started = None
+        self._spoken = []
+        self._stream = None
+        self._player = None
+        t_final = heard.t_final
+        work = asyncio.create_task(self.handle(idx, heard))
+        watch = asyncio.create_task(self._watch_for_voice(heard.tail))
+        try:
+            await asyncio.wait({work, watch}, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            work.cancel()
+            watch.cancel()
+            raise
+        if not watch.done():  # the answer finished without interruption
+            watch.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watch
+            work.result()
+            return None
+        blocks = watch.result()
+        t0 = time.perf_counter()
+        started = self._answer_started
+        if self._stream is not None:
+            self._stream.cancel()
+        if self._player is not None:
+            self._player.abort()
+        await self.client.send_tts_cancel()
+        work.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await work
+        cancel_ms = (time.perf_counter() - t0) * 1000.0
+        kind = "barge_in" if started is not None else "resumed"
+        spoken = " ".join(self._spoken)
+        print(
+            f"  [interrupted ({kind}); stopped {cancel_ms:.0f} ms after it heard you]", flush=True
+        )
+        if kind == "barge_in":
+            self.history.add(heard.text, spoken or "(interrupted)")
+        self.log(
+            {
+                "turn": idx,
+                "question": heard.text,
+                "answer_words": len(spoken.split()) if kind == "barge_in" else 0,
+                "interrupted": kind,
+                "cancel_to_silence_ms": round(cancel_ms, 1),
+                "interrupt_after_final_ms": round((t0 - t_final) * 1000.0, 1),
+                "interrupt_after_answer_start_ms": (
+                    None if started is None else round((t0 - started) * 1000.0, 1)
+                ),
+                "spoken": spoken or None,
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+        )
+        return Interruption(kind, blocks, cancel_ms, (t0 - t_final) * 1000.0)
+
+    async def _watch_for_voice(self, tail: bytes = b"") -> list[bytes]:
+        """Return the recent blocks once the user's voice is heard over the assistant.
+
+        Quiet at first (it is still thinking: any speech counts), then stricter once the answer is
+        playing, because the speakers leak into the microphone.
+        """
+        hub = self.client.hub
+        assert hub is not None
+        noise = self.client.noise_floor or 0.015
+        ratio = float(getattr(self.args, "barge_ratio", 4.0))
+        min_s = float(getattr(self.args, "barge_ms", 300)) / 1000.0
+        idle = OnsetDetector(noise, ratio=IDLE_RATIO, min_s=min_s)
+        playing = OnsetDetector(noise, ratio=ratio, min_s=min_s)
+        roll = PreRoll()
+        step = 3200  # 100 ms of 16-bit samples
+        blocks = [tail[i : i + step] for i in range(0, len(tail), step)]
+
+        def feed(block: bytes) -> bool:
+            import numpy as np
+
+            roll.push(block)
+            x = np.frombuffer(block, dtype=np.int16).astype(np.float32) / 32768.0
+            level = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
+            detector = idle if self._answer_started is None else playing
+            return detector.feed(level, len(block) / 2 / 16000)
+
+        for block in blocks:  # speech that went on while the server was still answering
+            if feed(block):
+                return roll.blocks()
+        while True:
+            if feed(await hub.get()):
+                return roll.blocks()
+
+    async def follow_up(self, previous: HeardTurn, it: Interruption) -> HeardTurn:
+        """Hear what the user says after an interruption (starting with the audio just heard)."""
+        new = await self.hear(lead_in=it.blocks)
+        if it.kind != "resumed" or not previous.pcm:
+            return new
+        gap = b"\x00\x00" * int(16000 * RESUME_GAP_S)
+        joined = await self.client.hear_pcm(
+            previous.pcm + gap + new.pcm,
+            slot=self.args.slot,
+            risk=self.args.risk,
+            t_speech_end=new.t_speech_end,
+        )
+        if not joined.text.strip():
+            return new
+        print(f"      (joined {previous.text!r} + {new.text!r})", flush=True)
+        return joined
 
 
 def _summary(records: list[dict[str, Any]]) -> None:
@@ -478,6 +664,11 @@ async def async_main(args: argparse.Namespace) -> int:
 
     client = DocChatSpeechClient(server_url=args.server)
     await client.connect()
+    hub: MicHub | None = None
+    if args.mic and args.barge_in:
+        hub = MicHub()
+        hub.start()  # one microphone stream for the whole session: heard while it thinks and talks
+        client.hub = hub
 
     record_dir = Path(args.record) if args.record else None
     if record_dir is not None:  # one folder per run: everything needed to look back at it
@@ -550,6 +741,8 @@ async def async_main(args: argparse.Namespace) -> int:
             # Ctrl-C mid-TTS: send cancel, close sockets, flush jsonl; no traceback (Edge 50)
             await client.cancel_current()
         finally:
+            if hub is not None:
+                hub.stop()
             await client.close()
 
     _summary(session.records)
@@ -621,6 +814,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         default=4,
         help="earlier question/answer pairs sent to the model with each new question (default: 4)",
+    )
+    parser.add_argument(
+        "--barge-in",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="keep listening while it thinks and speaks: if you start talking it stops, and "
+        "either joins what you say to your cut-off sentence or takes it as the next question "
+        "(default: on with --mic; use a headset, speakers can trigger it)",
+    )
+    parser.add_argument(
+        "--barge-ms",
+        type=int,
+        default=300,
+        help="how long you must be speaking before it stops talking (default: 300)",
+    )
+    parser.add_argument(
+        "--barge-ratio",
+        type=float,
+        default=4.0,
+        help="how far above the room noise you must be while it is talking (default: 4; raise it "
+        "if its own voice stops it)",
     )
     parser.add_argument(
         "--record",
