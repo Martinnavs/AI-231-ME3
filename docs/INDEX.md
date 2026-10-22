@@ -8,6 +8,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 |---|---|
 | `HANDOFF.md` | the map: state, findings, decisions, open questions, next actions, working agreements |
 | `PI-TEST-PLAN.md` | runbook for the Raspberry Pi echo test (what to run, how to read it, what each outcome means) |
+| `PI-RESULTS.md` | what the Pi echo test showed (split mic/speaker, with and without software AEC), and what it did not |
 | `BRANCHES.md` | the three branches, how they relate, how to land them, how to resolve conflicts |
 | `ECHO-RESEARCH.md` | how assistants and frameworks handle echo and barge-in; how far to trust the report |
 
