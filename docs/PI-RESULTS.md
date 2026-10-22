@@ -122,3 +122,46 @@ The room outside the holds peaked at 0.08. Key-to-voice offset: median 0.77 s (8
 **Limitation, stated as scope.** A barge-in is an utterance, not a single word. The gate needs at least 250 ms of continuous speech above the confidence (a duck can happen sooner, at the first window), and in this setup Silero did not respond to a one-word "Stop" at all, even in a silent room. The system therefore supports interruptions that are a phrase or sentence of about a second or more. The exact shortest utterance that works was not measured (we have one-word and full-sentence points only). One-word interruptions would need a different detector or a dedicated keyword model; that was not pursued. Industry practice was not researched in this session; the repository's earlier research digest on echo and barge-in handling is the place to start.
 
 **Update (laptop test, same day).** The statement above that Silero "did not respond to a one-word Stop at all" holds for the Pi's recordings, not for the model: on 300 clean Speech Commands "stop" clips its median peak confidence is 0.94 (`SILERO-SPEECH-COMMANDS.md`). The low Pi confidence therefore points at the Pi's capture path, the room, or what was said, and the 250 ms hold also costs short words. Next steps are in `RESEARCH-HANDOFF-PI.md`.
+
+## Why the signal is weak, and what close-range speech gives (2026-10-22, evening)
+
+**The USB microphone is weak, and nothing in the software path is losing level.** The owner's earlier good audio (`STT-HOSTING.md`, 94-turn tryout: floor -36 dBFS, speech median -21 dBFS, about 14 dB signal to noise) came from the laptop's built-in microphone, not this USB mic, so the two are not comparable.
+
+| Check | Result |
+|---|---|
+| Room floor, our pipeline / raw `arecord` | -44.5 dBFS / -47.0 dBFS (same) |
+| Speech in the scripted calibration (speaker silent, owner at about 0.25-0.5 m) | loudest 100 ms only 2-10 dB above the floor; whole-hold rms -41 to -47 dBFS |
+| Raw `arecord` speech take | peaks -25.7 dBFS, loudest blocks -36 to -42 dBFS; Silero sees it only in pieces (most stretches at confidence >= 0.5 last 0.03-0.32 s, two reach 0.86 s and 1.09 s) |
+| Mic hardware gain | already at its maximum (-0.94 dB); `Auto Gain Control` was off |
+| Mic AGC switched on (rerun of the proxy clips and the scripted calibration) | no change: floor -44.6 dBFS, hold levels the same, sentence-like holds passed the spec gate 6 of 13 and the 0.5 gate 11 of 13 (AGC off: 7 of 8 and 8 of 8, but the distance may have differed); "Stop"-length holds peaked 0.00-0.11 |
+| One-word clips (`tests/fixtures/pi_stop`, 20 clips) played at 75% through speaker and mic | median peak confidence 0.04 (repeat run 0.083; AGC on 0.065), against 0.94 for the same kind of clean clips on the laptop (`SILERO-SPEECH-COMMANDS.md`); the source clips are as loud as the standard clips (peak -6.8 against -6.0 dBFS) |
+| Digital gain added to recordings | no help with AEC; without AEC it raises the echo to false interrupts (see the mic gain check above) |
+
+Reading: the mic gives speech only 5-11 dB above its own noise. Silero is fine on clean audio and loses speech at that margin. The loss is the microphone and its signal to noise, not Silero, the AEC, the PipeWire path or the gate. `arecord` through ALSA and our pipeline measure the same.
+
+Process notes: the USB mic's ALSA card number changed from 4 to 3 during the session (address it by name, `plughw:CARD=UACDemoV10,DEV=0`; `amixer -c UACDemoV10`). One AGC take recorded no key presses because the pilot's default keyboard (first `*-event-kbd` in `/dev/input/by-id`, alphabetical) became a USB mouse's keyboard interface after the mouse was plugged in; pass `--kbd /dev/input/by-id/usb-SINO_WEALTH_RK_Bluetooth_Keyboar-event-kbd`. The AGC-on take had 21 holds, not 12, so its holds could not be matched to the script by order.
+
+**Close-range speech works for sentences.** Silent speaker, no AEC, AGC off, owner at 5-10 cm (owner's estimate), scripted holds in the original order (11 holds were recorded, one raised-voice hold short; groups are by script order):
+
+| Group | Holds | Loudest 100 ms | Silero peak | Longest run >= 0.7 | Spec gate (0.7, 250 ms) | 0.5 gate (250 ms) |
+|---|---|---|---|---|---|---|
+| Sentence, normal voice | 4 | -26.5 to -33.7 dBFS | 0.84-0.90 | 0.35-0.54 s | 4 of 4 | 4 of 4 |
+| "Stop" | 4 | -22.7 to -35.2 dBFS | 0.26-0.65 | 0 s | 0 of 4 | 0 of 4 |
+| Sentence, raised voice | 3 | -22.6 to -23.5 dBFS | 0.88-0.97 | 0.45-0.58 s | 3 of 3 | 3 of 3 |
+
+Speech was 8-13 dB louder than at the farther distance and the floor was unchanged (about -46 dBFS). A single "Stop" is no longer invisible (peaks 0.26-0.65, against 0.00-0.18 before) but stays above 0.5 for only 0.06-0.13 s, so a 250 ms hold still misses it, as the laptop test predicted.
+
+**Live pilot, close range** (C, no AEC, 75% volume, confidence 0.5 with the 250 ms hold, owner at 5-10 cm, alternating "Wait, stop, I have a question" and "Stop."; 4 minutes, `out/pi/20261022-205354-pilot-live-c-vol75-close-5-10cm-conf0-5`, not committed):
+
+| Barge-ins over assistant speech | Ducked | Interrupted | Median s from voice onset to interrupt | Duck latency | False ducks or interrupts |
+|---|---|---|---|---|---|
+| 31 (plus 3 holds in assistant pauses) | 27 (87%) | 18 (58%) | 0.67 s (p90 1.03 s) | 0.12 s median | 0 in 2.78 min of assistant speech; a noise press triggered nothing |
+
+Split at the median hold length (the holds were not clearly two groups, so this is a guess that the short ones are "Stop"): longer holds 12 of 15 interrupted (80%, 0.74 s), shorter holds 6 of 16 (38%, 0.59 s). Replaying other gates on the same recording (31 barge-ins, 0 false in the run): spec 0.7/250 ms 15 (0.83 s); 0.5/250 ms 18 (0.61 s); allow-1-dip @0.5 18 (0.37 s); leaky @0.5 19 (0.38 s); 7 of last 10 @0.5 21 (68%, 0.26 s, not run live). Over the earlier selftest recordings at 75% every variant has 0 false events per minute, with or without AEC.
+
+## Updated bottom line (after the microphone findings)
+
+- The limit is the microphone: the USB mic delivers speech only a few dB above its noise. It is not the model, the AEC, the PipeWire path or the gate.
+- The workaround that works is speaking close to the Pi (5-10 cm): sentences are reliably heard and interrupt about 80% of the time within a second, with no false triggers at 75% volume and the 0.5 gate.
+- A one-word "Stop" is the weak case (about 38% interrupted, and 0 of 4 in the silent-room control at the 250 ms hold). A shorter hold or the 7-of-10 rule recovers some in replay; neither was run live and the false-trigger cost against echo at other volumes is not established.
+- Not shown: word error under AEC, the acoustic time to silence, more than one speaker, and the mic at normal conversational distance. Samples are small (31 barge-ins, one speaker, one room).
