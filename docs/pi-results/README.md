@@ -16,4 +16,4 @@ The recordings (`*.wav`) stay in `out/pi/` (git-ignored, large). Copy the double
 
 Compare conditions in one table: `python scripts/pi_echo_check.py compare docs/pi-results/*selftest*`.
 
-Nothing here has been run on the Pi yet (as of 2026-10-21).
+The runs from 2026-10-22 are in this folder; what they showed is in `docs/PI-RESULTS.md` (the `NOTES.md` hardware table lists doubletalk as "not run" for the first conditions; the later doubletalk runs are in the notes below it).
