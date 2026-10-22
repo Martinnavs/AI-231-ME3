@@ -1,0 +1,222 @@
+[
+ {
+  "trial": 1,
+  "prompt": "Where did the old teacher polish the violin?",
+  "file": "trial-01.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.3,
+    1.9,
+    2.2
+   ],
+   "silero_150ms": [
+    1.2
+   ]
+  }
+ },
+ {
+  "trial": 2,
+  "prompt": "The baker painted the cold candle by the river every winter.",
+  "file": "trial-02.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.5
+   ],
+   "silero_150ms": [
+    1.2,
+    1.4
+   ]
+  }
+ },
+ {
+  "trial": 3,
+  "prompt": "How many violins did the baker open on Tuesday?",
+  "file": "trial-03.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.3
+   ],
+   "silero_150ms": [
+    1.2
+   ]
+  }
+ },
+ {
+  "trial": 4,
+  "prompt": "On Tuesday our guide followed three broken ladders.",
+  "file": "trial-04.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.1
+   ],
+   "silero_150ms": [
+    1.0
+   ]
+  }
+ },
+ {
+  "trial": 5,
+  "prompt": "How many lanterns did the old teacher polish after the storm?",
+  "file": "trial-05.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.3
+   ],
+   "silero_150ms": [
+    1.2
+   ]
+  }
+ },
+ {
+  "trial": 6,
+  "prompt": "Can you paint the lantern near the station before sunrise?",
+  "file": "trial-06.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.7
+   ],
+   "silero_150ms": [
+    1.3
+   ]
+  }
+ },
+ {
+  "trial": 7,
+  "prompt": "Where did the nurse carry the narrow umbrella?",
+  "file": "trial-07.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.4
+   ],
+   "silero_150ms": [
+    1.3
+   ]
+  }
+ },
+ {
+  "trial": 8,
+  "prompt": "Last night the young pilot repaired twelve cold kettles.",
+  "file": "trial-08.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.4,
+    2.4,
+    2.9
+   ],
+   "silero_150ms": [
+    1.0,
+    2.3,
+    2.8
+   ]
+  }
+ },
+ {
+  "trial": 9,
+  "prompt": "How many notebooks did our guide borrow near the station?",
+  "file": "trial-09.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    1.8
+   ],
+   "silero_150ms": [
+    1.1,
+    1.7
+   ]
+  }
+ },
+ {
+  "trial": 10,
+  "prompt": "Can you follow the old teacher across the field this morning?",
+  "file": "trial-10.wav",
+  "beep_at_s": 4.0,
+  "underruns": 0,
+  "before_beep": {
+   "energy": [],
+   "silero_250ms": [],
+   "silero_150ms": []
+  },
+  "after_beep": {
+   "energy": [],
+   "silero_250ms": [
+    2.5
+   ],
+   "silero_150ms": [
+    1.2,
+    2.1,
+    2.4
+   ]
+  }
+ }
+]

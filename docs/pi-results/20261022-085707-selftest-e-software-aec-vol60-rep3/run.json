@@ -1,0 +1,212 @@
+{
+ "kind": "selftest",
+ "label": "E software aec vol60 rep3",
+ "when": "2026-10-22 08:58:19",
+ "hardware": {
+  "platform": "Linux-6.12.75+rpt-rpi-v8-aarch64-with-glibc2.41",
+  "python": "3.12.15",
+  "model": "Raspberry Pi 4 Model B Rev 1.2",
+  "temperature": "temp=54.5'C",
+  "throttled": "throttled=0x0",
+  "onnxruntime": "1.31.0",
+  "sounddevice": "0.5.6"
+ },
+ "devices": {
+  "in": "1",
+  "out": "2",
+  "rate": 48000,
+  "simulated_echo_db": null
+ },
+ "results": {
+  "floor_dbfs": -84.6,
+  "round_trip_delay_ms": 201.2,
+  "echo_above_floor_db_median": -5.2,
+  "echo_above_floor_db_worst": 26.4,
+  "underruns_total": 0,
+  "summary": {
+   "energy": {
+    "clips_with_a_false_onset": "0/6",
+    "first_clip_false_onset": false,
+    "false_onsets_total": 0
+   },
+   "silero_150ms": {
+    "clips_with_a_false_onset": "1/6",
+    "first_clip_false_onset": false,
+    "false_onsets_total": 1
+   },
+   "silero_250ms": {
+    "clips_with_a_false_onset": "1/6",
+    "first_clip_false_onset": false,
+    "false_onsets_total": 1
+   }
+  },
+  "clips": [
+   {
+    "play_s": 5.04,
+    "mic_dbfs_median": -90.6,
+    "above_floor_db_median": -6.0,
+    "above_floor_db_p95": 23.6,
+    "above_floor_db_first_second": 26.1,
+    "onsets_after_playback_start_s": {
+     "energy": [],
+     "silero_250ms": [],
+     "silero_150ms": []
+    },
+    "silero": {
+     "silero_250ms": {
+      "speech_windows": 0.0,
+      "max_confidence": 0.653,
+      "ms_per_window": 1.864
+     },
+     "silero_150ms": {
+      "speech_windows": 0.0,
+      "max_confidence": 0.653,
+      "ms_per_window": 1.879
+     }
+    },
+    "clip": "reply-01.wav",
+    "underruns": 0,
+    "first_clip": true
+   },
+   {
+    "play_s": 6.0,
+    "mic_dbfs_median": -89.4,
+    "above_floor_db_median": -4.8,
+    "above_floor_db_p95": 15.8,
+    "above_floor_db_first_second": 3.4,
+    "onsets_after_playback_start_s": {
+     "energy": [],
+     "silero_250ms": [],
+     "silero_150ms": []
+    },
+    "silero": {
+     "silero_250ms": {
+      "speech_windows": 0.0,
+      "max_confidence": 0.51,
+      "ms_per_window": 1.865
+     },
+     "silero_150ms": {
+      "speech_windows": 0.0,
+      "max_confidence": 0.51,
+      "ms_per_window": 1.86
+     }
+    },
+    "clip": "reply-02.wav",
+    "underruns": 0,
+    "first_clip": false
+   },
+   {
+    "play_s": 4.33,
+    "mic_dbfs_median": -85.9,
+    "above_floor_db_median": -1.4,
+    "above_floor_db_p95": 26.4,
+    "above_floor_db_first_second": 30.4,
+    "onsets_after_playback_start_s": {
+     "energy": [],
+     "silero_250ms": [],
+     "silero_150ms": []
+    },
+    "silero": {
+     "silero_250ms": {
+      "speech_windows": 0.0236,
+      "max_confidence": 0.801,
+      "ms_per_window": 1.747
+     },
+     "silero_150ms": {
+      "speech_windows": 0.0236,
+      "max_confidence": 0.801,
+      "ms_per_window": 1.831
+     }
+    },
+    "clip": "reply-03.wav",
+    "underruns": 0,
+    "first_clip": false
+   },
+   {
+    "play_s": 8.24,
+    "mic_dbfs_median": -90.0,
+    "above_floor_db_median": -5.4,
+    "above_floor_db_p95": 23.2,
+    "above_floor_db_first_second": 0.7,
+    "onsets_after_playback_start_s": {
+     "energy": [],
+     "silero_250ms": [
+      4.9
+     ],
+     "silero_150ms": [
+      4.8
+     ]
+    },
+    "silero": {
+     "silero_250ms": {
+      "speech_windows": 0.0449,
+      "max_confidence": 0.883,
+      "ms_per_window": 1.689
+     },
+     "silero_150ms": {
+      "speech_windows": 0.0449,
+      "max_confidence": 0.883,
+      "ms_per_window": 1.728
+     }
+    },
+    "clip": "reply-04.wav",
+    "underruns": 0,
+    "first_clip": false
+   },
+   {
+    "play_s": 4.93,
+    "mic_dbfs_median": -89.7,
+    "above_floor_db_median": -5.1,
+    "above_floor_db_p95": 4.9,
+    "above_floor_db_first_second": -1.1,
+    "onsets_after_playback_start_s": {
+     "energy": [],
+     "silero_250ms": [],
+     "silero_150ms": []
+    },
+    "silero": {
+     "silero_250ms": {
+      "speech_windows": 0.0,
+      "max_confidence": 0.03,
+      "ms_per_window": 1.701
+     },
+     "silero_150ms": {
+      "speech_windows": 0.0,
+      "max_confidence": 0.03,
+      "ms_per_window": 1.707
+     }
+    },
+    "clip": "reply-05.wav",
+    "underruns": 0,
+    "first_clip": false
+   },
+   {
+    "play_s": 5.52,
+    "mic_dbfs_median": -90.4,
+    "above_floor_db_median": -5.8,
+    "above_floor_db_p95": 0.7,
+    "above_floor_db_first_second": -1.2,
+    "onsets_after_playback_start_s": {
+     "energy": [],
+     "silero_250ms": [],
+     "silero_150ms": []
+    },
+    "silero": {
+     "silero_250ms": {
+      "speech_windows": 0.0,
+      "max_confidence": 0.032,
+      "ms_per_window": 1.73
+     },
+     "silero_150ms": {
+      "speech_windows": 0.0,
+      "max_confidence": 0.032,
+      "ms_per_window": 1.759
+     }
+    },
+    "clip": "reply-06.wav",
+    "underruns": 0,
+    "first_clip": false
+   }
+  ]
+ }
+}
