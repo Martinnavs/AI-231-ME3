@@ -153,3 +153,23 @@ def test_key_chatter_is_one_hold() -> None:
     events = [{"kind": "key", "code": code, "value": v, "t": t} for t, v in stamps]
     events += [{"kind": "key", "code": code, "value": v, "t": t} for t, v in [(30.0, 1), (31.0, 0)]]
     assert pp._holds(events, code) == [(22.8, 25.0), (30.0, 31.0)]
+
+
+def run_kofn(pattern: list[float]) -> list[str]:
+    gate = pp.Gate(pp.GateConfig(confidence=0.5, rule="kofn", k=7, n=10))
+    return [ev for c in pattern if (ev := gate.step(c, speaking=True))]
+
+
+def test_kofn_interrupts_despite_dips() -> None:
+    # 9 speech windows with two dips inside: 7 of the last 10 are speech at the 9th window
+    assert run_kofn([0.9, 0.9, 0.1, 0.9, 0.9, 0.9, 0.1, 0.9, 0.9])[-1] == "interrupt"
+
+
+def test_kofn_ignores_a_short_blip() -> None:
+    assert "interrupt" not in run_kofn([0.9] * 6 + [0.1] * 6)
+
+
+def test_kofn_needs_a_speech_window_to_fire() -> None:
+    # 7 of 10 are speech but the newest window is a miss: no interrupt on that window
+    events = run_kofn([0.9] * 6 + [0.1])
+    assert events == ["duck", "restore"]

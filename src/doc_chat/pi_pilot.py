@@ -20,6 +20,7 @@ import select
 import struct
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,22 +52,29 @@ class GateConfig:
     duck_ramp_s: float = 0.005
     fade_s: float = 0.015
     restore_ramp_s: float = 0.045  # 3 x the fade, as in the ticket
+    rule: str = "strict"  # strict: gate_s of unbroken speech; kofn: k of the last n windows
+    k: int = 7
+    n: int = 10
 
 
 class Gate:
     """Duck / restore / interrupt from a stream of Silero confidences (one per 32 ms window).
 
     Only acts while the assistant is speaking. 'Continuous' means any window below the
-    confidence resets the count, as in Pipecat."""
+    confidence resets the count, as in Pipecat. With ``rule='kofn'`` the interrupt instead
+    needs a speech window and at least ``k`` speech windows among the last ``n``; duck and
+    restore are unchanged."""
 
     def __init__(self, cfg: GateConfig | None = None) -> None:
         self.cfg = cfg or GateConfig()
         self.heard = 0.0
         self.state = "idle"  # idle | ducked | interrupted
+        self.recent: deque[bool] = deque(maxlen=self.cfg.n)
 
     def reset(self) -> None:
         self.heard = 0.0
         self.state = "idle"
+        self.recent.clear()
 
     def step(self, conf: float, speaking: bool) -> str | None:
         if not speaking:
@@ -74,13 +82,19 @@ class Gate:
             return None
         if self.state == "interrupted":
             return None
-        if conf >= self.cfg.confidence:
+        hit = conf >= self.cfg.confidence
+        self.recent.append(hit)
+        if hit:
             self.heard += WINDOW_S
             event = None
             if self.state == "idle":
                 self.state = "ducked"
                 event = "duck"
-            if self.heard >= self.cfg.gate_s - 1e-9:
+            if self.cfg.rule == "kofn":
+                done = sum(self.recent) >= self.cfg.k
+            else:
+                done = self.heard >= self.cfg.gate_s - 1e-9
+            if done:
                 self.state = "interrupted"
                 event = "interrupt"
             return event

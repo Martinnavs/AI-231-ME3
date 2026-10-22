@@ -165,3 +165,33 @@ Split at the median hold length (the holds were not clearly two groups, so this 
 - The workaround that works is speaking close to the Pi (5-10 cm): sentences are reliably heard and interrupt about 80% of the time within a second, with no false triggers at 75% volume and the 0.5 gate.
 - A one-word "Stop" is the weak case (about 38% interrupted, and 0 of 4 in the silent-room control at the 250 ms hold). A shorter hold or the 7-of-10 rule recovers some in replay; neither was run live and the false-trigger cost against echo at other volumes is not established.
 - Not shown: word error under AEC, the acoustic time to silence, more than one speaker, and the mic at normal conversational distance. Samples are small (31 barge-ins, one speaker, one room).
+
+## 7-of-10 interrupt rule, live (2026-10-22, night)
+
+The rule was added to the pilot gate (`GateConfig.rule='kofn'`, `k=7`, `n=10`; flags `--rule kofn --k 7 --n 10`; three tests). It changes only when the gate interrupts: on a speech window (confidence >= 0.5) when at least 7 of the last 10 windows were speech. Duck (first speech window) and restore (first window below the confidence) are unchanged, so the audible duck/restore flapping is the same as before.
+
+**Live run** (C, no AEC, 75%, confidence 0.5, owner at 5-10 cm, alternating "Wait, stop, I have a question." and "Stop."; 4 minutes; `out/pi/20261022-210434-pilot-live-c-vol75-close-5-10cm-kofn7of10-conf0-5`, not committed), next to the strict 250 ms run at the same settings:
+
+| | Strict, 250 ms | 7 of the last 10 |
+|---|---|---|
+| Barge-ins over assistant speech | 31 | 36 |
+| Ducked | 27 (87%) | 30 (83%) |
+| Interrupted | 18 (58%) | 24 (67%) |
+| Median s from voice onset to interrupt | 0.67 (p90 1.03) | 0.35 (p90 0.66) |
+| Longer holds (likely sentences) | 12 of 15 (80%) | 17 of 18 (94%), 0.35 s |
+| Shorter holds (likely "Stop") | 6 of 16 (38%) | 7 of 18 (39%) |
+| False ducks / interrupts (outside key holds) | 0 / 0 | 8 / 1 in 2.54 min |
+
+The replay had predicted 21 of 31 (68%) at 0.26 s; the live result agrees. Of the nine outside-hold events, five ducks fall 0.3-1.0 s before one of the owner's key presses (probably the voice starting before the key). Three came right after the assistant resumed `reply-03.wav`, with no key held: ducks at 224.1 s and 225.0 s and the one false interrupt at 225.2 s; the confidence rose from about 0.2 to 0.5-0.6 each time. It cannot be told from the audio whether that was the owner or the assistant's own voice.
+
+**Silent soak** (assistant alone, no keyboard, AEC off, 75%, same rule; 5 minutes; `out/pi/20261022-211307-pilot-live-c-vol75-soak-kofn7of10-conf0-5`): 0 ducks and 0 interrupts in 4.14 min of assistant speech (45 clip plays), highest confidence on its own voice 0.06 (99th percentile 0.01), no window at or above 0.5, 0 underruns. The false interrupt in the live run is therefore probably not the assistant's own voice (these are the same six clips), but that is likely, not proven. The soak bounds the false-interrupt rate to roughly 0.7 per minute at 95% confidence.
+
+## Recommended configuration for the product, and its limits
+
+**Adopt (live runs plus a clean soak):** Silero VAD (about 2 ms per 32 ms window on the Pi 4); confidence 0.5 instead of the spec's 0.7; the 7-of-10 interrupt rule; duck of -15 dB at the first speech window (about 0.12 s); assistant volume 75% with no echo cancellation. Port `Gate.kofn` and its tests from `src/doc_chat/pi_pilot.py` to main's gate; the pilot class is a test harness, not production code.
+
+**Operating envelope:** the user speaks within about 5-10 cm of the microphone (at 0.25-0.5 m the USB mic gives speech only a few dB above its noise); 75% volume without AEC. Raising the volume needs AEC: at 90% without AEC every gate, including the spec's, fails. Keep AEC optional: with it 75% and 90% were mostly clean but 60% was unstable, the round trip jumped between 205 ms and about 950 ms, and the user's onset was delayed by about 1 s, none of which has a verified cause.
+
+**Not supported:** one-word interrupts such as "Stop" (about 39% interrupted live; 0 of 4 in the silent-room control at 250 ms; Silero stays above 0.5 for only 0.06-0.13 s). A shorter hold might recover some, but its false-trigger cost against the echo was not tested. A keyword spotter would need the professor's answer on the "no model on the Pi" rule.
+
+**Not measured:** word error under AEC (needs the laptop scorer), the acoustic time until the speaker is silent (only the 0.09 s processing time and the 15 ms fade), more than one speaker, a different room or background noise, music or other sound at the microphone. All live numbers are one speaker in one room (31 and 36 barge-ins). Next steps in order: repeat the 7-of-10 live run with a second speaker or another distance; measure the acoustic stop time; decide on the one-word case.

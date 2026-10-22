@@ -115,6 +115,14 @@ def main() -> int:
             help="seconds of speech before it interrupts (spec: 0.25)",
         )
         p.add_argument(
+            "--rule",
+            choices=("strict", "kofn"),
+            default="strict",
+            help="strict: --gate-s of unbroken speech; kofn: --k of the last --n windows",
+        )
+        p.add_argument("--k", type=int, default=7)
+        p.add_argument("--n", type=int, default=10)
+        p.add_argument(
             "--simulate", action="store_true", help="no hardware: fake sound card and scripted keys"
         )
     r = sub.add_parser("report")
@@ -174,7 +182,9 @@ def main() -> int:
             keys = pp.EvdevKeys(kbd, grab=not args.no_grab)
         factory = None
 
-    cfg = pp.GateConfig(confidence=args.confidence, gate_s=args.gate_s)
+    cfg = pp.GateConfig(
+        confidence=args.confidence, gate_s=args.gate_s, rule=args.rule, k=args.k, n=args.n
+    )
     assistant = None
     if live:
         clips = {p.name: pc.read_wav(p) for p in sorted(Path(args.clips).glob("reply-*.wav"))}
