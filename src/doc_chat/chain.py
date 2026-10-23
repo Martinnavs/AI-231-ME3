@@ -109,13 +109,32 @@ HistoryFn = Callable[[], list[tuple[str, str]]]
 _SHORT_FOLLOW_UP_WORDS = 5
 
 
+_FOLLOW_UP_STARTS = frozenset(["and", "but", "so", "also", "then", "or"])
+_ANAPHORA = frozenset(
+    [
+        "he", "she", "it", "they", "them", "him", "his", "her", "hers", "its", "their", "theirs",
+        "that", "this", "those", "these", "there", "one", "ones",
+    ]
+)  # fmt: skip
+
+
+def _is_follow_up(question: str) -> bool:
+    """A short question that leans on the previous one: it opens with "and"/"but"/..., or points
+    back with a pronoun ("when was it published?"). "Tell me about the road" names its own
+    subject."""
+    words = re.findall(r"[a-z']+", question.lower())
+    return bool(words) and (words[0] in _FOLLOW_UP_STARTS or any(w in _ANAPHORA for w in words))
+
+
 def retrieval_query(question: str, history: list[tuple[str, str]]) -> str:
     """The text to search the documents with.
 
     A short follow-up ("and her sister?") says nothing on its own, so the previous question is
-    searched with it.
+    searched with it. A short question that names its own subject is searched as asked: gluing the
+    previous question on made "Tell me about The Counselor" (five words) find the book asked about
+    before it, and the model answered "I do not know".
     """
-    if history and len(question.split()) <= _SHORT_FOLLOW_UP_WORDS:
+    if history and len(question.split()) <= _SHORT_FOLLOW_UP_WORDS and _is_follow_up(question):
         return f"{history[-1][0]} {question}"
     return question
 

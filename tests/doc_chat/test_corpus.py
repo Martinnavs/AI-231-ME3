@@ -54,3 +54,17 @@ def test_tokenize_matches_spoken_uppercase_and_plurals():
     assert tokenize("The Horcruxes") == ["horcrux"]
     assert tokenize("Dumbledore's") == ["dumbledore"]
     assert tokenize("WHO KILLED DUMBLEDORE") == ["kill", "dumbledore"]
+
+
+def test_a_title_stub_does_not_outrank_the_paragraph_that_answers(tmp_path: Path) -> None:
+    # BM25 prefers short documents: "# Blood Meridian" alone matched the question best and was
+    # handed to the model instead of the paragraph about the book
+    (tmp_path / "bm.md").write_text(
+        "# Blood Meridian\n\n"
+        "Blood Meridian is a 1985 novel by Cormac McCarthy about a gang of scalp hunters on the "
+        "Texas-Mexico border in 1849, led by John Joel Glanton and shadowed by the judge.\n",
+        encoding="utf-8",
+    )
+    chunks = load_and_split_corpus(tmp_path, chunk_size=500, chunk_overlap=50)
+    assert chunks and all(len(c.page_content.strip()) >= 60 for c in chunks)
+    assert any("scalp hunters" in c.page_content for c in chunks)

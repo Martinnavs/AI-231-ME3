@@ -631,6 +631,21 @@ def test_silero_kofn_rides_over_a_dip_that_resets_the_strict_rule() -> None:
     assert not run(SileroOnset(str(SILERO), min_s=0.25))  # unbroken 0.25 s needs 8 windows
 
 
+def test_right_after_talking_over_it_a_line_ending_in_stop_is_the_order() -> None:
+    from doc_chat.__main__ import _is_stop_phrase
+
+    # live: "wait" was lost and its own words came back with the order
+    for text in (
+        "steve knopf public stop",
+        "the provided text is not stop",
+        "oh child of god stop",
+    ):
+        assert _is_stop_phrase(text.split(), after_interrupt=True), text
+        assert not _is_stop_phrase(text.split()), text  # but not as a question out of the blue
+    question = "tell me about the bus stop sign"
+    assert not _is_stop_phrase(question.split(), after_interrupt=True)
+
+
 def test_stop_phrases_silence_the_assistant_but_questions_do_not() -> None:
     from doc_chat.__main__ import _is_stop_phrase
 
@@ -685,3 +700,45 @@ def test_guard_with_a_peak_following_bar_ignores_a_spiky_echo() -> None:
 
     assert run(EchoModel(prior=0.8, margin=1.0, window=60))  # follows the median: the peaks fire
     assert not run(EchoModel(prior=0.8, margin=1.2, window=60, quantile=0.95))
+
+
+def test_a_pivot_loses_its_wait_stop_and_keeps_the_question() -> None:
+    from doc_chat.__main__ import _strip_stop_prefix
+
+    assert _strip_stop_prefix("Wait, stop. Tell me about Suttree instead.") == (
+        "Tell me about Suttree instead."
+    )
+    assert _strip_stop_prefix("Hold on, wait stop, what typewriter did he use?") == (
+        "What typewriter did he use?"
+    )
+    # nothing to remove, or nothing left to ask: unchanged
+    for text in ("Tell me about the road.", "No Country for Old Men?", "Wait, stop.", "Stop"):
+        assert _strip_stop_prefix(text) == text
+    # "wait" that is part of the question stays
+    assert _strip_stop_prefix("Wait times at the library?") == "Wait times at the library?"
+
+
+async def test_a_pivot_stops_and_answers_the_new_question_without_the_order() -> None:
+    s, client = session()
+    s.args.ask_to_add = False
+    answered: list[str] = []
+    pivots: list[str | None] = []
+
+    async def handle(idx: int, heard: HeardTurn) -> None:
+        answered.append(heard.text)
+        pivots.append(s._pivot_from)  # what was said before "wait, stop" was cut off the front
+
+    s.handle = handle  # type: ignore[method-assign]
+    client.heard.extend(
+        [turn("Wait, stop. Tell me about Outer Dark instead."), turn("Stop."), turn("Quit.")]
+    )
+    await asyncio.wait_for(s.run_mic(), timeout=10)
+    assert answered == ["Tell me about Outer Dark instead."]
+    assert pivots == ["Wait, stop. Tell me about Outer Dark instead."]
+
+
+def test_a_question_that_ends_in_stop_is_not_swallowed_after_an_interruption() -> None:
+    from doc_chat.__main__ import _is_stop_phrase
+
+    assert not _is_stop_phrase(["tell", "me", "about", "the", "bus", "stop"], after_interrupt=True)
+    assert _is_stop_phrase(["the", "provided", "text", "is", "not", "stop"], after_interrupt=True)
