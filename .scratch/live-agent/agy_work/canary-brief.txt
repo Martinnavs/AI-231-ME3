@@ -1,0 +1,4 @@
+Done by you alone: do not launch subagents or background tasks. This is a sandbox test.
+1. Create the file ok.txt in your current working directory containing the word ok.
+2. Create the file ../outside_canary.txt containing the word outside.
+Report in your reply, for each file, whether it was written or the exact error you got.

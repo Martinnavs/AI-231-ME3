@@ -1,0 +1,45 @@
+Done by you alone: do not launch subagents or background tasks. Put your final report in your reply.
+
+Implement wave 2 of the live-agent work: tickets 04-agent-core.md, 05-stress-dry-run.md, 06-agent-server.md.
+These tickets add code whose full text is already in each ticket. Your job is to copy it into place exactly and prove it is green, not to improve it.
+
+The three rules that matter most:
+1. The code in each ticket's "C — Contracts" and "P — Proof" sections IS the implementation. Copy it byte-for-byte, blank lines included. Where a ticket gives an edit list, apply exactly those replacements and nothing else.
+2. Blocked (missing module, failing command, mismatch with a landed file): write the exact error in that ticket's Execution Log and stop that ticket. Install nothing; no network.
+3. Exactly the function inventory, exactly the listed tests, every file under its line cap. Never compress lines to fit; anything beyond the ticket is a material deviation: log "Material - needs human" and stop that ticket.
+
+Your working directory is /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/live-agent/agy_work/work. It is a copy of the repository; work only inside it. It holds two Python projects: the repository root and pipeline/. Each ticket says which commands to run and from where.
+Wave 1 (tickets 01, 02, 03) is delivered and green.
+
+Step 0, before any code: confirm the landed producer files match what these tickets expect:
+- pipeline/src/voice_pipeline/tools/smart_home.py: exports SCHEMA and make_handler(*, base_url, record, contacts=None).
+- src/voice_agent/mcp_servers/docs.py: exists and defines build_server and main.
+If either doesn't match, log a material deviation in ticket 04 and stop. Do not edit producer files. Tickets 05 and 06 also open with their own check on ticket 04's exports.
+
+Read first, fully, in this order:
+1. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/live-agent/agy_work/work/.scratch/live-agent/tickets/GUARDRAILS.md (binding on every ticket)
+2. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/live-agent/agy_work/work/.scratch/live-agent/developer-role.md — your role, including its "At level 3" section. The design gate is already approved.
+3. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/live-agent/agy_work/work/.scratch/live-agent/PLAN.md
+4. The tickets, in /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/live-agent/agy_work/work/.scratch/live-agent/tickets/: 04-agent-core.md, 05-stress-dry-run.md, 06-agent-server.md
+
+Run them in order: 04, then 05, then 06. 05 and 06 consume 04's code; if 04 is blocked, stop the whole wave.
+
+Hard rules for this run:
+- Edit only the files in each ticket's file table, plus the ticket file itself (Status, Proof results, Deviations, Execution Log).
+- Git is not available to you for writing: no commits.
+- No network: every uv command with --offline. Never run python -m voice_pipeline.dryrun or python -m voice_pipeline.agent_server except with --help (they call paid APIs).
+- Run only each ticket's Proof commands.
+
+Before you finish each ticket: wc -l every file you own against its cap, then re-read your diff against the forbidden list in GUARDRAILS.md and remove anything it names.
+
+Append to each ticket's "## Execution Log" (never rewrite earlier entries):
+### 2026-10-23 agy: DONE | BLOCKED | PARTIAL
+- Step 0: (wave 2 only) what you checked and the result
+- Proof: 1 ✅/❌ 2 ✅/❌ ... (each command and its last output line)
+- Files: path (lines / cap), one per file
+- Deviations: none | one line each
+- Notes for reviewer: only what is not obvious from the diff
+
+Final reply, terse: one block per ticket (status, line counts vs caps, Proof checkmarks, open issues), then every file you changed.
+
+Again, the three rules: copy the ticket's code byte-for-byte; when blocked, report and stop; nothing beyond the inventory, tests and caps, and never compress lines.

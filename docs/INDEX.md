@@ -16,6 +16,8 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `SILERO-SPEECH-COMMANDS.md` | laptop test: Silero does hear a clean one-word "stop" (so the Pi's low confidence is not the model); the 250 ms hold costs short words |
 | `BRANCHES.md` | the three branches, how they relate, how to land them, how to resolve conflicts |
 | `ECHO-RESEARCH.md` | how assistants and frameworks handle echo and barge-in; how far to trust the report |
+| `LIVE-AGENT.md` | the agent (smart_home + docs MCP server) in the live voice loop: what was built, the stress dry run, the two spoken sessions (latency, tool routing, interruptions) and what broke (echo in the transcripts) |
+| `AEC-REMOTE-SPEAKER.md` | echo cancellation across two devices (laptop mic, Pi speaker): the 137 ppm clock drift, offline results on real recordings, what is not shown |
 | `SMART-HOME-TOOL.md` | the one `smart_home` tool for the 19 ME2 commands, the separate Pipecat project `pipeline/`, and the LLM choice: native Gemini 3.1 flash-lite + router prompt 50/50, first reply 0.52 s (plain) / 1.31 s (tool) |
 
 ## Speech and the test client
