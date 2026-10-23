@@ -1,0 +1,9 @@
+{
+  "contacts": [
+    {"name": "Anna", "relation": "sister"},
+    {"name": "Ben", "relation": "brother"},
+    {"name": "Mom", "relation": "mother"},
+    {"name": "Dr. Reyes", "relation": "dentist"},
+    {"name": "Carlo", "relation": "friend"}
+  ]
+}

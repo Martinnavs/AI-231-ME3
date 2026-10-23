@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Pipecat side of the voice agent: LLM, tools, pipeline. Separate from the root project because pipecat-ai pins onnxruntime~=1.24 and soundfile~=0.13, which the speech side must not take."
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "pipecat-ai[google,openai]==1.13.0",
+    "pipecat-ai[google,mcp,openai]==1.13.0",
     "httpx>=0.27",
 ]
 

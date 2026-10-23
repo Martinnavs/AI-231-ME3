@@ -40,7 +40,7 @@ async def test_handler_missing_slot() -> None:
     record, results = await _call({"intent": "TIMER"})
     assert record == [{"intent": "TIMER", "slot": None}]
     assert results[0]["ok"] is False
-    assert "1 minute" in results[0]["message"]
+    assert "45 minutes" in results[0]["message"]
 
 
 async def test_handler_unknown_intent() -> None:
@@ -65,3 +65,20 @@ async def test_handler_posts_to_dashboard(monkeypatch: pytest.MonkeyPatch) -> No
     assert seen[0].url.path == "/api/command"
     assert seen[0].read() == b'{"intent":"COLOR","slots":{"COLOR":"red"}}'
     assert results == [{"ok": True, "changed": True, "message": "color -> red"}]
+
+
+def test_schema_lists_the_phonebook() -> None:
+    schema = smart_home.make_schema([{"name": "Anna", "relation": "sister"}])
+    assert "Anna (sister)" in schema.description
+
+
+async def test_handler_rejects_unknown_contact() -> None:
+    record, results = await _call({"intent": "CALL", "slot": "Gary"})
+    assert record == [{"intent": "CALL", "slot": "Gary"}]
+    assert results[0]["ok"] is False
+    assert "not in the phonebook" in results[0]["message"]
+
+
+async def test_handler_accepts_contact_in_any_case() -> None:
+    _, results = await _call({"intent": "MESSAGE", "slot": "anna"})
+    assert results == [{"ok": True, "message": "recorded"}]

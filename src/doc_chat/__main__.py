@@ -873,6 +873,10 @@ async def async_main(args: argparse.Namespace) -> int:
         if args.echo_text:
             echo_args["passage"] = Path(args.echo_text).read_text(encoding="utf-8")
         llm = EchoChatModel(**echo_args)
+    elif args.llm == "agent":
+        from doc_chat.agent_client import AgentChatModel
+
+        llm = AgentChatModel(url=args.agent_url, timeout=args.llm_timeout)
     elif args.llm == "gemini":
         from doc_chat.gemini import build_gemini_chat_model
 
@@ -1035,10 +1039,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--llm",
-        choices=["none", "qwen", "gemini", "echo"],
+        choices=["none", "qwen", "gemini", "echo", "agent"],
         default="none",
-        help="LLM backend: none, qwen, gemini, or echo (no model: repeats what it heard, then "
-        "reads a fixed passage, for testing speech and interruptions). Default: none",
+        help="LLM backend: none, qwen, gemini, echo (no model: repeats what it heard, then "
+        "reads a fixed passage, for testing speech and interruptions), or agent (the Pipecat "
+        "agent server in pipeline/, with tools; use with --no-docs). Default: none",
+    )
+    parser.add_argument(
+        "--agent-url",
+        default="ws://127.0.0.1:8781",
+        help="with --llm agent: the agent server (default: ws://127.0.0.1:8781)",
     )
     parser.add_argument(
         "--no-docs",
@@ -1238,7 +1248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.ask_to_add and not args.mic:
         print("--ask-to-add needs --mic", file=sys.stderr)
         return 2
-    if (args.no_docs or args.stream) and args.llm not in ("qwen", "gemini", "echo"):
+    if (args.no_docs or args.stream) and args.llm not in ("qwen", "gemini", "echo", "agent"):
         print("--no-docs and --stream need --llm qwen or --llm gemini", file=sys.stderr)
         return 2
     try:
