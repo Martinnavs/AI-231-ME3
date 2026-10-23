@@ -59,7 +59,8 @@ async def serve_speaker(
                     if player is not None:
                         player.push(msg)
                     continue
-                kind = json.loads(msg).get("type")
+                data = json.loads(msg)
+                kind = data.get("type")
                 if kind == "begin":
                     if player is not None:
                         await asyncio.to_thread(player.close)
@@ -68,6 +69,8 @@ async def serve_speaker(
                     player.abort()
                     await asyncio.to_thread(player.close)
                     player = None
+                elif kind == "gain" and player is not None:
+                    player.set_gain(float(data["db"]))
                 elif kind == "end" and player is not None:
                     await asyncio.to_thread(player.close)
                     player = None

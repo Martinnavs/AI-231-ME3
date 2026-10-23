@@ -134,9 +134,10 @@ class MicHub:
     piles up and is thrown away with `drain` (it is the assistant's own voice, mostly).
     """
 
-    def __init__(self, rate: int = 16000, block_ms: int = 100) -> None:
+    def __init__(self, rate: int = 16000, block_ms: int = 100, canceller: Any = None) -> None:
         self.rate = rate
         self.block_ms = block_ms
+        self._canceller = canceller  # an EchoCanceller: every block goes through it, in order
         self._queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._stream: Any = None
 
@@ -146,7 +147,7 @@ class MicHub:
         loop = asyncio.get_running_loop()
 
         def on_audio(indata: Any, frames: int, time_info: Any, status: Any) -> None:
-            loop.call_soon_threadsafe(self._queue.put_nowait, bytes(indata))
+            loop.call_soon_threadsafe(self._take, bytes(indata))
 
         self._stream = sd.RawInputStream(
             samplerate=self.rate,
@@ -156,6 +157,9 @@ class MicHub:
             callback=on_audio,
         )
         self._stream.start()
+
+    def _take(self, block: bytes) -> None:
+        self._queue.put_nowait(self._canceller.process(block) if self._canceller else block)
 
     def stop(self) -> None:
         if self._stream is not None:
@@ -200,6 +204,7 @@ class DocChatSpeechClient:
         self._noise = NoiseFloor()
         self._current_context: int = 0
         self.hub: MicHub | None = None  # set to listen to the microphone across turns
+        self.canceller: Any = None  # an EchoCanceller, handed to every remote player
         self._active_speak_task: asyncio.Task[Any] | None = None
 
     @property
