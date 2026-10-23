@@ -1,13 +1,21 @@
-"""One LLM tool for the 19 ME2 home commands, sent to the ME2 dashboard's POST /api/command."""
+"""One LLM tool for the 19 ME2 home commands, sent to the ME2 dashboard's POST /api/command.
+
+Slot values are open (any time, duration, temperature, colour, brightness, reminder text), except
+CALL and MESSAGE, whose slot must be a contact in the JSON phonebook.
+"""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.services.llm_service import FunctionCallParams
+
+PHONEBOOK = Path(__file__).resolve().parents[3] / "config" / "phonebook.json"
 
 INTENTS: tuple[str, ...] = (
     "PLAY_MUSIC",
@@ -38,36 +46,53 @@ SLOT_FOR_INTENT: dict[str, str] = {
     "TIMER": "DURATION",
     "ALARM": "ALARM_TIME",
     "CREATE_REMINDER": "TASK",
+    "CALL": "CONTACT",
+    "MESSAGE": "CONTACT",
 }
 
-SLOT_VALUES: dict[str, str] = {
-    "BRIGHTNESS": "'20 percent', '60 percent', '100 percent'",
-    "COLOR": "'white', 'red', 'green', 'blue'",
-    "TEMPERATURE": "'18 degrees', '22 degrees', '26 degrees'",
-    "TIMER": "'10 seconds', '30 seconds', '1 minute'",
-    "ALARM": "'6 AM', '8 AM', '9 PM'",
-    "CREATE_REMINDER": "'drink water', 'study', 'exercise'",
+SLOT_HINTS: dict[str, str] = {
+    "BRIGHTNESS": "a percentage, like '40 percent'",
+    "COLOR": "any colour, like 'purple' or 'warm white'",
+    "TEMPERATURE": "degrees, like '24 degrees'",
+    "TIMER": "a duration, like '45 minutes' or '1 hour 30 minutes'",
+    "ALARM": "a clock time, like '6:30 AM' or '7:15 PM'",
+    "CREATE_REMINDER": "what to be reminded of, in the user's words",
+    "CALL": "a contact name from the phonebook",
+    "MESSAGE": "a contact name from the phonebook",
 }
 
-SCHEMA = FunctionSchema(
-    name="smart_home",
-    description=(
-        "Control or check the home: lights, colour, brightness, music, volume, thermostat, "
-        "timer, alarm, reminders, phone call, message, time, weather. One call per command. "
-        "Intents that need a slot, with the values the home accepts: "
-        + "; ".join(f"{intent}: {values}" for intent, values in SLOT_VALUES.items())
-        + ". Every other intent takes no slot."
-    ),
-    properties={
-        "intent": {"type": "string", "enum": list(INTENTS)},
-        "slot": {
-            "type": "string",
-            "description": "The value for BRIGHTNESS, COLOR, TEMPERATURE, TIMER, ALARM or "
-            "CREATE_REMINDER, written like the listed values. Omit for other intents.",
+
+def load_phonebook(path: Path = PHONEBOOK) -> list[dict[str, str]]:
+    """The contacts: [{"name": ..., "relation": ...}, ...]."""
+    contacts: list[dict[str, str]] = json.loads(path.read_text())["contacts"]
+    return contacts
+
+
+def make_schema(contacts: list[dict[str, str]]) -> FunctionSchema:
+    """The smart_home function schema; the phonebook names go into its description."""
+    phonebook = ", ".join(f"{c['name']} ({c['relation']})" for c in contacts)
+    return FunctionSchema(
+        name="smart_home",
+        description=(
+            "Control or check the home: lights, colour, brightness, music, volume, thermostat, "
+            "timer, alarm, reminders, phone call, message, time, weather. One call per command. "
+            "Intents that need a slot, and its form: "
+            + "; ".join(f"{intent}: {hint}" for intent, hint in SLOT_HINTS.items())
+            + f". Phonebook: {phonebook}. Every other intent takes no slot."
+        ),
+        properties={
+            "intent": {"type": "string", "enum": list(INTENTS)},
+            "slot": {
+                "type": "string",
+                "description": "The value for BRIGHTNESS, COLOR, TEMPERATURE, TIMER, ALARM, "
+                "CREATE_REMINDER, CALL or MESSAGE, in the form listed. Omit for other intents.",
+            },
         },
-    },
-    required=["intent"],
-)
+        required=["intent"],
+    )
+
+
+SCHEMA = make_schema(load_phonebook())
 
 
 def to_command(intent: str, slot: str | None) -> dict[str, Any]:
@@ -77,9 +102,13 @@ def to_command(intent: str, slot: str | None) -> dict[str, Any]:
 
 
 def make_handler(
-    *, base_url: str | None, record: list[dict[str, Any]]
+    *,
+    base_url: str | None,
+    record: list[dict[str, Any]],
+    contacts: list[dict[str, str]] | None = None,
 ) -> Callable[[FunctionCallParams], Awaitable[None]]:
     """Handler that records every call, and posts it to the dashboard when base_url is set."""
+    names = {c["name"].lower(): c["name"] for c in contacts or load_phonebook()}
 
     async def handler(params: FunctionCallParams) -> None:
         intent = str(params.arguments.get("intent", ""))
@@ -88,7 +117,10 @@ def make_handler(
         if intent not in INTENTS:
             result: dict[str, Any] = {"ok": False, "message": f"unknown intent {intent}"}
         elif intent in SLOT_FOR_INTENT and not slot:
-            result = {"ok": False, "message": f"{intent} needs a value: {SLOT_VALUES[intent]}"}
+            result = {"ok": False, "message": f"{intent} needs a value: {SLOT_HINTS[intent]}"}
+        elif intent in ("CALL", "MESSAGE") and str(slot).lower() not in names:
+            known = ", ".join(names.values())
+            result = {"ok": False, "message": f"{slot} is not in the phonebook ({known})"}
         elif base_url is None:
             result = {"ok": True, "message": "recorded"}
         else:

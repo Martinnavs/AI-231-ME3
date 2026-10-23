@@ -1,4 +1,4 @@
-.PHONY: check test pipeline-sync pipeline-check pipeline-test smart-home-dryrun check-all test-all
+.PHONY: check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all
 
 # Root project: speech side (lan_speech, doc_chat, audio_engine, bench, voice_agent).
 check:
@@ -20,12 +20,14 @@ pipeline-check:
 pipeline-test:
 	cd pipeline && uv run pytest -q
 
-# Dry run of the smart_home tool against real LLMs (reads API keys from ~/.secrets; costs cents).
-# MODELS=groq-8b,gemini-lite,groq-70b  LIMIT=<n prompts>  LIVE=<ME2 dashboard URL, optional>
-MODELS ?= groq-8b,gemini-lite,groq-70b
-smart-home-dryrun:
-	cd pipeline && uv run python -m voice_pipeline.dryrun --models $(MODELS) \
-		$(if $(LIMIT),--limit $(LIMIT)) $(if $(LIVE),--live $(LIVE))
+# The agent (native Gemini, smart_home + the docs MCP server); reads API keys from ~/.secrets.
+# Stress dry run over pipeline/config/eval/agent_prompts.jsonl (costs cents). LIMIT=<n prompts>
+agent-dryrun:
+	cd pipeline && uv run python -m voice_pipeline.dryrun $(if $(LIMIT),--limit $(LIMIT))
+
+# Agent server for `doc_chat --llm agent` (ws://127.0.0.1:8781). LIVE=<ME2 dashboard URL, optional>
+agent-server:
+	cd pipeline && uv run python -m voice_pipeline.agent_server $(if $(LIVE),--live $(LIVE))
 
 check-all: check pipeline-check
 
