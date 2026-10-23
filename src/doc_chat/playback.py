@@ -36,6 +36,7 @@ class Player:
         self._slice = max(int(sample_rate * SLICE_S), 1) * 2  # bytes of 16-bit mono
         self._rate = sample_rate
         self.underruns = 0  # slices the device had to wait for (heard as a stutter)
+        self._pushed_s = 0.0  # seconds of audio queued so far: how long `close` may have to wait
         self._stream: Any = sd.RawOutputStream(samplerate=sample_rate, channels=1, dtype="int16")
         self._stream.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -89,6 +90,7 @@ class Player:
         return max((lv for t, lv in list(self._levels) if now - t <= window_s), default=0.0)
 
     def push(self, pcm: bytes) -> None:
+        self._pushed_s += len(pcm) / 2 / self._rate
         self._queue.put(pcm)
 
     def abort(self) -> None:
@@ -99,12 +101,37 @@ class Player:
                 self._queue.get_nowait()
 
     def close(self) -> None:
+        """Return when everything pushed has been played (or at once after `abort`).
+
+        The caller treats "closed" as "the assistant has stopped talking" and starts listening, so
+        returning while seconds of a long reply are still coming out of the speaker makes the
+        assistant hear itself. The wait is bounded by the reply's own length, so a stuck device
+        cannot hold it for long."""
         self._queue.put(None)
-        self._thread.join(timeout=2.0)  # never wait on a stuck device for long
+        self._thread.join(timeout=self._pushed_s + 2.0)
         with contextlib.suppress(Exception):
             if not self._aborted.is_set():  # a cut-off already stopped it, from the writing thread
                 self._stream.stop()
             self._stream.close()
+
+
+def mix_beep(
+    pcm: bytes, offset: int, rate: int, at_s: float, length_s: float = 0.3, hz: float = 880.0
+) -> bytes:
+    """Mix a short tone into a chunk of a reply: the cue to talk over it, for measuring barge-in.
+
+    ``offset`` is the number of samples of the reply before this chunk; the tone covers
+    ``length_s`` from ``at_s`` into the reply, so it can fall in one chunk or be split across
+    two. The reply under it is turned down so the tone is clearly the loudest thing."""
+    start, stop = int(at_s * rate), int((at_s + length_s) * rate)
+    n = len(pcm) // 2
+    lo, hi = max(start - offset, 0), min(stop - offset, n)
+    if lo >= hi:
+        return pcm
+    x = np.frombuffer(pcm[: n * 2], dtype=np.int16).astype(np.float32)
+    t = (np.arange(lo, hi) + offset - start) / rate
+    x[lo:hi] = np.clip(x[lo:hi] * 0.2 + 0.3 * 32767 * np.sin(2 * np.pi * hz * t), -32768, 32767)
+    return x.astype(np.int16).tobytes() + pcm[n * 2 :]
 
 
 # ---- a speaker on another machine (the Pi), reached over the LAN ----
@@ -154,6 +181,8 @@ class RemotePlayer:
         self._aborted = threading.Event()
         self._levels: deque[tuple[float, float]] = deque(maxlen=64)
         self.underruns = 0
+        self._pushed_s = 0.0
+        self._tts_rate = sample_rate
         self._speaker.send(json.dumps({"type": "begin"}))
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -199,6 +228,7 @@ class RemotePlayer:
         return max((lv for t, lv in list(self._levels) if 0 <= now - t <= window_s), default=0.0)
 
     def push(self, pcm: bytes) -> None:
+        self._pushed_s += len(pcm) / 2 / self._tts_rate
         self._queue.put(pcm)
 
     def abort(self) -> None:
@@ -210,8 +240,13 @@ class RemotePlayer:
             self._speaker.send(json.dumps({"type": "abort"}))
 
     def close(self) -> None:
+        """Return when everything pushed has been sent *and played* (or at once after `abort`).
+
+        Slices are sent `REMOTE_LEAD_S` ahead of playing, so after the last one is sent the Pi
+        still has that much to play, plus its device buffer. See `Player.close`."""
         self._queue.put(None)
-        self._thread.join(timeout=2.0)
+        self._thread.join(timeout=self._pushed_s + 2.0)
+        self._aborted.wait(REMOTE_LEAD_S + 0.1)  # the tail still playing at the Pi (not if aborted)
 
 
 _remote: dict[str, RemoteSpeaker] = {}

@@ -148,3 +148,16 @@ def test_the_player_reports_how_loud_it_is_playing(stream: Any) -> None:
     p.close()
     time.sleep(0.4)
     assert p.level_recent() == 0.0  # silent again once nothing was written for a while
+
+
+def test_close_waits_for_a_reply_longer_than_two_seconds(stream: Any) -> None:
+    # the caller starts listening when close returns: it must not return with seconds still playing
+    from doc_chat.playback import Player
+
+    p = Player(SR)
+    n = int(SR * 2.4)
+    p.push(b"\x00\x00" * n)  # 2.4 s, played at real speed by the fake device
+    t0 = time.perf_counter()
+    p.close()
+    assert time.perf_counter() - t0 >= 2.3
+    assert stream[0].written == n * 2

@@ -605,3 +605,27 @@ def test_silero_kofn_rides_over_a_dip_that_resets_the_strict_rule() -> None:
 
     assert run(SileroOnset(str(SILERO), min_s=0.25, kofn=(7, 10)))
     assert not run(SileroOnset(str(SILERO), min_s=0.25))  # unbroken 0.25 s needs 8 windows
+
+
+def test_stop_phrases_silence_the_assistant_but_questions_do_not() -> None:
+    from doc_chat.__main__ import _is_stop_phrase
+
+    for yes in (
+        "stop",
+        "wait stop",
+        "stop wait",
+        "hold on please",
+        "wait wait",
+        "ok stop it",
+        "enough",
+    ):
+        assert _is_stop_phrase(yes.split()), yes
+    for no in (
+        "why did the stop sign",
+        "tell me about the road",
+        "on it",
+        "please",
+        "wait for me to finish my long question",
+        "",
+    ):
+        assert not _is_stop_phrase(no.split()), no

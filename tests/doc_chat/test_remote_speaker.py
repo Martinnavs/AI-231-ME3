@@ -130,3 +130,34 @@ def test_a_second_reply_gets_a_fresh_player(pi: Any) -> None:
 def test_wrong_token_is_refused(pi: Any) -> None:
     with pytest.raises(Exception):  # noqa: B017,PT011 - websockets raises InvalidStatus
         RemoteSpeaker(f"ws://127.0.0.1:{PORT}", "wrong")
+
+
+def test_remote_close_waits_until_the_pi_has_played_a_long_reply(pi: Any) -> None:
+    speaker = RemoteSpeaker(f"ws://127.0.0.1:{PORT}", "secret")
+    player = RemotePlayer(speaker, 44100)
+    player.push(tone(3.0))
+    t0 = time.perf_counter()
+    player.close()
+    # slices go out 0.25 s ahead of playing, and close adds that lead back: about 3 s in all
+    assert time.perf_counter() - t0 >= 2.9
+    assert wait_for(lambda: FakePlayer.instances and FakePlayer.instances[0].closed)
+    assert abs(FakePlayer.instances[0].bytes / 2 - 3 * DEVICE_RATE) < 400
+    speaker.close()
+
+
+def test_mix_beep_covers_the_right_samples_even_across_two_chunks() -> None:
+    from doc_chat.playback import mix_beep
+
+    rate = 16000
+    quiet = (np.ones(rate * 2, dtype=np.int16) * 100).tobytes()  # 2 s of a faint constant
+    whole = np.frombuffer(mix_beep(quiet, 0, rate, 0.5), dtype=np.int16)
+    loud = np.nonzero(np.abs(whole) > 1000)[0]
+    assert loud.min() >= int(0.5 * rate) and loud.max() < int(0.8 * rate) + 1
+    assert abs(len(loud) - int(0.3 * rate)) < rate // 100 * 4  # a sine crosses zero: nearly all
+    # the same reply split in two chunks gives the same samples
+    cut = int(0.65 * rate) * 2
+    a = mix_beep(quiet[:cut], 0, rate, 0.5)
+    b = mix_beep(quiet[cut:], cut // 2, rate, 0.5)
+    assert np.array_equal(np.frombuffer(a + b, dtype=np.int16), whole)
+    # a chunk that does not reach the beep is returned untouched
+    assert mix_beep(quiet[:1000], 0, rate, 0.5) == quiet[:1000]
