@@ -9,6 +9,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `HANDOFF.md` | the map: state, findings, decisions, open questions, next actions, working agreements |
 | `PI-TEST-PLAN.md` | runbook for the Raspberry Pi echo test (what to run, how to read it, what each outcome means) |
 | `PI-RESULTS.md` | what the Pi echo test showed (split mic/speaker, with and without software AEC), and what it did not |
+| `PI-BRIDGE.md` | the Pi microphone and speaker with the laptop's STT and TTS over a cable: how to run it, the traps hit, and the measured latency (2.0 s to sound) |
 | `RESEARCH-HANDOFF-PI.md` | **for the Pi agent**: research status after the Pi test, closed leads, verified sources, next experiments in order |
 | `SILERO-SPEECH-COMMANDS.md` | laptop test: Silero does hear a clean one-word "stop" (so the Pi's low confidence is not the model); the 250 ms hold costs short words |
 | `BRANCHES.md` | the three branches, how they relate, how to land them, how to resolve conflicts |

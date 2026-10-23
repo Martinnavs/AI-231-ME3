@@ -152,6 +152,18 @@ class SileroOnset:
         self.last_confidence = 0.0
         self.history: list[float] | None = [] if keep_history else None  # one value per window
 
+    def reset(self) -> None:
+        """Forget what was heard, as a new instance would, without reloading the model (slow on
+        a Pi: building the session costs about 200 ms)."""
+        np = self._np
+        self._state = np.zeros((2, 1, 128), dtype="float32")
+        self._context = np.zeros((1, self.CONTEXT), dtype="float32")
+        self._pending = np.zeros(0, dtype="float32")
+        self._speech_s = 0.0
+        self.last_confidence = 0.0
+        if self.history is not None:
+            self.history.clear()
+
     def _confidence(self, window: object) -> float:
         np = self._np
         x = np.concatenate((self._context, np.asarray(window)[None, :]), axis=1)

@@ -472,3 +472,22 @@ def test_silero_needs_the_speech_to_last_the_minimum_time() -> None:
     hits = [v.feed(block(0.1)) for _ in range(5)]
     assert hits[:2] == [False, True] or hits[0] is False  # 100 ms blocks: 3 windows = 96 ms each
     assert hits[-1] is True
+
+
+@needs_silero
+def test_silero_reset_matches_a_fresh_instance() -> None:
+    from doc_chat.bargein import SileroOnset
+
+    rng = np.random.default_rng(1)
+    audio = (rng.normal(0, 0.05, SR) * 32767).astype(np.int16).tobytes()
+    fresh = SileroOnset(str(SILERO), keep_history=True)
+    for i in range(0, len(audio), 3200):
+        fresh.feed(audio[i : i + 3200])
+    reused = SileroOnset(str(SILERO), keep_history=True)
+    for i in range(0, len(audio), 3200):  # leave state behind, then wipe it
+        reused.feed(audio[i : i + 3200])
+    reused.reset()
+    assert reused.history == [] and reused.last_confidence == 0.0
+    for i in range(0, len(audio), 3200):
+        reused.feed(audio[i : i + 3200])
+    assert reused.history == fresh.history
