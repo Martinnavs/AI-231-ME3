@@ -1,6 +1,6 @@
 # Handoff: laptop speech, the doc_chat test client, interruptions, the Pi, and the Pi-as-loudspeaker setup
 
-**First written:** 2026-10-21; **updated:** 2026-10-23 (Philippine time). **Tip of the stack:** branch `agy/interrupts`; `origin/agy/interrupts` is at `ec221a7` (pushed); later local commits (the McCarthy corpus, the playback and stop-phrase fixes, the guard calibration) are not pushed, see `git log origin/agy/interrupts..`. **Tests at the tip:** 562 pass, 9 skipped, 2 xfailed, 1 fails (see section 0); ruff and mypy clean on everything touched.
+**First written:** 2026-10-21; **updated:** 2026-10-23 (Philippine time). **Tip of the stack:** branch `agy/interrupts`, pushed (68 commits ahead of `main`; the last pushed commit when this was written is `ca8ca21`; `git log origin/agy/interrupts -1` shows the current one). **Tests at the tip:** 597 pass, 9 skipped, 2 xfailed, 1 fails (the known `test_flow` case, see section 0); the Pipecat project passes its own 16 (`make pipeline-test`); ruff and mypy clean; ruff and mypy clean on everything touched.
 **Audience:** the owner picking this up on the Raspberry Pi, or any person or AI assistant continuing the work with no memory of how it got here. Everything needed is in the repository; this file is the map.
 
 ---
@@ -8,6 +8,15 @@
 ## 0. Status as of 2026-10-23 (read this first)
 
 Sections 1-11 were written on 2026-10-21, before the Pi was tested. This section says what happened since; where it disagrees with a later section, this one wins (the later sections are updated below where it matters).
+
+**Resume here (written at the end of 2026-10-23, Philippine time).**
+
+* **The repository** is committed and pushed; nothing of value is only on the laptop except recordings under `out/` (git-ignored). Gates at the tip: `ruff`, `ruff format --check`, `mypy` clean; `uv run --group laptop pytest -q` 597 passed, 9 skipped, 2 xfailed, 1 failed (known); `make pipeline-check pipeline-test` clean, 16 passed.
+* **Nothing is running.** The speech server, the agent server and the Pi speaker were all stopped. Start them in this order (commands in section 9): fresh speech token on both sides, the Pi speaker, the speech server, `make agent-server`, then `doc_chat`. The Pi speaker stops itself after 2 hours; the agent server must be running whenever someone speaks, or every answer fails with "Sorry, I couldn't reach the language model".
+* **What was done after the Pi work**, each with its own document: the pending tickets were reassessed for the new direction and four added (`.scratch/project2-voice-agent/DESIGN.md`, D5-D7, order at the end); an LLM choice was researched and measured (`docs/SMART-HOME-TOOL.md`: native Gemini 3.1 flash-lite with a router prompt, 50/50 on the dry run); a `smart_home` tool and a separate Pipecat project `pipeline/` (Pipecat pins `onnxruntime~=1.24`, which the speech models must not take); the agent, with a docs MCP server, in the live loop (`docs/LIVE-AGENT.md`); echo cancellation across the two devices and duck-then-stop (`docs/AEC-REMOTE-SPEAKER.md`, `LIVE-AGENT.md`, `--aec`, `--duck-db`).
+* **Best configuration so far** for the live loop: `--aec --duck-db -15` with the guard flags below. The duck is the part that stops the bot's own echo from interrupting it (0 of 14 and 0 of 16 early cut-offs against 7 of 20 with the canceller alone); the canceller is the part that keeps its words out of the transcript (0 of 7 against 5 of 8) but costs some opening words (2 of 6 garbled in each run that had it). One session per condition, 8 scripted interruptions each: direction, not rates.
+* **Known weak spots, in order of how much they hurt:** the Pi's first reply after idle arrives 0.55 s late; home commands take 3.3 s from your last word to the first sound (two LLM requests); opening words are misrecognised (one dropped "Turn off" turned the lights on); the ducked speaker dips on some quiet replies. Section 6 and 7 have the full lists and the order of work.
+* **Who builds code:** agy writes code from level-3 tickets (full code in each ticket, reference code verified by the assistant in a scratch copy first), in a bubblewrap fence that only the owner launches (`.scratch/*/agy_work/fence.sh`, section 8). Everything agy produced so far came back byte-identical to the tickets.
 
 **Where it stands against the 2026-10-21 state (before the Pi test).** One speaker, one room throughout; most counts are small.
 
@@ -51,10 +60,11 @@ Sections 1-11 were written on 2026-10-21, before the Pi was tested. This section
 **State of the physical setup right now** (all of it disappears; rebuild with `docs/PI-BRIDGE.md` and `docs/PI-REMOTE-SPEAKER.md`):
 
 * The Pi (`rpi-anavarez`, repo at `~/Documents/AI-231-ME3`) is reached by an Ethernet cable to the laptop (link-local `169.254.x.x`) and by SSH with a key (`~/.ssh/id_ed25519_pi` on the laptop; Pi address `fe80::18ac:b795:c102:5eb1%enp0s20f0u2c2`, or `169.254.230.219`). No sudo on the Pi.
-* The Pi's repository working tree has **uncommitted copies** of `scripts/pi_bridge.py`, `scripts/pi_record.py`, `scripts/pi_speaker.py` and an older `src/doc_chat/bargein.py`. After the branch is pushed, run `git checkout -- . && git pull` there.
+* The Pi's repository (still at the old commit `4a9b3ef`) has **uncommitted copies** of `scripts/pi_bridge.py`, `scripts/pi_record.py`, `scripts/pi_speaker.py` and `src/doc_chat/bargein.py`; on 2026-10-23 `src/doc_chat/playback.py` and `scripts/pi_speaker.py` were replaced by the current ones (the duck needs both; originals in `~/pi_backup_20261023` on the Pi). Running `git checkout -- . && git pull` there would need the Pi to reach GitHub; copying the two files with `scp` worked. The Pi runs no other new code.
 * `websockets` was installed into the Pi's venv with `uv pip install` (it is not in the `pi` dependency group). The speech token is in a mode-600 file on the Pi (`~/.config/lan_speech_token`); it was generated for the session and is not in the repository.
 * The laptop firewall rule that lets the Pi reach the speech server is runtime-only (`firewall-cmd --zone=trusted --change-interface=<cable>`); it is gone after a reboot. The laptop's own speaker output was **muted**; nothing here changes that.
-* Pi sink volume was left at 80%.
+* Pi sink volume was left at 80%. The speech token for the session was kept in a scratch file of the assistant's session and in `~/.config/lan_speech_token` on the Pi; it is not in the repository, so **make a new one** (`docs/PI-BRIDGE.md`) and put it on both sides.
+* The "speaker in front of the laptop" placement used for the last four sessions was not measured (distance and angle were not recorded); record them next time.
 
 **Local-only data from this work** (git-ignored): `out/remote_echo/{pi90,pi80,pi60,pi40b,guard60,talk70far,fresh80}` (recordings and per-block traces; **`pi40` and `talk60` are invalid**: someone spoke or the cue was silent), `out/pi_bridge/eot-session.wav` (14 read phrases on the Pi mic; `eot-spontaneous.wav` is silence and `eot-laptop-session.wav` is an aborted partial file: ignore both). Pi-side latency logs were in `out/pi_bridge/` on the Pi.
 
@@ -110,6 +120,9 @@ The three `agy/*` branches are a linear stack; today the merge into `main` is cl
 | `tests/fixtures/pi_echo/` | six standard reply clips + the sentences read in the double-talk test |
 | `src/doc_chat/bargein.py` (new parts) | `BargeInGuard` (Silero stage + level-above-expected-echo stage, optional k-of-n rules), `SileroOnset(kofn=...)` and `.reset()` |
 | `src/doc_chat/playback.py` (new parts) | `RemoteSpeaker` / `RemotePlayer` / `make_player`: play on another machine's speaker; `doc_chat --play-remote ws://<pi>:8780` |
+| `src/doc_chat/aec.py`, `agent_client.py`; `bargein.py`/`playback.py`/`speech.py` additions | `EchoCanceller` (WebRTC via LiveKit's `AudioProcessingModule`, reference = what is sent to the Pi, 50 ms lead, `--aec`); `AgentChatModel` (`--llm agent`, streams from the agent server); `Ducker`, `SileroOnset.recent_speech`, `Player/RemotePlayer.set_gain` (`--duck-db`), `MicHub(canceller=)` |
+| `pipeline/` | a separate uv project (own lock and venv) for Pipecat 1.13: `voice_pipeline.agent` (one pipeline, native Gemini), `agent_tools`, `tools/smart_home.py` (19 ME2 intents, open slots, JSON phonebook), `agent_server.py` (ws://127.0.0.1:8781), `dryrun.py` (72 prompts); `README.md` there and `docs/SMART-HOME-TOOL.md` |
+| `src/voice_agent/mcp_servers/docs.py` | the docs MCP server (fastmcp 2.14.7): `search_docs` over the McCarthy corpus |
 
 ### Scripts (all `uv run --group laptop python scripts/<name>.py` unless noted)
 
@@ -122,6 +135,7 @@ The three `agy/*` branches are a linear stack; today the merge into `main` is cl
 | STT experiments | `stt_compare.py`, `stt_hotwords_eval.py`, `stt_repair_eval.py`, `stt_latency_bench.py`, `stt_finalize_latency.py`, `stt_early_eval.py`, `stt_provisional_eval.py`, `stt_padding_eval.py`, `score_tries.py`, `analyze_tries.py`, `try_stt.py`, `net_probe.py`, `phone_bench.py` |
 | Housekeeping | `fetch_laptop_models.py`, `fetch_turn_model.py`, `make_entities.py`, `make_synth_clips.py`, `power_mode.sh`, `aec.sh`, `echo_check.py` |
 | Pi bridge and Pi as loudspeaker | `pi_bridge.py` (runs on the Pi: Pi mic and speaker, laptop models), `pi_speaker.py` (runs on the Pi: plays what the laptop sends), `pi_record.py` (record a mic to WAV, Pi or laptop), `remote_echo_check.py` (laptop: Pi speaker echo and the guard), `guard_replay.py` (replay the guard on a recording), `eot_replay.py` (replay end-of-turn rules on a recording) |
+| Echo cancellation measurements | `echo_path_probe.py` (plays noise and a tone through the Pi, analyses the path: delay drift, coherence, nonlinearity), `aec_offline.py` (runs the canceller on a `remote_echo_check.py` recording and reads the transcripts; `--with livekit`) |
 
 ### Documents (full index: `docs/INDEX.md`)
 
@@ -136,6 +150,10 @@ Read in this order: this file &rarr; `docs/PI-RESULTS.md` &rarr; `docs/PI-REMOTE
 | `out/sessions/1021-0900`, `1021-0928` | the owner's two real doc_chat runs (40 turns and a short one) with audio |
 | `out/interrupt_bench`, `out/*.txt` | bench outputs |
 | `out/remote_echo/`, `out/pi_bridge/`, `out/pi/` | the 2026-10-22/23 Pi and Pi-speaker recordings and traces (see section 0 for which are invalid) |
+| `out/remote_echo/probe-80` | the echo-path probe (137 ppm drift) |
+| `out/sessions/agent-quiet-1`, `agent-interrupt-2`, `agent-interrupt-aec-1`, `agent-interrupt-ab-aec`, `agent-interrupt-ab-duck` | the agent's spoken sessions (quiet, interruptions without and with the canceller, the two A/B arms); `-idle-bug`, `-buggy`, `-0-aborted` suffixes are discarded runs (a Pipecat idle timeout, an uneven script, a stray first turn) |
+| `pipeline/out/` | dry-run rows and the agent server's per-turn logs |
+| `.scratch/*/backup-*`, `.scratch/*/skeleton`, `.scratch/*/agy_work/{work,orig}` | scratch copies and backups from the agy runs (git-ignored or untracked); safe to delete |
 
 ---
 
@@ -210,6 +228,20 @@ Added 2026-10-23:
 - **Retrieval glued the previous question onto any question of five words or fewer**, so "Tell me about The Counselor" found the book asked about before it; and BM25 ranked 16-character title stubs above the paragraphs. Fixed (follow-up detection by connective or pronoun; fragments under 60 characters dropped). Use `--chunk-size 1000 --top-k 3 --system-prompt <file>` with a large corpus and Gemini.
 - **"Wait, stop" was answered as a question** because the stop-word list was an exact-match set; later, 3 of 7 live stop attempts were still answered (its own words attached before "wait, stop", or "wait" heard as "quick"). Now handled: only-stop-words, two words ending in stop/wait/pause, or a short utterance ending in a stop phrase; "why did the road stop" is still a question. A bare two-word "bus stop" would count as a stop command.
 
+Added late on 2026-10-23 (agent, echo canceller, duck, agy runs):
+
+- **zsh does not split a variable holding a command or a file list.** `G="git -c ..."; $G status` and `cp $FILES` fail ("command not found", "cannot stat 'a b c'"). It bit four times, once after a `cp` loop had already half-run. Write the command out or use a bash array in a script.
+- **A background job started from the assistant is stopped at its time limit (2 h).** The agent server went away in the middle of a test and the first answer failed. Check `ss -ltn | grep 8781` and a typed request before every spoken session.
+- **Pipecat's pipeline worker idles out after about 5 minutes** and cancels itself while the server keeps accepting requests (every request then times out after 20 s). `idle_timeout_secs=None` in `Agent`.
+- **Gemini's OpenAI-compatible endpoint cannot be used with tools from Pipecat** (an empty phantom call, then a dropped `thought_signature`). Use the native `GoogleLLMService`; details in `docs/SMART-HOME-TOOL.md`. Groq `llama-3.1-8b` is fast but speaks its tool calls as text (26-40 of 48 right).
+- **The first offline echo-cancellation result ("5 dB") was a harness fault, not the canceller**: the two sound cards drift 137 ppm, and a fixed-delay reference has no coherence with the microphone. Test a measurement tool on a synthetic case with a known answer first (`echo_path_probe.py` has three).
+- **A canceller test that hands over all the reference at once loses most of it** (the buffer keeps 3 s). Feed it as the player does, about 0.25 s ahead.
+- **A reference lead of 200 ms looked natural and was wrong**: on a real recording 0-100 ms held for path delays of 0-300 ms and 200 ms or more fell apart as the delay grew. The default is 50 ms.
+- **Total-power reduction in dB is not a measure when the echo is near the room floor** (the canceller cannot go below the floor, and its suppression also quietens the floor). Count detector fires and read the recogniser's transcripts instead.
+- **A spoken test script with mixed instructions gives an unusable session** (plain stops and questions run unevenly; unscripted apologies to the bot get answered). Give one rule per session ("at the beep say X; do not answer the assistant").
+- **agy:** commands the owner types with `!` must be typed in bash mode, or they reach the assistant as chat text; files under `/tmp` of the assistant's sandbox are invisible to the owner's shell (keep the work under `.scratch/`); on this network agy's start-up check fails now and then (IPv6 resets) and `fence.sh` retries it; a network drop can end a run mid-ticket (relaunch: copying the same code twice gives the same files); a ticket generator must count prompts and tests (a miscount of 47 vs 48 and 7 vs 8 was caught only by dry-running every Proof command against the ticket text).
+- **A scorer regex missed spoken tool syntax** (`function=smart_home>`, `<LIGHT_OFF></LIGHT_OFF>`); widened, with tests.
+
 Earlier (2026-10-21):
 
 - **Speaker stopped from the wrong thread** deadlocked PortAudio's ALSA backend (a wall of `PaAlsaStream_EndProcessing failed`, a 21 s hang). The player thread now stops the device itself (`src/doc_chat/playback.py`, test `tests/doc_chat/test_playback.py`).
@@ -257,21 +289,29 @@ Earlier (2026-10-21):
 8. Only one speaker (the owner), one accent, one room, 9 interruptions in the guard runs. Other speakers are untested.
 9. Real coughs and knocks: the benchmark used white noise.
 10. The early-send half of the turn-end policy (decide at a 200 ms pause) needs the speech server to let a turn be resumed; not built.
-11. Main's agent pipeline (tickets 05, 10, 11) is unbuilt, so ticket 12's gate has nothing to attach to yet.
+11. Main's agent pipeline exists only in a light form: `pipeline/` has the agent core (native Gemini, `smart_home`, the docs MCP server) as a text-only Pipecat pipeline behind a WebSocket, and the live audio path is still `doc_chat`. Tickets 05, 10, 11, 12 and 28 are partly realised (`.scratch/project2-voice-agent/DESIGN.md`, progress note at the end); the real Pipecat audio pipeline with the guard as a processor is not built.
+12. **The Pi's first reply after idle arrives about 0.55 s late** (the device wakes). It adds to latency and mis-times the canceller for that reply. Idea: keep the Pi's sink awake (inaudible silence) in `pi_speaker.py`.
+13. **The canceller costs opening words** (2 of 6 garbled in each run that had it) and the combined run's beep to stop was 1.34 s p50 (0.36-0.41 s in the other runs; includes the owner's reaction time). Cause not separated beyond the A/B. Try the canceller for the guard only with the recogniser on the raw audio and a text guard.
+14. **False ducks on quiet replies** (3 of 7 in the combined run): audible dips for 0.6 s.
+15. **Home commands cost two LLM requests** (the call at about 1 s, the confirmation at about 2 s): 3.3 s p50 from your last word to the first sound against 2.3-2.6 s before tools. An acknowledgement or a templated result at the tool call would recover most of it.
+16. **Misrecognised first words now cause wrong actions** (a dropped "Turn off" turned the lights on). Ticket 26.
+17. **The three servers (speech, agent, Pi speaker) are started by hand and nothing persists.** There is no health check; a stopped agent server shows up as "couldn't reach the language model".
+18. **API limits were not verified.** The Gemini key's quota (the agy report says a free tier is 20 requests a day, unconfirmed), OpenRouter credit, and whether a billed key is in use are unknown; watch for HTTP 429.
+19. Only one speaker, one room and one placement for every agent session; counts are 8 interruptions per condition.
 
 ---
 
 ## 7. Next actions, in order
 
-1. **(Owner)** Decide or ask the professor: is "laptop microphone, Pi loudspeaker" acceptable (section 6, item 1)? Everything below branches on it.
-2. **(Both)** Repeat the Gemini live test (plain stops and pivots) with a second speaker and in a different room; the retrieval and stop-phrase fixes were exercised only in the pivot session.
-3. **(Both)** Record spontaneous requests with `scripts/pi_record.py` (3 s of silence between requests; on the laptop `--in-device default --in-rate 16000`), then compare end-of-turn rules with `scripts/eot_replay.py`. Pick a hold and decide whether the Silero-based rule replaces the loudness rule in `listen_turn`.
-4. **(Assistant)** Add duck-then-stop to `doc_chat` (the pilot has it; ticket 12 specifies it), then try the guard at 90% volume and with the speaker moved; decide whether real echo cancellation is needed.
-5. **(Owner)** Push `agy/interrupts` (two commits ahead of origin) and `docs/ticket-12-kofn-gate`; choose how to land the branches (`docs/BRANCHES.md`); then `git pull` on the Pi (section 0).
-6. **(Both)** Port the winning gate into the Pi pipeline when tickets 05, 10, 11 and 12 are built.
-7. **(Assistant)** Echo, in order: put the cross-device canceller in the live loop behind `--aec`; duck-then-stop (lower the Pi's output at the first speech); text guards (drop leading echo words, an echo-only interruption is a stop, never act on the bot's own words); then repeat the interruption session with the speaker in front of the laptop. Tickets for agy, with reference code from the assistant.
-8. **(Assistant)** Tool turns: speak an acknowledgement (or the dashboard's result from a template) when the tool call arrives, instead of waiting for the second LLM request (saves about 0.6 s of the 1.31 s); standardise a minimal system-prompt template whose routing lives in each tool's description, so new tools and MCP servers need no prompt edits; then exercise `--live` against the ME2 dashboard.
-9. Parked, in order of value: other speakers; coughs and knocks recorded for real; the dropped first words; server-side resume for early send; provisional transcripts for speculative LLM start.
+1. **(Owner)** Decide or ask the professor: is "laptop microphone, Pi loudspeaker" acceptable (section 6, item 1)? Everything below branches on it. Choose how to land the branches (`docs/BRANCHES.md`; 68 commits ahead of `main`).
+2. **(Assistant, agy builds)** Text-level guards, a level-3 ticket with reference code first: drop leading words that match what the bot was just saying; an interruption that is only echo counts as a stop; never run a home command whose words match the bot's recent speech. They fix the duck-only failures (wrong "play" for "pause", an answered echo) without the canceller's cost. Then repeat the interruption session, duck alone and combined.
+3. **(Assistant)** Try the canceller for the guard only, the recogniser on the uncancelled audio plus the text guard, and compare the opening words (one more session).
+4. **(Assistant)** Keep the Pi's sink awake in `pi_speaker.py` (removes the 0.55 s first-reply delay and the canceller mis-alignment).
+5. **(Assistant)** Tool turns: speak an acknowledgement (or the tool's result from a template) when the tool call arrives instead of waiting for the second LLM request; a minimal system-prompt template whose routing lives in each tool's description (the owner asked for "minimal yet scalable to all tools/MCP"); exercise `--live` against the ME2 dashboard.
+6. **(Both)** Ticket 26 (first words of a question), 27 (end of turn on spontaneous speech, record on the laptop mic), 25 (laddered TTS, about 0.15-0.2 s).
+7. **(Both)** Repeat the spoken sessions with a second speaker, another room, and a recorded speaker distance; try 90% volume now that the canceller exists.
+8. **(Assistant)** Tickets 22 (lift `doc_chat/speech.py` into the `lan` backend of `audio_engine`) and 16 (Pi speaker deploy and preflight) are unblocked; then the real Pipecat pipeline (ticket 11) with the guard and the duck as processors, then 10, 28, 18, 19 (laptop-side playback), 20, 15 (shrunk), 17. Pipecat code stays in `pipeline/` (it cannot import the root packages without taking their dependency pins).
+9. Parked, in order of value: coughs and knocks recorded for real; server-side resume for early send; provisional transcripts for speculative LLM start; a Groq comparison on answer quality (it needs a larger model than the 8B).
 
 ---
 
@@ -280,7 +320,7 @@ Earlier (2026-10-21):
 - **No model on the Pi except the Silero VAD.** The Pi test tool runs nothing else.
 - **Never read or print secrets.** Do not open `~/.secrets/*`, `.env`, or any `*key*`/`*token*` file; code reads keys at run time and prints only OK/failure. The Gemini key lives in `~/.secrets/google-ai-studio/` (`api-key.txt` or `api_key.txt`); Qwen's in `~/.secrets/onit/`.
 - **Do not touch the owner's untracked files:** `docs/VOICE-AGENT-EVALUATION-METRICS.md`, `kek.txt`, `resources/building-voice-agents/`. Add files to git **by name**, never `git add -A` or `git add docs`.
-- **Never use `--dangerously-skip-permissions` for the agy assistant** (the owner never approved it). Research prompts to agy are search-only (no shell, no file reads).
+- **agy:** research prompts are search-only (`agy --sandbox --mode plan`, no shell, no file reads). **Code-writing runs** use `--dangerously-skip-permissions` only inside the fence in `.scratch/*/agy_work/fence.sh` (bubblewrap: everything read-only except one work copy and agy's own state; `~/.secrets` and `~/.ssh` hidden; empty environment; `gemini-3.8-flash-high`; 60 minute limit; a retry for the start-up check) and **only the owner launches them** (`!` in bash mode, or a terminal). The method is `coding-with-simple-models` at level 3: tickets that contain the full code, function lists, line caps and a forbidden-additions list; the assistant writes and tests the reference code in a scratch copy first, dry-runs every Proof command on the code extracted from the ticket text, and reviews each wave byte-for-byte before copying it into the repository (originals backed up).
 - **Never kill processes that are not yours.** The owner's own speech server may use port 8765; tests use 8766-8767.
 - **Gate every commit** on `ruff check`, `ruff format --check`, `mypy` (packages in `pyproject.toml`) and `pytest`.
 - **Commit trailer:** `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. In this repository use `git -c safe.directory=$PWD ...` (the checkout is on a mounted drive).
@@ -290,6 +330,9 @@ Earlier (2026-10-21):
 - **Do not change the owner's laptop settings** (mute, volume, firewall) without asking; the firewall rule used here is runtime-only and the owner added it.
 - **Format only the files you edit.** `ruff format scripts/` reformats `scripts/pi_synth_report.py` (an older file) and puts an unrelated change in your commit.
 - **State what a number rests on** and say when a setting was chosen after seeing the data (the 3-of-3 at 70% is not held out; the 6-of-6 at 80% is).
+- **Commit and push when the owner says so; they usually ask after each milestone.** Several commits by topic, files added by name, a key scan first, and the numbers in the message state what they rest on.
+- **Before a spoken session** check the servers (speech, agent, Pi speaker), tell the owner exactly what to say and when, and keep the script to one rule per session.
+- **Ask before** anything loud (the probe plays noise at 80%), anything that changes a dependency, or anything on the Pi.
 - Timezone: Philippine Standard Time (UTC+8). Run `scripts/power_mode.sh max` (on AC) before latency measurements and `balanced` after.
 
 ---
@@ -330,6 +373,26 @@ uv run --group laptop python scripts/guard_replay.py out/remote_echo/fresh80 [--
 uv run --group laptop python scripts/pi_record.py --out out/pi_bridge/x.wav --seconds 240 --in-device default --in-rate 16000   # record a mic
 uv run --group laptop python scripts/eot_replay.py out/pi_bridge/eot-session.wav                                    # end-of-turn rules on a recording
 
+# the agent in the live loop (docs/LIVE-AGENT.md); start in this order, nothing persists
+# 1. a fresh token in a mode-600 file on both sides (docs/PI-BRIDGE.md); the Pi speaker (stops itself after 2 h)
+ssh -i ~/.ssh/id_ed25519_pi rpi-anavarez@169.254.230.219 'cd ~/Documents/AI-231-ME3 && LD_LIBRARY_PATH=$HOME/.local/portaudio/usr/lib/aarch64-linux-gnu LAN_SPEECH_TOKEN=$(cat ~/.config/lan_speech_token) timeout 7200 .venv/bin/python -u scripts/pi_speaker.py --device CD002 --rate 48000'
+# 2. the speech server on the cable address (see "Pi bridge" above); 3. the agent server (reads ~/.secrets/google-ai-studio/)
+make agent-server                                    # ws://127.0.0.1:8781; one row per turn in pipeline/out/agent_server/
+# 4. the live loop; best configuration so far is --aec --duck-db -15; add --cue-beep 2.5 --cue-every 1 for the interruption script
+LAN_SPEECH_TOKEN=... uv run --group laptop python -W ignore -u -m doc_chat --mic --llm agent --no-docs --stream \
+    --server ws://<laptop cable ip>:8770 --play-remote ws://<pi>:8780 --vad both --vad-confidence 0.5 --silero-kofn 7/10 --level-kofn 3/8 \
+    --barge-echo-quantile 0.95 --barge-echo-window 60 --barge-echo-margin 1.2 --barge-echo-prior 0.8 --trace-guard \
+    --history 4 --max-words 90 --aec --duck-db -15 --record out/sessions/<name>
+uv run --group laptop python scripts/cue_report.py out/sessions/<name>          # score a cue-beep session
+make agent-dryrun                                    # 72 prompts, native Gemini (costs cents); LIMIT=5 for a short one
+make pipeline-check pipeline-test                    # the Pipecat project's own gates
+# echo cancellation measurements (stay silent while the probe plays noise at the Pi's volume)
+LAN_SPEECH_TOKEN=... uv run --group laptop python scripts/echo_path_probe.py --url ws://<pi>:8780 --out out/remote_echo/probe-80
+uv run --group laptop --with livekit python scripts/aec_offline.py out/remote_echo/fresh80 --delays 300 --ppm 137 [--stt]
+# put new code on the Pi (it is not a git pull): the duck needs both files
+scp -i ~/.ssh/id_ed25519_pi src/doc_chat/playback.py rpi-anavarez@169.254.230.219:Documents/AI-231-ME3/src/doc_chat/
+scp -i ~/.ssh/id_ed25519_pi scripts/pi_speaker.py rpi-anavarez@169.254.230.219:Documents/AI-231-ME3/scripts/
+
 # the gate
 uv run --group laptop ruff check src tests scripts && uv run --group laptop ruff format --check src tests scripts \
   && uv run --group laptop mypy && uv run --group laptop pytest -q
@@ -341,7 +404,7 @@ uv run --group laptop ruff check src tests scripts && uv run --group laptop ruff
 
 Paste this into a new session in the repository root:
 
-> Read `docs/HANDOFF.md` fully (start with section 0), then `docs/PI-REMOTE-SPEAKER.md`, `docs/PI-BRIDGE.md` and `docs/PI-RESULTS.md`. Follow the working agreements in section 8. Check section 0 for what is running or uncommitted on the Pi, then do section 7 from the first item that is not blocked on me. Report what each result shows and what it does not (say how many repetitions it rests on), and propose the next change before making it. Do not touch my untracked files and do not push without asking.
+> Read `docs/HANDOFF.md` fully (start with section 0, "Resume here"), then `docs/LIVE-AGENT.md`, `docs/AEC-REMOTE-SPEAKER.md`, `docs/SMART-HOME-TOOL.md`, `docs/PI-REMOTE-SPEAKER.md`, `docs/PI-BRIDGE.md` and `docs/PI-RESULTS.md`. Follow the working agreements in section 8. Check section 0 for what is running or uncommitted on the Pi, then do section 7 from the first item that is not blocked on me. Report what each result shows and what it does not (say how many repetitions it rests on), and propose the next change before making it. Do not touch my untracked files and do not push without asking.
 
 ---
 
@@ -360,3 +423,10 @@ Paste this into a new session in the repository root:
 - **Echo guard (`BargeInGuard`):** says "the user" only when Silero hears speech AND the microphone is clearly louder than the echo expected from what is being played.
 - **Bridge:** `scripts/pi_bridge.py`, the Pi's microphone and speaker joined to the laptop's speech models over the LAN.
 - **Ablation:** the same test with parts of the system switched on and off (`docs/INTERRUPTS.md`).
+- **Duck / duck-then-stop:** turn the speaker down (here 15 dB) at the first sign of a voice over the answer, stop it if the guard then fires, restore it if no barge-in follows (`--duck-db`).
+- **Reference (for echo cancellation):** the audio sent to the speaker; the canceller subtracts what it predicts the room returns. **Lead:** how far ahead of the microphone the reference is fed (50 ms here). **ppm drift:** the two sound cards' clocks differ (137 ppm = 8 ms per minute), so the echo drifts against the reference.
+- **Coherence:** 0 to 1, how much of one signal is a linear copy of another; the ceiling on what a linear canceller can remove.
+- **MCP server:** a tool provider speaking the Model Context Protocol; here `src/voice_agent/mcp_servers/` (home, speech, code, docs). **fastmcp:** the library used for the docs server.
+- **Pipecat:** the real-time voice framework kept for the pipeline (`pipeline/`, a separate uv project because it pins older `onnxruntime`/`soundfile`).
+- **Level-3 ticket / the fence:** a ticket that contains the full code for a cheaper model to copy exactly; the bubblewrap wall around agy's code-writing runs (section 8).
+- **Cue-beep session:** a spoken test where a beep 2.5 s into each reply tells the owner when to talk over it, so every interruption has a known time (`scripts/cue_report.py`).

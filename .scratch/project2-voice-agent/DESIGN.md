@@ -171,3 +171,12 @@ These need hardware or paid API calls. The tickets build the tools; a human runs
 3. 12 (remaining: duck/fade, cancel, fillers, speculative start), built in `doc_chat` and measured live first.
 4. 11 (Pipecat pipeline with `BargeInProcessor` and the remote output transport), then 10 (agent core), 28 (doc_chat as a tool), 18, 19 (laptop-side playback), 20, 15 (shrunk), 17.
 5. Parked: 05. Reduced: 23.
+
+## Progress note, 2026-10-23 (end of day)
+
+Realised in a lighter form than the tickets describe, on branch `agy/interrupts`:
+- **28 (doc_chat as a tool)**: the docs MCP server (`src/voice_agent/mcp_servers/docs.py`, fastmcp 2.14.7) and `doc_chat --llm agent`; the standalone `doc_chat` loop is still the audio path.
+- **10 / 11 (agent core, pipeline)**: `pipeline/` (separate uv project; Pipecat pins `onnxruntime~=1.24`): one pipeline around native Gemini with `smart_home` and the docs tools, behind a WebSocket; no Pipecat audio transport, VAD or TTS yet.
+- **12 (barge-in, duck)**: `BargeInGuard` and the 7-of-10 rule existed; the duck is built (`--duck-db`, `Ducker`, a `gain` message to the Pi); fillers and speculative start are not.
+- **05 / 15 / 16 / 17 / 18 / 19 / 20 / 22 / 23 / 25 / 26 / 27**: not started (22 and 16 are unblocked).
+- New measurements that change tickets: the Pi's first reply after idle is 0.55 s late; the speaker-to-microphone path drifts 137 ppm and the canceller's reference should lead by 50 ms; home commands cost two LLM requests (ticket 12's filler or a templated result recovers about 1 s). Results: `docs/LIVE-AGENT.md`, `docs/AEC-REMOTE-SPEAKER.md`, `docs/SMART-HOME-TOOL.md`.

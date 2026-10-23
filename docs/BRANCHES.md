@@ -2,6 +2,8 @@
 
 Written 2026-10-21. Facts below were computed from the repository that day (commands at the end so you can recheck).
 
+> **Update 2026-10-23 (end of day).** `agy/interrupts` is now **68 commits ahead of `main`** (378 files, about +50.9k lines) and is pushed (`origin/agy/interrupts`). Since the update below it gained, in order: the McCarthy corpus, the playback and stop-phrase fixes, the cue-beep mode, the guard calibration in the real loop (`41a9b89`), pivots and Gemini retrieval fixes (`c5aeca7`), the metrics write-up (`f56e73d`), the ticket reassessment and LLM research (`f8db588`), the `smart_home` tool and the separate Pipecat project (`34335ef`), the agent in the live loop with a docs MCP server (`e9adf9d`), the echo-cancellation measurements (`78e3f0e`), the live-agent documentation (`9224cde`), the canceller and duck (`cdfaeb0`), the live tests (`4119359`) and the A/B (`ca8ca21`). Landing is still undecided: a fast-forward of `main` is still possible if `main` has not moved (`git merge-tree --write-tree main agy/interrupts` to check), but 68 commits in one go is a large review; stacked pull requests are easier to read. `docs/ticket-12-kofn-gate` (local, off `main`) is still not pushed.
+
 > **Update 2026-10-23.** After this file was written, `agy/interrupts` gained two commits (not pushed): `f4543ef` (Pi bridge, measured latency, `docs/PI-BRIDGE.md`) and `c6986a6` (Pi as loudspeaker, echo guard, replay tools, `docs/PI-REMOTE-SPEAKER.md`); it also has the Pi test results `1f438c3`/`4a9b3ef` that were pushed. A separate local branch `docs/ticket-12-kofn-gate` (`ce0851a`, one commit off `main`, not pushed) amends main's ticket 12 to the 7-of-10 barge-in gate. The picture below is the 2026-10-21 state.
 
 ## The picture
