@@ -1,7 +1,38 @@
-# Handoff: laptop speech, the doc_chat test client, interruptions, and the Pi test
+# Handoff: laptop speech, the doc_chat test client, interruptions, the Pi, and the Pi-as-loudspeaker setup
 
-**Written:** 2026-10-21 (Philippine time). **Tip of the stack:** branch `agy/interrupts`. **Tests at the tip:** 529 pass, 9 skipped, 2 xfailed; ruff and mypy clean.
+**First written:** 2026-10-21; **updated:** 2026-10-23 (Philippine time). **Tip of the stack:** branch `agy/interrupts` at `c6986a6` (two commits ahead of `origin/agy/interrupts` `4a9b3ef`, not pushed). **Tests at the tip:** 562 pass, 9 skipped, 2 xfailed, 1 fails (see section 0); ruff and mypy clean on everything touched.
 **Audience:** the owner picking this up on the Raspberry Pi, or any person or AI assistant continuing the work with no memory of how it got here. Everything needed is in the repository; this file is the map.
+
+---
+
+## 0. Status as of 2026-10-23 (read this first)
+
+Sections 1-11 were written on 2026-10-21, before the Pi was tested. This section says what happened since; where it disagrees with a later section, this one wins (the later sections are updated below where it matters).
+
+**What was done** (details in the linked documents):
+
+| Step | Result | Where |
+|---|---|---|
+| Pi echo test (split USB mic and speaker; no speakerphone existed) | Volume decides self-trigger: Silero fires on its own voice at 90% without AEC, clean at 60-75%. The USB mic is weak (speech 5-15 dB over its noise) | `docs/PI-RESULTS.md` |
+| Live barge-in pilot on the Pi | Recommended gate: Silero confidence 0.5, "7 of the last 10 windows", duck -15 dB, 75% volume | `docs/PI-RESULTS.md` |
+| Pi bridge: Pi mic and speaker, laptop STT and TTS over a cable | Works end to end. Stop-speaking to first sound: 1.99 s (1.2 s pause hold + 0.44 s server + 0.32 s TTS). The weak mic fragments long phrases at the 0.6 s hold, so 1.2 s is used | `docs/PI-BRIDGE.md`, `scripts/pi_bridge.py` |
+| Laptop mic with the Pi as loudspeaker (the owner's proposed production setup) | The Pi speaker's echo fires Silero on every clip at 40-90% volume. An echo guard (Silero stage AND level-above-expected-echo stage) detected 6 of 6 interruptions with 0 of 6 echo-only clips firing at 80% (held-out; one speaker, one room) | `docs/PI-REMOTE-SPEAKER.md` |
+| End-of-turn rules replayed on a Pi recording of 14 read phrases | A Silero-based rule with a 0.5 s hold cut 0 of 14 phrases and fired 0.48 s after the phrase ended; the loudness rule at 1.2 s also cut 0 of 14 but took 1.04 s. Read speech only; the spontaneous recording was silent, so this is not settled | `scripts/eot_replay.py` |
+| Main's ticket 12 (barge-in gate) amended to the 7-of-10 rule | On local branch `docs/ticket-12-kofn-gate` (`ce0851a`, off main, not pushed). Ticket 12 itself is **not built**: it needs the agent pipeline (tickets 05, 10, 11), which the owner parked to focus on interrupts and STT | `.scratch/project2-voice-agent/tickets/12-...md` |
+
+**Tests.** `uv run --group laptop pytest -q` gives 562 passed, 9 skipped, 2 xfailed and **1 failed**: `tests/doc_chat/test_flow.py::test_llm_echo_is_accepted_without_documents`. It connects to a speech server on `127.0.0.1:8765` and fails the same way on the commit before this work; start the server (section 9) and it passes. `ruff check` over the whole `scripts/` folder still reports E501 in `scripts/pi_synth_report.py` (an older file). **Do not run `ruff format` over `scripts/`**: it reformats that file and you will commit an unrelated change; format only the files you edit.
+
+**State of the physical setup right now** (all of it disappears; rebuild with `docs/PI-BRIDGE.md` and `docs/PI-REMOTE-SPEAKER.md`):
+
+* The Pi (`rpi-anavarez`, repo at `~/Documents/AI-231-ME3`) is reached by an Ethernet cable to the laptop (link-local `169.254.x.x`) and by SSH with a key (`~/.ssh/id_ed25519_pi` on the laptop; Pi address `fe80::18ac:b795:c102:5eb1%enp0s20f0u2c2`, or `169.254.230.219`). No sudo on the Pi.
+* The Pi's repository working tree has **uncommitted copies** of `scripts/pi_bridge.py`, `scripts/pi_record.py`, `scripts/pi_speaker.py` and an older `src/doc_chat/bargein.py`. After the branch is pushed, run `git checkout -- . && git pull` there.
+* `websockets` was installed into the Pi's venv with `uv pip install` (it is not in the `pi` dependency group). The speech token is in a mode-600 file on the Pi (`~/.config/lan_speech_token`); it was generated for the session and is not in the repository.
+* The laptop firewall rule that lets the Pi reach the speech server is runtime-only (`firewall-cmd --zone=trusted --change-interface=<cable>`); it is gone after a reboot. The laptop's own speaker output was **muted**; nothing here changes that.
+* Pi sink volume was left at 80%.
+
+**Local-only data from this work** (git-ignored): `out/remote_echo/{pi90,pi80,pi60,pi40b,guard60,talk70far,fresh80}` (recordings and per-block traces; **`pi40` and `talk60` are invalid**: someone spoke or the cue was silent), `out/pi_bridge/eot-session.wav` (14 read phrases on the Pi mic; `eot-spontaneous.wav` is silence and `eot-laptop-session.wav` is an aborted partial file: ignore both). Pi-side latency logs were in `out/pi_bridge/` on the Pi.
+
+**Open question for the owner or the professor:** does a design where the laptop owns the microphone and the Pi is only the loudspeaker satisfy the project's requirements (the brief is a voice agent on a Raspberry Pi)? Nothing in the repository settles it. The Pi-microphone path is kept working (`scripts/pi_bridge.py`) in case the answer is no.
 
 ---
 
@@ -25,7 +56,7 @@
 5. **With the assistant's own voice leaking into the microphone, every software detector fails**, and Silero is the worst because the assistant's voice is speech. This is a known industry problem solved by echo cancellation at the endpoint (hardware, WebRTC), headsets in development, ducking and guard times (`docs/ECHO-RESEARCH.md`).
 6. On the laptop, PipeWire's software echo cancellation brought false triggers from 91-92% of blocks to 0% (`docs/BARGE-IN.md`). **The Pi with its USB speakerphone has not been tested.** That is the next step.
 
-**The next step, and who does it.** *You*, on the Pi: follow `docs/PI-TEST-PLAN.md` (about 20 minutes for the first condition), commit the small result files with `scripts/pi_pack_results.sh`, and push. Then see section 7.
+**The next step, and who does it.** The Pi test in this paragraph's original form is done (section 0). The next steps are in section 7.
 
 ---
 
@@ -51,6 +82,8 @@ The three `agy/*` branches are a linear stack; today the merge into `main` is cl
 | `config/entities*.json` | name lists for the repair step (`entities.json` 318 names; `entities-docs.json` 125 names from the Harry Potter corpus) |
 | `assets/silero_vad.onnx` | the exact Silero model tested (Pipecat's copy), see `assets/README.md` |
 | `tests/fixtures/pi_echo/` | six standard reply clips + the sentences read in the double-talk test |
+| `src/doc_chat/bargein.py` (new parts) | `BargeInGuard` (Silero stage + level-above-expected-echo stage, optional k-of-n rules), `SileroOnset(kofn=...)` and `.reset()` |
+| `src/doc_chat/playback.py` (new parts) | `RemoteSpeaker` / `RemotePlayer` / `make_player`: play on another machine's speaker; `doc_chat --play-remote ws://<pi>:8780` |
 
 ### Scripts (all `uv run --group laptop python scripts/<name>.py` unless noted)
 
@@ -62,10 +95,11 @@ The three `agy/*` branches are a linear stack; today the merge into `main` is cl
 | End-of-turn experiments | `smart_turn_eval.py`, `smart_turn_dangling.py`, `text_turn_eval.py`, `text_turn_kroko.py`, `confirm_stitch_sim.py` (`uv run --with transformers ...`) |
 | STT experiments | `stt_compare.py`, `stt_hotwords_eval.py`, `stt_repair_eval.py`, `stt_latency_bench.py`, `stt_finalize_latency.py`, `stt_early_eval.py`, `stt_provisional_eval.py`, `stt_padding_eval.py`, `score_tries.py`, `analyze_tries.py`, `try_stt.py`, `net_probe.py`, `phone_bench.py` |
 | Housekeeping | `fetch_laptop_models.py`, `fetch_turn_model.py`, `make_entities.py`, `make_synth_clips.py`, `power_mode.sh`, `aec.sh`, `echo_check.py` |
+| Pi bridge and Pi as loudspeaker | `pi_bridge.py` (runs on the Pi: Pi mic and speaker, laptop models), `pi_speaker.py` (runs on the Pi: plays what the laptop sends), `pi_record.py` (record a mic to WAV, Pi or laptop), `remote_echo_check.py` (laptop: Pi speaker echo and the guard), `guard_replay.py` (replay the guard on a recording), `eot_replay.py` (replay end-of-turn rules on a recording) |
 
 ### Documents (full index: `docs/INDEX.md`)
 
-Read in this order: this file &rarr; `docs/PI-TEST-PLAN.md` &rarr; `docs/INTERRUPTS.md` &rarr; `docs/ECHO-RESEARCH.md` &rarr; `docs/BARGE-IN.md` &rarr; `docs/DOC-CHAT.md`. Research reports from the agy assistant are in `.scratch/speech-hosting/AGY-*.md`.
+Read in this order: this file &rarr; `docs/PI-RESULTS.md` &rarr; `docs/PI-REMOTE-SPEAKER.md` &rarr; `docs/PI-BRIDGE.md` &rarr; `docs/INTERRUPTS.md` &rarr; `docs/ECHO-RESEARCH.md` &rarr; `docs/BARGE-IN.md` &rarr; `docs/DOC-CHAT.md` (`docs/PI-TEST-PLAN.md` is the runbook the Pi test followed). Research reports from the agy assistant are in `.scratch/speech-hosting/AGY-*.md`.
 
 ### Local-only data (git-ignored; exists on the laptop, not in the repository)
 
@@ -75,6 +109,7 @@ Read in this order: this file &rarr; `docs/PI-TEST-PLAN.md` &rarr; `docs/INTERRU
 | `bench/mic_hard`, `bench/mic_heldout`, `out/tries/` | the owner's recorded voice and transcripts (privacy: do not publish) |
 | `out/sessions/1021-0900`, `1021-0928` | the owner's two real doc_chat runs (40 turns and a short one) with audio |
 | `out/interrupt_bench`, `out/*.txt` | bench outputs |
+| `out/remote_echo/`, `out/pi_bridge/`, `out/pi/` | the 2026-10-22/23 Pi and Pi-speaker recordings and traces (see section 0 for which are invalid) |
 
 ---
 
@@ -100,6 +135,7 @@ flowchart LR
     KIT -. results: run.json / run.md .-> NOTES[docs/pi-results]
 ```
 
+- **Current topology (2026-10-23).** The diagram above is the original plan (the Pi test kit standalone). The setup now under test is the laptop owning the microphone and the speech models with the Pi as loudspeaker (`docs/PI-REMOTE-SPEAKER.md` has its diagram); the Pi-microphone bridge is `docs/PI-BRIDGE.md`.
 - **Relation to main's Project 2.** Main plans a Pipecat pipeline on the Pi with cloud STT/TTS (tickets 10-12). As far as the tree shows, that pipeline (tickets 10, 11, 12, 16) is **not implemented** on `main` at `6ecb0f7`; check each ticket's Status line. Our laptop server and `doc_chat` are the "host STT/TTS ourselves" alternative (tickets 21-24) and a place to study the behaviours (end of turn, barge-in, echo) that the Pi pipeline will need. The findings transfer; the code does not (it is not Pipecat).
 - **The Pi test kit is standalone.** It needs only numpy, scipy, onnxruntime, sounddevice and the vendored Silero file; no server, no network.
 
@@ -122,8 +158,28 @@ flowchart LR
 | Laptop echo cancellation | PipeWire WebRTC: false triggers 91-92% &rarr; 0% of blocks; first play leaks ~11 dB; room floor -12..-17 dB | `docs/BARGE-IN.md` | recognition accuracy under it **untested** |
 | Silero cost | 0.12 ms per 32 ms window on the laptop (simulation); stop with `latency='low'` 45-55 ms | `docs/BARGE-IN.md`, `pi_check` | **Pi value unknown** |
 | Industry practice | echo handled at the endpoint; headset in development; 200 ms speech minimum; ducking; truncate history | `docs/ECHO-RESEARCH.md` | agy report, partly unverified |
+| Pi USB microphone | speech only 5-15 dB over its own noise; Silero loses short words; sentences at 5-10 cm interrupt about 80-94% live (7 of 10 rule), "Stop" alone about 39% | `docs/PI-RESULTS.md` | one speaker, one room, 31-36 barge-ins |
+| Pi bridge latency | stop-speaking to first sound 1.99 s p50 (p95 2.15 s): hold 1.2 s, server 0.44 s, TTS first audio 0.32 s, bridge overhead 2 ms after caching Silero | `docs/PI-BRIDGE.md` | 10 turns, one speaker, sound time estimated not measured acoustically |
+| Pi speaker heard by the laptop mic | echo 12-26 dB over the room at 80-90% volume, still 0 to 2 dB at 40%; Silero fired on 6 of 6 clips at every volume | `docs/PI-REMOTE-SPEAKER.md` | one room, one run per volume |
+| Echo guard (Silero stage AND level above expected echo) | 6 of 6 interruptions, 0 of 6 echo-only clips fired at 80% (Silero alone 12 of 12); 3 of 3 at 70% further away | `docs/PI-REMOTE-SPEAKER.md` | held-out for the 80% run only; one speaker; the cue was predictable |
+| End-of-turn rule on the Pi mic | on 14 read phrases Silero with a 0.5 s hold cut 0 of 14 (0.48 s delay); the loudness rule at 0.6 s cut 2 of 14 | `scripts/eot_replay.py` | read speech; spontaneous speech not recorded |
 
 ### Mistakes found and fixed during this work (so they are not repeated)
+
+Added 2026-10-23:
+
+- **The Pi's ALSA `default` is HDMI**, not the USB speaker (pipewire-alsa is only unpacked under `~/.local`): audio "played" with no error and no sound. The bridge plays to `CD002` at 48 kHz. A silent stream looks the same as a working one in the logs; confirm by ear.
+- **The Pi's USB devices open only at 48 kHz**; the TTS is 44.1 kHz and the server expects 16 kHz audio. Resample (`ResamplingPlayer`, `DecimatingMicHub` in `scripts/pi_bridge.py`).
+- **Building a Silero session per reply cost about 200 ms on the Pi**; load once and call `SileroOnset.reset()`.
+- **The combined guard fired on one loud syllable of the assistant's own voice** because it checked only the current block; it now needs sustained evidence.
+- **My offline replay scored beeps against the wrong origin** (relative to the first push, used relative to each clip's push), which turned a 3-of-3 result into "1 of 3". Always cross-check a replay against the live run; `tests/doc_chat/test_guard_replay.py` covers it.
+- **A muted laptop speaker made a beep silent**, so a talk-over test captured no speech. Cues now come out of the Pi, with the audio under test.
+- **A firewall (`firewalld`, zone `public`) answered "No route to host"** while ping worked: the cable interface needed to be in a trusted zone.
+- **`pkill -f "<name>"` over SSH or in a shell whose own command line contains `<name>` kills that shell.** Use `pgrep -af` first and `kill <pid>`.
+- **zsh does not word-split `$VAR`**: put commands in functions, scripts or an ssh config alias, not in a variable.
+- **Run commands that take over 2 minutes in the background**; the tool times out and moves them anyway.
+
+Earlier (2026-10-21):
 
 - **Speaker stopped from the wrong thread** deadlocked PortAudio's ALSA backend (a wall of `PaAlsaStream_EndProcessing failed`, a 21 s hang). The player thread now stops the device itself (`src/doc_chat/playback.py`, test `tests/doc_chat/test_playback.py`).
 - **Audio kept streaming after `finalize`** created a stale end-of-turn transcript that appeared as a phantom turn. The client now holds audio while waiting for the final (`listen_turn`).
@@ -140,40 +196,44 @@ flowchart LR
 | Decision | Status | Why |
 |---|---|---|
 | Parakeet v2 + hotwords as the accuracy engine on the laptop | settled | best measured; v3 and others worse |
-| Client-side end of turn: adaptive pause 0.6 s then `finalize` | settled | Kroko's own endpoint took 1.6-2.3 s |
+| Client-side end of turn: a pause, then `finalize` | **reopened** | 0.6 s was settled on the laptop mic; on the Pi's weak USB mic it cuts long phrases into fragments, so the bridge uses 1.2 s (costs 0.6 s). A Silero-based rule at 0.5 s looked safe on read speech (`scripts/eot_replay.py`); needs spontaneous recordings before adopting |
 | Do not adopt Smart Turn v3 or Turnsense as the end-of-turn rule | settled (for now) | measured above |
 | `--ask-to-add` off by default | settled | 0 additions in 11 asks |
 | Keep recognition open while the assistant speaks; barge-in joins a cut-off turn or takes a new question | settled for `doc_chat` | `docs/DOC-CHAT.md` |
-| Echo needs echo cancellation (hardware or software), not a smarter detector | settled by the ablation | `docs/INTERRUPTS.md` |
-| Use Silero (150-250 ms) as the detector once echo is handled | **pending the Pi result** | it rejects non-speech noise (a 0.3 s noise burst stopped every loudness detector and no Silero one) but is oversensitive to faint echo |
-| Delete `EchoModel` and its flags (`--barge-echo-margin/-prior`) | **pending the Pi result** | marginal gain, still fails at -12 dB; keep `looks_like_echo` (cheap, cuts loops 5-8x) |
-| Duck-then-stop instead of a hard stop | **proposed, not built in doc_chat** | main's ticket 12 specifies it; makes a false trigger cheap |
-| Land the branches (A: stacked PRs, B: fast-forward, C: product only) | **owner's call** | `docs/BRANCHES.md` |
+| Echo needs cancellation or an echo-aware decision, not a smarter detector alone | settled, refined | Silero fired on the assistant's own voice in every clip at 40-90% volume on both microphones; the echo guard (Silero AND level above the echo expected from what is being played) fixed it at 80% on the laptop mic |
+| Silero as the barge-in detector | **settled for the gate** | confidence 0.5 and "7 of the last 10 windows" (`docs/PI-RESULTS.md`); the strict "0.25 s unbroken at 0.7" rule interrupted 58% at 0.67 s against 67% at 0.35 s |
+| Keep `EchoModel` (the earlier plan was to delete it) | **changed** | `BargeInGuard` uses it for the speaker-to-microphone coupling; `looks_like_echo` stays too |
+| Duck-then-stop instead of a hard stop | built in the Pi pilot (`src/doc_chat/pi_pilot.py`) only | not yet in `doc_chat`; main's ticket 12 specifies it |
+| Production audio topology: laptop microphone, Pi as loudspeaker | **owner's proposal, implemented and tested; confirm with the professor** | removes the weak Pi-microphone problem; costs an echo path the guard has to handle; whether it meets the brief is unknown |
+| Land the branches (A: stacked PRs, B: fast-forward, C: product only) | **owner's call** | `docs/BRANCHES.md` (written before the 2026-10-22/23 commits; those are on top of `agy/interrupts`) |
 
 ---
 
 ## 6. Open questions and risks, ranked
 
-1. **Does the speakerphone's hardware cancellation keep the Silero VAD quiet on the Pi, at normal and loud volume, including the first play?** (the Pi test). Everything below depends on it.
-2. **Does echo cancellation hurt recognition?** The laptop's module lowered the room floor 12-17 dB; accuracy under it was never measured. The double-talk scorer measures it.
-3. Silero's per-window cost on the Pi is unmeasured (the laptop number is 0.12 ms; budget 32 ms).
-4. The start-of-playback grace period: the research says 250-300 ms, our notes say 3 s. Measure.
-5. Which speakerphone is it, and does it have a mode switch? (the hardware sheet in the Pi plan.)
-6. Only one speaker (the owner), one accent, one room. Other speakers are untested.
-7. Real coughs and knocks: the benchmark used white noise.
-8. The early-send half of the turn-end policy (decide at a 200 ms pause) needs the speech server to let a turn be resumed; not built.
-9. Main's Pi pipeline (tickets 10-12) is unbuilt; the barge-in gate there is a rewrite in Pipecat terms.
+1. **Does the brief allow the laptop to own the microphone with the Pi only as loudspeaker?** If not, the Pi microphone path (weak mic: 5-15 dB over its noise, 5-10 cm operating distance) must be fixed with hardware or placement instead.
+2. **End of turn on whichever microphone ships.** Record spontaneous requests (with the hesitations real users have) on both the laptop mic and the Pi mic, then replay the rules with `scripts/eot_replay.py`; the current numbers come from 14 read phrases on the Pi mic only.
+3. **The echo guard has only run in a test harness**, not in a full spoken `doc_chat` conversation with an LLM, and the interruption cue there was predictable (a beep at a fixed time). Real, unexpected interruptions will be slower to detect.
+4. **A level guard has a ceiling.** At 90% volume the echo is 18-32 dB over the room, as loud as speech; not tried with the guard. Real echo cancellation (using the sent audio as the reference) would lift it, and was not built.
+5. **Room noise rose from about -44 to -35 dBFS** during the 2026-10-23 runs and the cause is unknown; it moves every threshold that is relative to the room.
+6. **The first words of an utterance were dropped in 3 of 10 turns** in one bridge run ("What time is it?" heard as "Is it?"); not investigated.
+7. Word error under echo cancellation, and the acoustic time until the speaker is silent after an interruption, were never measured.
+8. Only one speaker (the owner), one accent, one room, 9 interruptions in the guard runs. Other speakers are untested.
+9. Real coughs and knocks: the benchmark used white noise.
+10. The early-send half of the turn-end policy (decide at a 200 ms pause) needs the speech server to let a turn be resumed; not built.
+11. Main's agent pipeline (tickets 05, 10, 11) is unbuilt, so ticket 12's gate has nothing to attach to yet.
 
 ---
 
 ## 7. Next actions, in order
 
-1. **(You, Pi)** Run `docs/PI-TEST-PLAN.md` conditions A-D (E only if A fails). `scripts/pi_pack_results.sh`, write `docs/pi-results/NOTES.md`, commit, push. Copy the double-talk folders to the laptop and run `scripts/pi_double_talk_score.py`.
-2. **(Assistant)** Read `docs/pi-results/`, fill the decision table in `docs/PI-TEST-PLAN.md` section 5, and write the outcome into section 4 here.
-3. **(Assistant)** If A passes: delete `EchoModel` + flags; make `--vad silero` (150 ms, with a level gate if the plan says so) the default; add duck-then-stop to `doc_chat`; update `docs/INTERRUPTS.md`. If A fails: follow the other rows of the decision guide.
-4. **(Owner)** Choose how to land the branches (`docs/BRANCHES.md`).
-5. **(Both)** Port the winning gate into the Pi pipeline when tickets 10-12 are built.
-6. Parked, in order of value: other speakers; coughs/knocks recorded for real; server-side resume for early send; provisional transcripts for speculative LLM start (ticket 12 / design review section 3).
+1. **(Owner)** Decide or ask the professor: is "laptop microphone, Pi loudspeaker" acceptable (section 6, item 1)? Everything below branches on it.
+2. **(Both)** Run a full spoken `doc_chat` conversation with the guard on: `--play-remote ws://<pi>:8780 --vad both --vad-confidence 0.5 --silero-kofn 7/10 --level-kofn 3/8` (section 9). Watch for self-interruptions and missed interruptions; use `--record` and `scripts/session_report.py`.
+3. **(Both)** Record spontaneous requests with `scripts/pi_record.py` (3 s of silence between requests; on the laptop `--in-device default --in-rate 16000`), then compare end-of-turn rules with `scripts/eot_replay.py`. Pick a hold and decide whether the Silero-based rule replaces the loudness rule in `listen_turn`.
+4. **(Assistant)** Add duck-then-stop to `doc_chat` (the pilot has it; ticket 12 specifies it), then try the guard at 90% volume and with the speaker moved; decide whether real echo cancellation is needed.
+5. **(Owner)** Push `agy/interrupts` (two commits ahead of origin) and `docs/ticket-12-kofn-gate`; choose how to land the branches (`docs/BRANCHES.md`); then `git pull` on the Pi (section 0).
+6. **(Both)** Port the winning gate into the Pi pipeline when tickets 05, 10, 11 and 12 are built.
+7. Parked, in order of value: other speakers; coughs and knocks recorded for real; the dropped first words; server-side resume for early send; provisional transcripts for speculative LLM start.
 
 ---
 
@@ -187,6 +247,11 @@ flowchart LR
 - **Gate every commit** on `ruff check`, `ruff format --check`, `mypy` (packages in `pyproject.toml`) and `pytest`.
 - **Commit trailer:** `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. In this repository use `git -c safe.directory=$PWD ...` (the checkout is on a mounted drive).
 - **Report faithfully:** say what failed, what was not measured, and how many repetitions a number rests on (most interruption numbers rest on 2).
+- **The Pi: SSH key login only, no password in the repository or the session.** Copy keys with `ssh-copy-id` in a normal terminal (the prompt cannot appear inside an assistant session). No sudo on the Pi, so nothing is installed system-wide; `uv pip install` into its venv is fine.
+- **Speech-server tokens are generated per session, kept in mode-600 files and never printed or committed.** Off loopback the server refuses to start without one.
+- **Do not change the owner's laptop settings** (mute, volume, firewall) without asking; the firewall rule used here is runtime-only and the owner added it.
+- **Format only the files you edit.** `ruff format scripts/` reformats `scripts/pi_synth_report.py` (an older file) and puts an unrelated change in your commit.
+- **State what a number rests on** and say when a setting was chosen after seeing the data (the 3-of-3 at 70% is not held out; the 6-of-6 at 80% is).
 - Timezone: Philippine Standard Time (UTC+8). Run `scripts/power_mode.sh max` (on AC) before latency measurements and `balanced` after.
 
 ---
@@ -213,6 +278,20 @@ uv run python scripts/pi_echo_check.py selftest   --label "A speakerphone vol60"
 uv run python scripts/pi_echo_check.py doubletalk --label "A speakerphone vol60" --device "<name>"
 scripts/pi_pack_results.sh
 
+# Pi bridge (see docs/PI-BRIDGE.md): server on the laptop bound to the cable address, then on the Pi
+LAN_SPEECH_TOKEN=... uv run --group laptop python -W ignore -m lan_speech --host <cable ip> --port 8770 --stt-model parakeet --entities config/entities-docs.json
+LAN_SPEECH_TOKEN=... .venv/bin/python -u scripts/pi_bridge.py --server ws://<laptop cable ip>:8770 --pause 1.2   # Pi: Pi mic and speaker
+
+# Pi as loudspeaker (see docs/PI-REMOTE-SPEAKER.md)
+LAN_SPEECH_TOKEN=... .venv/bin/python -u scripts/pi_speaker.py --device CD002 --rate 48000                        # Pi
+LAN_SPEECH_TOKEN=... uv run --group laptop python -W ignore -m doc_chat --mic --docs corpus/harry-potter --llm gemini --stream \
+    --play-remote ws://<pi>:8780 --vad both --vad-confidence 0.5 --silero-kofn 7/10 --level-kofn 3/8                # laptop
+LAN_SPEECH_TOKEN=... uv run --group laptop python scripts/remote_echo_check.py --url ws://<pi>:8780 --label "pi 80%" \
+    --out out/remote_echo/x --talk-over 6 --repeat 2                                                                # echo and guard test (stay quiet / talk on the beep)
+uv run --group laptop python scripts/guard_replay.py out/remote_echo/fresh80 [--sweep]                              # replay the guard offline
+uv run --group laptop python scripts/pi_record.py --out out/pi_bridge/x.wav --seconds 240 --in-device default --in-rate 16000   # record a mic
+uv run --group laptop python scripts/eot_replay.py out/pi_bridge/eot-session.wav                                    # end-of-turn rules on a recording
+
 # the gate
 uv run --group laptop ruff check src tests scripts && uv run --group laptop ruff format --check src tests scripts \
   && uv run --group laptop mypy && uv run --group laptop pytest -q
@@ -224,7 +303,7 @@ uv run --group laptop ruff check src tests scripts && uv run --group laptop ruff
 
 Paste this into a new session in the repository root:
 
-> Read `docs/HANDOFF.md` fully, then `docs/PI-TEST-PLAN.md` and everything in `docs/pi-results/` (the Pi results I just pushed). Follow the working agreements in section 8. Do section 7 step 2: interpret the results with the decision table, report what they show and what they do not (state repetitions), and propose the next change before making it. Do not touch my untracked files and do not push without asking.
+> Read `docs/HANDOFF.md` fully (start with section 0), then `docs/PI-REMOTE-SPEAKER.md`, `docs/PI-BRIDGE.md` and `docs/PI-RESULTS.md`. Follow the working agreements in section 8. Check section 0 for what is running or uncommitted on the Pi, then do section 7 from the first item that is not blocked on me. Report what each result shows and what it does not (say how many repetitions it rests on), and propose the next change before making it. Do not touch my untracked files and do not push without asking.
 
 ---
 
@@ -239,4 +318,7 @@ Paste this into a new session in the repository root:
 - **Finalize:** the client's message asking the server to end the turn now and return the final transcript.
 - **Hotwords:** a bias list that makes the recogniser favour known names. **Repair ladder:** the post-step that fixes near-miss names (silently, by echo, or by asking).
 - **Double talk:** the user and the assistant speaking at once.
+- **k-of-n rule:** speech when at least k of the last n windows (or blocks) are speech, instead of an unbroken run; speech has quiet windows inside it (the Pi pilot's "7 of 10").
+- **Echo guard (`BargeInGuard`):** says "the user" only when Silero hears speech AND the microphone is clearly louder than the echo expected from what is being played.
+- **Bridge:** `scripts/pi_bridge.py`, the Pi's microphone and speaker joined to the laptop's speech models over the LAN.
 - **Ablation:** the same test with parts of the system switched on and off (`docs/INTERRUPTS.md`).
