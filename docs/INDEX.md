@@ -16,6 +16,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `SILERO-SPEECH-COMMANDS.md` | laptop test: Silero does hear a clean one-word "stop" (so the Pi's low confidence is not the model); the 250 ms hold costs short words |
 | `BRANCHES.md` | the three branches, how they relate, how to land them, how to resolve conflicts |
 | `ECHO-RESEARCH.md` | how assistants and frameworks handle echo and barge-in; how far to trust the report |
+| `SMART-HOME-TOOL.md` | the one `smart_home` tool for the 19 ME2 commands, the separate Pipecat project `pipeline/`, and the LLM choice: native Gemini 3.1 flash-lite + router prompt 50/50, first reply 0.52 s (plain) / 1.31 s (tool) |
 
 ## Speech and the test client
 
@@ -40,13 +41,14 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | File | What it is |
 |---|---|
 | `../.scratch/project2-voice-agent/DESIGN.md` | the Pi voice agent design, decisions, the professor's requirements |
-| `../.scratch/project2-voice-agent/tickets/` | tickets 01-24 (12 = barge-in gate; 21-24 = laptop speech track) |
+| `../.scratch/project2-voice-agent/tickets/` | tickets 01-28 (12 = barge-in gate; 21-24 = laptop speech track; 25-28 added 2026-10-23; order after the reassessment at the end of `DESIGN.md`) |
+| `../.scratch/smart-home-tool/` | plan, design, level-3 tickets, agy fence and results for the `smart_home` tool |
 | `../PROJECT2-DESIGN-REVIEW.md`, `../FULL-DUPLEX-RESEARCH.md` | the reviews behind the design |
 | `AUDIO-ENGINE.md`, `EVENT-LOG.md`, `MCP-SERVERS.md`, `BENCHMARK.md` | contracts of the main project |
 
 ## Research notes from the agy assistant (`.scratch/speech-hosting/`)
 
-`AGY-RESEARCH.md` (hosting), `AGY-STT-IMPROVE.md`, `AGY-PARAKEET-IMPROVE.md`, `AGY-PARETO-REPAIR.md` (STT), `AGY-NET-*.md` (poor-network practice), `AGY-SPEC-DECODE.md` (early-decode accuracy), `AGY-ECHO.md` (echo), `AGY-PI-NEXT-v1.md` / `AGY-PI-NEXT.md` (one-word interrupt and AEC, **unreliable**: see `RESEARCH-HANDOFF-PI.md`), `PROMPT-PI-NEXT.md` (the brief), `VERIFICATION.md`. They are web-search summaries; claims are tagged by the assistant and partly unreliable (see `ECHO-RESEARCH.md` "How far to trust it").
+`AGY-RESEARCH.md` (hosting), `AGY-STT-IMPROVE.md`, `AGY-PARAKEET-IMPROVE.md`, `AGY-PARETO-REPAIR.md` (STT), `AGY-NET-*.md` (poor-network practice), `AGY-SPEC-DECODE.md` (early-decode accuracy), `AGY-ECHO.md` (echo), `AGY-GEMINI-FAST.md` (Gemini models for a fast agent), `AGY-CHEAP-LLM.md` (cheap hosted LLMs from the Philippines; relies on 2024-era data), `AGY-PI-NEXT-v1.md` / `AGY-PI-NEXT.md` (one-word interrupt and AEC, **unreliable**: see `RESEARCH-HANDOFF-PI.md`), `PROMPT-PI-NEXT.md` (the brief), `VERIFICATION.md`. They are web-search summaries; claims are tagged by the assistant and partly unreliable (see `ECHO-RESEARCH.md` "How far to trust it").
 
 ## Results coming back from the Pi
 

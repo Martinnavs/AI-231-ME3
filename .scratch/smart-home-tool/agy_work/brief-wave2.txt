@@ -1,0 +1,43 @@
+Done by you alone: do not launch subagents or background tasks. Put your final report in your reply.
+
+Implement wave 2 of the smart_home tool work: ticket 02-dryrun-and-scorer.
+These tickets add a small amount of code whose full text is already in the ticket. Your job is to copy it into place exactly and prove it is green, not to improve it.
+
+The three rules that matter most:
+1. The code in the ticket's "C — Contracts" and "P — Proof" sections IS the implementation. Copy it byte-for-byte, blank lines included.
+2. Blocked (missing module, failing command, mismatch with a landed file): write the exact error in the ticket's Execution Log and stop. Install nothing; no network.
+3. Exactly the function inventory, exactly the listed tests, every file under its line cap. Never compress lines to fit; anything beyond the ticket is a material deviation: log "Material - needs human" and stop.
+
+Your working directory is /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/smart-home-tool/agy_work/work. It is a copy; work only inside it.
+Wave 1 (ticket 01) is delivered and green.
+
+Step 0, before any code: confirm the landed producer file matches what ticket 02 expects:
+- pipeline/src/voice_pipeline/tools/smart_home.py: exports SCHEMA (a pipecat FunctionSchema named "smart_home") and make_handler(*, base_url: str | None, record: list[dict[str, Any]]).
+If it doesn't match, log a material deviation in ticket 02 and stop. Do not edit producer files.
+
+Read first, fully, in this order:
+1. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/smart-home-tool/agy_work/work/.scratch/smart-home-tool/tickets/GUARDRAILS.md (binding on every ticket)
+2. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/smart-home-tool/agy_work/work/.scratch/smart-home-tool/developer-role.md — your role, including its "At level 3" section. The design gate is already approved.
+3. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/smart-home-tool/agy_work/work/.scratch/smart-home-tool/PLAN.md
+4. The ticket: /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/smart-home-tool/agy_work/work/.scratch/smart-home-tool/tickets/02-dryrun-and-scorer.md
+
+One ticket in this wave: 02.
+
+Hard rules for this run:
+- Edit only the files in the ticket's file table, plus the ticket file itself (Status, Proof results, Deviations, Execution Log).
+- Git is not available to you for writing: no commits.
+- No network: run every uv command with --offline. Never run python -m voice_pipeline.dryrun without --help (it calls paid APIs).
+- Run only the ticket's Proof commands and the gate commands in GUARDRAILS.md, from /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/smart-home-tool/agy_work/work/pipeline.
+
+Before you finish: wc -l every file you own against its cap, then re-read your diff against the forbidden list in GUARDRAILS.md and remove anything it names.
+
+Append to the ticket's "## Execution Log" (never rewrite earlier entries):
+### 2026-10-23 agy: DONE | BLOCKED | PARTIAL
+- Proof: 1 ✅/❌ 2 ✅/❌ ... (each command and its last output line)
+- Files: path (lines / cap), one per file
+- Deviations: none | one line each
+- Notes for reviewer: only what is not obvious from the diff
+
+Final reply, terse: status, line counts vs caps, Proof checkmarks, open issues, every file you changed.
+
+Again, the three rules: copy the ticket's code byte-for-byte; when blocked, report and stop; nothing beyond the inventory, tests and caps, and never compress lines.
