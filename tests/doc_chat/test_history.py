@@ -110,3 +110,19 @@ def test_the_answer_chain_searches_with_the_combined_query() -> None:
     chain = build_answer_chain(r, llm=RecordingLLM(), history=h.pairs)  # type: ignore[arg-type]
     chain.invoke("and her husband?")
     assert r.queries == ["Who is Petunia? and her husband?"]
+
+
+def test_a_short_question_with_its_own_subject_is_not_glued_to_the_previous_one() -> None:
+    # live, 2026-10-23: "Tell me about the road." (5 words) was searched with the Blood Meridian
+    # question before it, found Blood Meridian text, and the model said it did not know
+    past = [("About Blood Meridian.", "x")]
+    for q in ("Tell me about the road.", "Tell me about The Counselor.", "Who played Chigurh?"):
+        assert retrieval_query(q, past) == q
+
+
+def test_short_follow_ups_that_point_back_still_are() -> None:
+    past = [("Tell me about Suttree.", "x")]
+    assert retrieval_query("When was it published?", past) == (
+        "Tell me about Suttree. When was it published?"
+    )
+    assert retrieval_query("But his sister?", past) == "Tell me about Suttree. But his sister?"

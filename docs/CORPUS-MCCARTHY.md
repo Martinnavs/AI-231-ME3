@@ -19,3 +19,7 @@ The checks were by one reader (an AI assistant) from memory plus the lists agy g
 agy itself flagged four details as unverified: the exact date of the third marriage; his father's years of birth and death; whether his Chicago job was a warehouse or a repair job; and the date of the first staging of *The Stonemason* (the file says sources differ). Treat the corpus as **research-grade for testing a voice agent, not as a citable source**; expect a few more errors.
 
 Retrieval smoke test (BM25 over the chunks, top 2): 10 of 10 questions ("When was Blood Meridian published?", "Who directed The Counselor?", "Where did he die?", "Why no quotation marks?" and six others) returned a chunk that contains the answer. One run, ten questions chosen by the reviewer.
+
+## Using it with a real model (2026-10-23)
+
+`python -m doc_chat --docs corpus/cormac-mccarthy --llm gemini --stream --max-words 90 --chunk-size 1000 --top-k 3 --system-prompt <file>` (the built-in prompt limits answers to two short sentences). Gemini's answers were grounded in the corpus and mostly right; two of twelve open-ended questions got "I do not know" because of retrieval bugs that are now fixed (a short question was searched together with the previous one; title lines outranked paragraphs). See `docs/PI-REMOTE-SPEAKER.md`.

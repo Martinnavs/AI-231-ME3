@@ -14,6 +14,7 @@ import time
 import wave
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from dataclasses import replace as dc_replace
 from pathlib import Path
 from typing import IO, Any
 
@@ -47,6 +48,36 @@ _STOP_CORE = {"stop", "wait", "hold", "hang", "pause", "shush", "enough", "never
 _STOP_FILLER = {"on", "it", "okay", "ok", "please", "now", "just", "never"}
 
 
+_STOP_PREFIX = re.compile(
+    r"^\W*(?:(?:wait|stop|hold on|hang on|pause|okay|ok|please|sorry|actually|hey|um|uh|so)\b\W*)+",
+    re.IGNORECASE,
+)
+_QUESTION_OPENERS = frozenset(
+    ["tell", "what", "who", "when", "where", "why", "how", "explain", "describe", "give"]
+)
+
+
+def _strip_stop_prefix(text: str) -> str:
+    """ "Wait, stop. Tell me about Suttree instead." -> "Tell me about Suttree instead.".
+
+    A pivot: the user talked over the assistant with an order to stop and a new question. The
+    order has done its work (the reply was cut off when the voice was heard); keeping it in the
+    question would search the documents and prompt the model with "wait stop" as well. Only a
+    prefix that contains a real stop word is removed, and only if a question remains."""
+    m = _STOP_PREFIX.match(text)
+    if not m:
+        return text
+    prefix = m.group(0)
+    has_stop = re.search(r"\b(wait|stop|hold on|hang on|pause)\b", prefix, re.IGNORECASE)
+    punctuated = re.search(r"\b(wait|stop|pause|on)\b\s*[,.!?;:-]", prefix, re.IGNORECASE)
+    if not has_stop or not (punctuated or len(re.findall(r"[a-z']+", prefix.lower())) >= 2):
+        return text  # "Wait times at the library?": that "wait" is part of the question
+    rest = text[m.end() :].strip()
+    if len(rest.split()) < 2:
+        return text
+    return rest[0].upper() + rest[1:]
+
+
 def _only_stop_words(said: list[str]) -> bool:
     """Exact stop phrases, or up to four words that are all stop words or fillers with at least
     one real stop word among them."""
@@ -59,7 +90,7 @@ def _only_stop_words(said: list[str]) -> bool:
     )
 
 
-def _is_stop_phrase(said: list[str]) -> bool:
+def _is_stop_phrase(said: list[str], after_interrupt: bool = False) -> bool:
     """An utterance that only tells the assistant to be quiet ("wait, stop", "hold on please").
 
     Three cases, so a question that merely contains "stop" is not one:
@@ -67,10 +98,19 @@ def _is_stop_phrase(said: list[str]) -> bool:
     * two words ending in stop/wait/pause ("quick stop": the first word was misheard);
     * a short utterance that *ends* in a stop phrase ("a young pilot wait stop": the assistant's own
       words came back in the same turn, then the user said stop). Only the strict check applies to
-      the tail, so "why did the road stop" is a question."""
+      the tail, so "why did the road stop" is a question;
+    * right after the user talked over the assistant: up to eight words ending in stop/wait/pause
+      ("the provided text is not stop": its own words came back and "wait" was lost)."""
     if _only_stop_words(said):
         return True
     if len(said) == 2 and said[-1] in ("stop", "wait", "pause"):
+        return True
+    if (
+        after_interrupt
+        and 2 <= len(said) <= 8
+        and said[-1] in ("stop", "wait", "pause")
+        and not _QUESTION_OPENERS.intersection(said)  # "tell me about the bus stop" is a question
+    ):
         return True
     return 3 <= len(said) <= 8 and _only_stop_words(said[-2:])
 
@@ -212,6 +252,7 @@ class Session:
     _stream: SentenceStream | None = None  # the model call behind it
     _answer_started: float | None = None  # perf_counter of the first answer audio
     _replies: int = 0  # replies started this session (for --cue-every)
+    _pivot_from: str | None = None  # what was said, when "wait, stop" was cut off the front
     _guard_trace: IO[str] | None = None  # --trace-guard: a JSON line per microphone block
     _echo_model: EchoModel | None = None  # speaker-to-microphone coupling, learned over the session
     _cue_s: float | None = None  # seconds into this reply a cue beep sounds, if it has one
@@ -463,6 +504,7 @@ class Session:
             rec["stt_server_ms"] = rounded(heard.server_ms)
             rec["repair_rung"] = (heard.repair or {}).get("rung")
             rec["heard"] = heard.text
+            rec["pivot_from"] = self._pivot_from
             rec["raw_text"] = heard.raw_text
             rec["partial"] = heard.partial or None
             rec["audio_s"] = round(len(heard.pcm) / 2 / 16000, 2) if heard.pcm else None
@@ -511,14 +553,16 @@ class Session:
         )
         idx = 0
         heard: HeardTurn | None = None
+        after_interrupt = False  # the turn being handled was said right after talking over a reply
         while True:
             idx += 1
             if heard is None:
                 heard = await self.hear()
             said = re.sub(r"[^a-z' ]", " ", heard.text.lower()).split()
+            was_interrupt, after_interrupt = after_interrupt, False
             if " ".join(said) in _QUIT_WORDS:
                 break
-            if _is_stop_phrase(said):
+            if _is_stop_phrase(said, was_interrupt):
                 print(f"you:  {heard.text}   (it stopped; listening)", flush=True)
                 self.log(
                     {
@@ -532,6 +576,12 @@ class Session:
                 heard = None
                 idx -= 1
                 continue
+            self._pivot_from = None
+            stripped = _strip_stop_prefix(heard.text)
+            if stripped != heard.text:  # "wait, stop, tell me about X instead": stop and ask
+                print(f"      (pivot: {stripped!r})", flush=True)
+                self._pivot_from = heard.text
+                heard = dc_replace(heard, text=stripped)
             interruption: Interruption | None = None
             try:
                 if self.pending is None:
@@ -547,6 +597,7 @@ class Session:
                 continue
             spoken = " ".join(self._spoken)
             heard = await self.follow_up(heard, interruption)
+            after_interrupt = interruption.kind == "barge_in"
             if (
                 interruption.kind == "barge_in"
                 and getattr(self.args, "echo_text_guard", True)
@@ -834,10 +885,14 @@ async def async_main(args: argparse.Namespace) -> int:
 
     retriever = None
     if not args.no_docs:
-        chunks = load_and_split_corpus(args.docs)
+        chunks = load_and_split_corpus(
+            args.docs,
+            chunk_size=args.chunk_size,
+            chunk_overlap=max(args.chunk_size // 10, 0),
+        )
         from langchain_community.retrievers import BM25Retriever
 
-        retriever = BM25Retriever.from_documents(chunks, k=2, preprocess_func=tokenize)
+        retriever = BM25Retriever.from_documents(chunks, k=args.top_k, preprocess_func=tokenize)
 
     client = DocChatSpeechClient(server_url=args.server)
     await client.connect()
@@ -957,6 +1012,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--log",
         default="out/doc_chat/turns.jsonl",
         help="Turn log output JSONL path (default: out/doc_chat/turns.jsonl)",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=500,
+        help="characters per retrieved passage (default: 500; ~1000 suits a large corpus)",
+    )
+    parser.add_argument(
+        "--top-k", type=int, default=2, help="how many passages the model is given (default: 2)"
     )
     parser.add_argument(
         "--max-words",

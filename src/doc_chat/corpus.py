@@ -15,8 +15,13 @@ def load_and_split_corpus(
     docs_dir: Path | str,
     chunk_size: int = 500,
     chunk_overlap: int = 50,
+    min_chunk_chars: int = 60,
 ) -> list[Document]:
-    """Load all *.md and *.txt files in docs_dir and split into chunks with source metadata."""
+    """Load all *.md and *.txt files in docs_dir and split into chunks with source metadata.
+
+    Fragments shorter than ``min_chunk_chars`` (a title line on its own) are dropped: BM25 prefers
+    short documents, so a heading stub that merely repeats the question's words outranked the
+    paragraph that answers it, and the language model was handed two titles and no content."""
     dir_path = Path(docs_dir)
     if not dir_path.is_dir():
         print(f"no documents found in {docs_dir}", file=sys.stderr)
@@ -54,7 +59,9 @@ def load_and_split_corpus(
         print(f"no documents found in {docs_dir}", file=sys.stderr)
         sys.exit(2)
 
-    return list(chunks)
+    floor = min(min_chunk_chars, chunk_size // 4)  # a tiny chunk size must not erase everything
+    kept = [c for c in chunks if len(c.page_content.strip()) >= floor]
+    return kept or list(chunks)
 
 
 _STOPWORDS = frozenset(

@@ -94,13 +94,43 @@ The 0.76 s includes your reaction and the beep's own trip through the speaker (a
 
 **Latency in the loop** (8 completed replies of the cue test, plus 6 of the soak, all with the speech server and the Pi speaker): from the moment you stop to the first answer audio leaving the server, p50 1.69 s (p95 1.75 s): your pause 0.64 s, speech server 0.30 s, the model's fixed 0.30 s, TTS first audio 0.27 s, retrieval 0.7 ms (15 ms the first time; 562 chunks). This excludes the trip to the Pi speaker (about 0.1-0.3 s). Recognition: 11 of 18 scripted questions came back exactly right; 4 of the 7 errors are the first one or two words ( "What prize did The Road win?" came back as "Price did the road win", "Who played Anton Chigurh?" as "Anton Chigurh"), and the others are single words ("Suttree" as "Saturday", "quotation" as "rotation", "papers kept" as "paper steps"). The recorded audio shows the opening words reach the server (a loud onset after seconds of silence), so this is recognition, not transport.
 
+## With a real language model (Gemini) over the McCarthy corpus
+
+The same live loop, Pi speaker at 80%, laptop mic, the same guard settings and the cue beep, with `--llm gemini --stream --max-words 90 --chunk-size 1000 --top-k 3 --system-prompt <a file asking for four to six sentences>` so that replies are long enough (10-14 s) to talk over; 12 open-ended questions ("Tell me about Blood Meridian."), the second, fourth... replies carrying the beep. One speaker, one room, one session.
+
+| | Result |
+|---|---|
+| Cued replies stopped after the beep | **7 of 7**; median 0.64 s from the beep (0.37-0.83 s) |
+| Cued replies interrupted before the beep / played to the end | 0 / 0 |
+| Quiet replies played to the end | 6 of 7; the seventh was cut off 10 s in by the user starting the next question early, after the assistant had wrongly answered a stop command (see below), not by echo |
+| Its own words heard back as speech (`ignored_echo`) | 0 |
+| Stop commands that only silenced it | 5 of 7 at the time; the 2 others (`Steve Knopf Public Stop.`, `The provided text is not. Stop.`: its own words mixed in, "wait" lost) were answered as questions. Fixed: right after talking over a reply, up to eight words ending in stop/wait/pause is the order. All 17 stop-bearing transcripts that followed an interruption in every recorded session are now stop commands |
+| Stop to first answer audio (server side) | p50 **2.26 s** (p95 2.86 s): your pause 0.64 s, speech server 0.32 s, Gemini first token 0.7-1.4 s, TTS first audio 0.38 s |
+| Answers | grounded in the corpus and mostly right ("Cormac McCarthy wrote nearly all of his novels on a portable Olivetti Lettera 32…", the awards and film cast for *All the Pretty Horses*); 2 of 12 were "I do not know" because of a retrieval bug, fixed (below) |
+
+### Pivoting: interrupting with a new question
+
+An interruption does not have to be a bare "wait, stop"; it can carry the next question: "Wait, stop. Tell me about Suttree instead." The assistant stops when it hears the voice, and the order is then cut off the front of the transcript (`_strip_stop_prefix`; kept in the log as `pivot_from`) so the documents are searched and the model prompted with the question only. A prefix counts as an order only if it contains a stop word followed by punctuation, or has at least two words ("wait stop", "hold on please"), so "Wait times at the library?" is left alone; and the looser "ends in stop" rule used right after an interruption does not apply to a line that starts like a question ("tell me about the bus stop").
+
+Live (Gemini, cue beep, Pi speaker at 80%, 6 question/pivot pairs; one speaker, one room, one session):
+
+| | Result |
+|---|---|
+| Cued replies stopped after the beep | **5 of 5**; median 0.42 s from the beep (0.33-0.68 s; shorter than a bare "wait, stop" because the sentence starts at once) |
+| Interruptions followed by an answered new question | **5 of 5**, each about the new topic and grounded in the corpus; "wait, stop" stripped in 4 of them (in the fifth its own words came back first, `By Cormac Carter. Wait, stop. Tell me about Suttree…`, so the prefix was not removed and the model answered about Suttree anyway) |
+| Quiet replies (nobody talks) played to the end | 6 of 6; 0 false triggers, 0 `ignored_echo` |
+| Stop to first answer audio (server side) | 2.45-2.79 s for the five answers after a pivot; the very first Gemini call took 8.6 s to its first token (cold start), every later one about 1.0 s |
+| Recognition | the new question came back right in 4 of 5 ("did he use" became "do they use" in one) |
+
+**A retrieval bug the real model exposed.** A question of five words or fewer was searched together with the previous question, on the assumption that it was a follow-up. "Tell me about the road." (five words) was searched as "About Blood Meridian. Tell me about the road." and "Tell me about The Counselor." together with the *Outer Dark* question before it, so the wrong book's text came back and the model said it did not know. A short question now borrows the previous one only if it starts with "and/but/so…" or points back with a pronoun ("when was it published?"). Separately, BM25 prefers short documents, so a title line alone (16 characters) outranked the paragraph that answers; fragments under 60 characters are now dropped when the corpus is split. With a large corpus use `--chunk-size 1000 --top-k 3` (the defaults, 500 and 2, gave two content-free hits for an open-ended question).
+
 ## What this does not show
 
 * **One speaker, one room, 9 interruptions and 15 echo-only clips in total.** The speaker-to-microphone distance and the user-to-microphone distance were not recorded.
 * **The cue is predictable** (the beep is always 2.5 s in), so the 0.35 s median after the beep is optimistic for a real, unexpected interruption. It also includes about 0.2 s for the beep to reach the room.
 * **A level guard has a ceiling**: it works only when the user is clearly louder than the echo. At 90% volume the echo is 18-32 dB above the room, as loud as speech; that setting was not tried with the guard. Real echo cancellation with the sent audio as the reference would lift the echo ceiling but not the noise ceiling, and was not built.
 * The room was 10 dB noisier (-34 to -35 dBFS) in the guard runs than in the first echo runs (-41 to -44); something in the room changed and its cause is unknown.
-* The model-free random-sentence replies were used, so the numbers measure interruption, echo and latency but not answer quality; a spoken conversation with a real language model reading the corpus has not been run.
+* The Gemini session is one run of 12 questions; the answers were read but not graded against the corpus, and the retrieval fixes were made after it and have been tested offline, not yet in a second live run.
 * The echo-only soak had 6 replies and the cue test 15 (7 cued, 8 quiet); the settings were chosen on earlier recordings and these two sessions were run afterwards, but they are small and from one speaker in one room. A louder room moves every threshold.
 * The laptop's own speaker output was muted, so an early talk-over run with a beep from the laptop was silent; the cue now comes from the Pi.
 

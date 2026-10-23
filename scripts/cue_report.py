@@ -25,8 +25,8 @@ from typing import Any
 def classify(rows: list[dict[str, Any]]) -> dict[str, Any]:
     hits: list[float] = []
     missed = quiet_ok = false_quiet = false_early = 0
-    stops = echoes = 0
-    for r in rows:
+    stops = echoes = pivots = 0
+    for i, r in enumerate(rows):
         if r.get("ignored_echo"):
             echoes += 1
             continue
@@ -43,6 +43,11 @@ def classify(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 false_early += 1
             elif after is not None:
                 hits.append(after / 1000.0 - cue)
+                nxt = rows[i + 1] if i + 1 < len(rows) else {}
+                if nxt.get("pivot_from") and nxt.get("answer_words", 0) > 0:
+                    pivots += (
+                        1  # talked over it with "wait, stop, <question>" and got that answered
+                    )
         elif kind is None and "answer_words" in r and r.get("llm_error") is None:
             if cue is None:
                 quiet_ok += 1
@@ -56,6 +61,7 @@ def classify(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "false_early": false_early,
         "ignored_echo": echoes,
         "stop_words": stops,
+        "pivots": pivots,
     }
 
 
@@ -90,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         f"- its own words heard back as speech and ignored by the text guard: {c['ignored_echo']}"
     )
     print(f"- stop phrases that only silenced it: {c['stop_words']}")
+    print(f"- interruptions that carried a new question which was then answered: {c['pivots']}")
     print(f"- seconds from the beep to the stop: {stats(c['hits'])}")
     for key, label in (
         ("retrieval_ms", "retrieval ms"),
