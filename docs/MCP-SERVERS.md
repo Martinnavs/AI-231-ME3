@@ -208,3 +208,7 @@ Arguments are validated against `/api/vocab` (fetched once at startup, refreshed
 
 `home://vocab`: JSON string of allowed vocabularies fetched from the dashboard (`GET /api/vocab`).
 
+
+## smart_home tool (pipeline/, not an MCP server)
+
+One Pipecat function, `smart_home(intent, slot=None)`, covers all 19 ME2 intents by posting to the dashboard's `POST /api/command`; it lives in the separate Pipecat project `pipeline/` (`voice_pipeline.tools.smart_home`). The `home` server above is unchanged. See `docs/SMART-HOME-TOOL.md`.
