@@ -94,6 +94,101 @@ class EchoModel:
             self._ratios.append(mic_level / played_level)
 
 
+class BargeInGuard:
+    """Is this block of microphone audio the user talking over the assistant, or its own voice?
+
+    Three situations, as in the live client:
+
+    * ``answering`` False (the assistant is still thinking): any clear speech counts (loudness
+      ``idle_ratio`` times the room, and Silero if it is in use).
+    * ``answering`` True (its voice is coming out of a speaker): the block must also be louder than
+      the echo to expect, ``EchoModel.expected(played)``, where ``played`` is the loudness of what
+      was just sent to the speaker. That is what the laptop knows exactly and a detector alone does
+      not: with the Pi's speaker 40-90% loud, Silero fired on the assistant's own voice in every
+      clip (docs/PI-BRIDGE.md), so it only counts as the user when it is clearly above the echo.
+    * ``mode='silero'``: the model alone decides (the earlier behaviour, no echo allowance).
+
+    Blocks at or below the bar while the assistant plays teach the echo model the speaker-to-mic
+    coupling. Call ``feed`` once per 100 ms block.
+    """
+
+    def __init__(
+        self,
+        noise: float,
+        *,
+        ratio: float = 4.0,
+        idle_ratio: float = 3.0,
+        min_s: float = 0.3,
+        mode: str = "energy",
+        silero: SileroOnset | None = None,
+        echo: EchoModel | None = None,
+        level_kofn: tuple[int, int] | None = None,
+    ) -> None:
+        self.mode = mode
+        # level_kofn=(k, n): speech once k of the last n blocks were above the bar (speech has
+        # gaps between words; a net-time counter never builds up on a 30-40% duty cycle)
+        self.level_kofn = level_kofn
+        self._above: deque[bool] = deque(maxlen=level_kofn[1] if level_kofn else 1)
+        self.silero = silero
+        self.echo = echo
+        self.idle = OnsetDetector(noise, ratio=idle_ratio, min_s=min_s)
+        self.playing = OnsetDetector(noise, ratio=ratio, min_s=min_s)
+        self.last_bar = 0.0  # for diagnostics: the level a block had to beat, and the block's level
+        self.last_level = 0.0
+
+    def reset(self) -> None:
+        """A new reply starts: forget the last one (counts, window memory, the model's state).
+        What was learned about the speaker's echo is kept."""
+        self.idle.reset()
+        self.playing.reset()
+        self._above.clear()
+        if self.silero is not None:
+            self.silero.reset()
+
+    def model_stage(self, block: bytes) -> bool:
+        """The Silero half: has the model heard speech long enough? (True when it is not in use.)
+
+        Owns only the model's state, so it can run on its own thread beside `level_stage`."""
+        return True if self.silero is None else self.silero.feed(block)
+
+    def level_stage(self, block: bytes, played: float = 0.0, answering: bool = True) -> bool:
+        """The loudness half: speech clearly above the room and, while the assistant plays, above
+        the echo to expect from ``played``. Owns the energy detectors and the echo model."""
+        import numpy as np
+
+        if self.silero is not None and self.mode == "silero":
+            return True  # the model alone decides; loudness and echo are not looked at
+        x = np.frombuffer(block[: len(block) // 2 * 2], dtype=np.int16).astype(np.float32) / 32768.0
+        level = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
+        dur = len(block) / 2 / SAMPLE_RATE
+        if not answering:
+            fired_idle = self.idle.feed(level, dur)
+            if self.silero is not None:
+                return level > self.idle.threshold
+            return fired_idle
+        use_echo = self.echo is not None and self.echo.margin > 0
+        extra = self.echo.expected(played) if use_echo and self.echo and played > 0.01 else 0.0
+        fired = self.playing.feed(level, dur, extra)
+        bar = max(self.playing.threshold, extra)
+        if self.level_kofn is not None:
+            self._above.append(level > bar)
+            fired = level > bar and sum(self._above) >= self.level_kofn[0]
+        self.last_bar, self.last_level = bar, level
+        if self.echo is not None and played > 0.01 and level <= bar:
+            self.echo.learn(
+                level, played
+            )  # not the user: this is what the speaker sounds like here
+        # with the model also in use, `fired` (above the bar for min_s, not just this block) must
+        # agree with its onset: one loud syllable of the assistant's own voice must not count
+        return fired
+
+    def feed(self, block: bytes, played: float = 0.0, answering: bool = True) -> bool:
+        """Both stages, in turn; each is fed every block so its state follows the audio."""
+        model = self.model_stage(block)
+        level = self.level_stage(block, played, answering)
+        return model and level
+
+
 def _words(text: str) -> list[str]:
     return re.sub(r"[^a-z0-9' ]", " ", text.lower()).split()
 
@@ -132,6 +227,7 @@ class SileroOnset:
         confidence: float = 0.7,
         min_s: float = 0.25,
         keep_history: bool = False,
+        kofn: tuple[int, int] | None = None,
     ) -> None:
         import numpy as np
         import onnxruntime as ort
@@ -145,6 +241,11 @@ class SileroOnset:
         self._np = np
         self.confidence = confidence
         self.min_s = min_s
+        # With kofn=(k, n) an onset is a speech window when at least k of the last n windows were
+        # speech, instead of min_s of unbroken speech: speech has quiet windows inside it, and
+        # one dip must not restart the count (the Pi pilot, docs/PI-RESULTS.md: 7 of 10).
+        self.kofn = kofn
+        self._recent: deque[bool] = deque(maxlen=kofn[1] if kofn else 1)
         self._state = np.zeros((2, 1, 128), dtype="float32")
         self._context = np.zeros((1, self.CONTEXT), dtype="float32")
         self._pending = np.zeros(0, dtype="float32")
@@ -160,6 +261,7 @@ class SileroOnset:
         self._context = np.zeros((1, self.CONTEXT), dtype="float32")
         self._pending = np.zeros(0, dtype="float32")
         self._speech_s = 0.0
+        self._recent.clear()
         self.last_confidence = 0.0
         if self.history is not None:
             self.history.clear()
@@ -183,7 +285,13 @@ class SileroOnset:
             self.last_confidence = self._confidence(window)
             if self.history is not None:
                 self.history.append(self.last_confidence)
-            if self.last_confidence >= self.confidence:
+            hit = self.last_confidence >= self.confidence
+            if self.kofn is not None:
+                self._recent.append(hit)
+                if hit and sum(self._recent) >= self.kofn[0]:
+                    return True
+                continue
+            if hit:
                 self._speech_s += self.WINDOW / 16000
             else:
                 self._speech_s = 0.0  # Pipecat: any non-speech window while starting resets it
