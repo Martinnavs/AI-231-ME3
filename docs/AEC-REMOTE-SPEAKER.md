@@ -39,6 +39,6 @@ A synthetic check of the analysis: a clean linear path gives coherence 0.99, a 2
 - Speech is the owner's, close to the microphone; double-talk with a quieter or farther speaker is untested.
 - The speaker position was close to the microphone in these recordings. How well it works with the speaker in front of the laptop (the consumer arrangement) is the next test.
 
-## Next
+## Next (done: built behind `--aec` and `--duck-db`, tried in `docs/LIVE-AGENT.md` session 3; the A/B and tuning are open)
 
 Add the canceller to the live loop behind a flag (`doc_chat --aec`): the remote player feeds each slice it sends to the canceller's render stream, and the microphone blocks go through it before the guard and the speech recogniser; then repeat the interruption session with the speaker placed in front.
