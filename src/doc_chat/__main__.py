@@ -43,6 +43,22 @@ _STOP_WORDS = {
     "stop", "wait", "wait wait", "hold on", "hang on", "pause", "okay stop", "ok stop",
     "stop it", "stop stop", "shush", "enough", "never mind", "nevermind",
 }  # fmt: skip
+_STOP_CORE = {"stop", "wait", "hold", "hang", "pause", "shush", "enough", "nevermind", "mind"}
+_STOP_FILLER = {"on", "it", "okay", "ok", "please", "now", "just", "never"}
+
+
+def _is_stop_phrase(said: list[str]) -> bool:
+    """A short utterance that only tells the assistant to be quiet ("wait, stop", "hold on please").
+
+    Exact phrases in `_STOP_WORDS`, or up to four words that are all stop words or fillers with at
+    least one real stop word among them, so a question that merely contains "stop" is not one."""
+    if " ".join(said) in _STOP_WORDS:
+        return True
+    return (
+        1 <= len(said) <= 4
+        and all(w in _STOP_CORE or w in _STOP_FILLER for w in said)
+        and any(w in _STOP_CORE for w in said)
+    )
 
 
 def _p50_p95(vals: list[float]) -> tuple[float, float]:
@@ -181,6 +197,9 @@ class Session:
     _player: Any = None  # the Player of the answer being spoken, to cut it short
     _stream: SentenceStream | None = None  # the model call behind it
     _answer_started: float | None = None  # perf_counter of the first answer audio
+    _replies: int = 0  # replies started this session (for --cue-every)
+    _guard_trace: IO[str] | None = None  # --trace-guard: a JSON line per microphone block
+    _cue_s: float | None = None  # seconds into this reply a cue beep sounds, if it has one
     _spoken: list[str] = field(default_factory=list)  # sentences begun so far
     _prompt_count: int = 0
 
@@ -208,11 +227,26 @@ class Session:
                 await asyncio.to_thread(player.close)
 
     def _chunk(self, player: Any) -> Callable[[bytes], None]:
-        """What to do with each piece of synthesised audio: note the first, then play it."""
+        """What to do with each piece of synthesised audio: note the first, then play it.
+
+        With ``--cue-beep S`` every ``--cue-every``-th reply gets a beep mixed in S seconds from
+        its start (see `mix_beep`), and `_cue_s` says so, for measuring barge-in."""
+        from doc_chat.playback import mix_beep
+
+        beep_s = float(getattr(self.args, "cue_beep", 0) or 0)
+        every = int(getattr(self.args, "cue_every", 2) or 0)
+        self._replies += 1
+        cue = beep_s > 0 and every > 0 and self._replies % every == 0
+        self._cue_s = beep_s if cue else None
+        rate = self.client.tts_sample_rate
+        pushed = [0]  # samples of this reply handed on so far
 
         def push(pcm: bytes) -> None:
             if self._answer_started is None:
                 self._answer_started = time.perf_counter()
+            if cue:
+                pcm = mix_beep(pcm, pushed[0], rate, beep_s)
+            pushed[0] += len(pcm) // 2
             if player is not None:
                 player.push(pcm)
 
@@ -403,6 +437,7 @@ class Session:
             "cancel_to_silence_ms": None,
             "audio_underruns": underruns,
             "source": source,
+            "cue_s": self._cue_s,
         }
         if heard is not None:
             rec["pause_ms"] = (
@@ -468,7 +503,7 @@ class Session:
             said = re.sub(r"[^a-z' ]", " ", heard.text.lower()).split()
             if " ".join(said) in _QUIT_WORDS:
                 break
-            if " ".join(said) in _STOP_WORDS:
+            if _is_stop_phrase(said):
                 print(f"you:  {heard.text}   (it stopped; listening)", flush=True)
                 self.log(
                     {
@@ -591,6 +626,7 @@ class Session:
                 "interrupt_after_answer_start_ms": (
                     None if started is None else round((t0 - started) * 1000.0, 1)
                 ),
+                "cue_s": self._cue_s,
                 "spoken": spoken or None,
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
@@ -639,11 +675,37 @@ class Session:
             level_kofn=_kofn(getattr(self.args, "level_kofn", None)),
         )
 
+        trace = self._guard_trace
+
         def feed(block: bytes) -> bool:
             roll.push(block)
             level_of = getattr(self._player, "level_recent", None)
             played = float(level_of()) if level_of is not None else 0.0
-            return guard.feed(block, played, answering=self._answer_started is not None)
+            answering = self._answer_started is not None
+            fired = guard.feed(block, played, answering=answering)
+            if trace is not None:  # one line per 100 ms block: what the guard saw and decided
+                trace.write(
+                    json.dumps(
+                        {
+                            "t": round(time.perf_counter(), 3),
+                            "reply": self._replies,
+                            "answering": answering,
+                            "level": round(guard.last_level, 5),
+                            "bar": round(guard.last_bar, 5),
+                            "played": round(played, 5),
+                            "coupling": round(echo.coupling, 3),
+                            "noise": round(noise, 5),
+                            "conf": round(silero.last_confidence, 3) if silero else None,
+                            "model": guard.last_model,
+                            "level_hit": guard.last_level_hit,
+                            "fired": fired,
+                            "cue_s": self._cue_s,
+                        }
+                    )
+                    + "\n"
+                )
+                trace.flush()
+            return fired
 
         for block in blocks:  # speech that went on while the server was still answering
             if feed(block):
@@ -790,6 +852,8 @@ async def async_main(args: argparse.Namespace) -> int:
             history=ChatHistory(args.history if llm is not None else 0),
             record_dir=record_dir,
         )
+        if getattr(args, "trace_guard", False) and record_dir is not None:
+            session._guard_trace = (record_dir / "guard.jsonl").open("a", encoding="utf-8")
         if args.ask_to_add or args.log_turn_score:
             try:
                 session.turn_model = TextTurnModel(args.turn_model)
@@ -948,6 +1012,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--vad-model", default="assets/silero_vad.onnx")
     parser.add_argument(
         "--vad-confidence", type=float, default=0.7, help="Silero speech confidence (default: 0.7)"
+    )
+    parser.add_argument(
+        "--trace-guard",
+        action="store_true",
+        help="with --record: write guard.jsonl, one line per 100 ms block with what the barge-in "
+        "guard saw (levels, the echo bar, each stage) and decided",
+    )
+    parser.add_argument(
+        "--cue-beep",
+        type=float,
+        default=0.0,
+        metavar="S",
+        help="measuring barge-in: mix a beep into every --cue-every-th reply S seconds in (it "
+        "comes out of the same speaker); you talk over it, and the log says when it sounded",
+    )
+    parser.add_argument(
+        "--cue-every", type=int, default=2, metavar="N", help="with --cue-beep (default: 2)"
     )
     parser.add_argument(
         "--silero-kofn",

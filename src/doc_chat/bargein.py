@@ -135,6 +135,8 @@ class BargeInGuard:
         self.playing = OnsetDetector(noise, ratio=ratio, min_s=min_s)
         self.last_bar = 0.0  # for diagnostics: the level a block had to beat, and the block's level
         self.last_level = 0.0
+        self.last_model = False  # ... and what each stage said about the newest block
+        self.last_level_hit = False
 
     def reset(self) -> None:
         """A new reply starts: forget the last one (counts, window memory, the model's state).
@@ -186,6 +188,7 @@ class BargeInGuard:
         """Both stages, in turn; each is fed every block so its state follows the audio."""
         model = self.model_stage(block)
         level = self.level_stage(block, played, answering)
+        self.last_model, self.last_level_hit = model, level
         return model and level
 
 
