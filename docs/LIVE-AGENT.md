@@ -60,10 +60,36 @@ The first attempt was discarded (my script mixed plain stops and questions and w
 
 **Cause, one for all of it:** the microphone hears the Pi speaker, and the words spoken just before the cut come into the transcript ahead of yours. A bare "Stop." is drowned; "Stop" that is not at the start of the transcript is not stripped, so Gemini reads it as the music command (3 times); and the bot acted on its own voice once. Pivots to a tool or a new question were acted on correctly 6 of 6.
 
+
+## Spoken session 3: the same interruptions with `--aec --duck-db -15`, speaker in front (`out/sessions/agent-interrupt-aec-1`)
+
+The code is `src/doc_chat/aec.py` (WebRTC canceller, reference = what is sent to the Pi, 50 ms lead) and the duck (`Ducker`, `pi_speaker.py` gain message), written by agy from level-3 tickets (byte-identical, no deviations; `.scratch/echo-fix/`). The Pi ran the updated `playback.py` and `pi_speaker.py`. Same script as session 2, speaker 80%, now placed in front of the laptop. The agent server had stopped (its background job's time limit), so the first question was answered "couldn't reach the language model" and re-asked.
+
+| # | Said at the beep | Heard | Result | Session 2 (no cancelling, speaker behind) |
+|---|---|---|---|---|
+| 1 | Stop. | "Stop!" | stopped, clean | lost in echo, junk turns |
+| 2 | Stop. Turn on the lights. | "Turn on the lights." | `LIGHT_ON`, 2.8 s | correct |
+| 3 | Stop. What year was it published? | "Come on. Want you what is published?" | **garbled**, irrelevant answer | correct, with echo text in front |
+| 4 | Stop. Set a timer for ten minutes. | "Set a timer for ten minutes." | `TIMER`; **no second timer, no spurious `STOP`** | timer + spurious `STOP`, then a second timer from its own voice |
+| 5 | Stop. | (nothing) | **missed**: the model took 6 s to start, the reply played on | answered the echo as a question |
+| 6 | Stop. Play some music. | "Please come to sit." | **garbled** | correct (3.9 s) |
+| 7 | Stop. When did he die? | "When did it die?" | correct answer, no spurious `STOP` | correct plus a spurious `STOP` |
+| 8 | Stop. Pause the music. | "Pause the music." | paused, no spurious `STOP` | paused plus a spurious `STOP` |
+
+**What improved:** no transcript began with the bot's own words (0 of 7; session 2 had them in 5 of 8); 0 spurious `STOP` commands (3 before); no action on its own voice (1 before); no turn needed the text guard (0 ignored-echo records, 1 before); a bare "Stop!" was heard cleanly once.
+
+**What got worse or is unproven:**
+- 5 of 8 scripted interruptions ended in the right action (session 2: 6 of 8, but 5 of those with side effects). Two were **garbled at the start** ("Stop. What year..." became "Come on. Want you what..."): the canceller's suppression is hardest on the first words of a voice over a playing reply, which is also where the duck acts. This session cannot separate the canceller from the duck.
+- **False ducks on quiet replies:** the reply ducked on 3 of 7 replies nobody talked over (the voice detector plus the level bar fired on residual echo or the beep); it restored 0.6 s later. One quiet reply was stopped outright ("causal" heard from the "natural causes" in the bot's own answer, which then drew a "could you clarify" reply).
+- Beep to stop p50 **1.34 s** (session 2: 0.41 s; n = 9). This includes the owner's reaction time, which varied, so it does not show a slower detector by itself.
+- Stop to first answer audio p50 3.04 s (n = 7), unchanged; one answer took 6.5 s because the first token took 6 s.
+- One speaker, one room, one session each, 8 scripted interruptions: nothing here is a rate.
+
+**Reading:** cancelling the echo removes the failures the echo caused (junk transcripts, commands from the bot's own voice) without a better speaker position, but it costs the opening words of an interruption in some cases. The next step is an A/B on the same script, `--aec` alone against `--duck-db -15` alone, to see which one damages the first words, then tune (a later duck, a higher `--duck-k`, or feeding the recogniser the pre-cancellation audio for the first second).
+
 ## What comes next
 
-1. Cross-device echo cancellation in the live loop (`doc_chat --aec`), measured offline in `docs/AEC-REMOTE-SPEAKER.md`: it removes most of the echo the recogniser hears and keeps your speech.
-2. Duck-then-stop (lower the Pi's output 15 dB at the first speech, stop at the 7-of-10 guard), which also lowers the echo under your words.
+1. ~~Cross-device echo cancellation (`--aec`) and duck-then-stop (`--duck-db`)~~: built and tried in session 3 above; the A/B to separate their effects on the first words is next.
 3. Text-level guards: drop leading words that match what the bot was just saying; an interruption that is only echo counts as a stop; never run a home command whose words match the bot's recent speech.
 4. For latency: speak an acknowledgement (or the tool's result from a template) when the tool call arrives, instead of waiting for the second request; roughly 3.3 s to 2.3 s on home commands.
 5. Ticket 26 (first words), because a dropped "Turn off" now means a wrong action.
