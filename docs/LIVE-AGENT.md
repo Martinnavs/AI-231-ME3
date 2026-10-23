@@ -87,6 +87,28 @@ The code is `src/doc_chat/aec.py` (WebRTC canceller, reference = what is sent to
 
 **Reading:** cancelling the echo removes the failures the echo caused (junk transcripts, commands from the bot's own voice) without a better speaker position, but it costs the opening words of an interruption in some cases. The next step is an A/B on the same script, `--aec` alone against `--duck-db -15` alone, to see which one damages the first words, then tune (a later duck, a higher `--duck-k`, or feeding the recogniser the pre-cancellation audio for the first second).
 
+
+## The A/B: which part does what (`agent-interrupt-ab-aec`, `agent-interrupt-ab-duck`)
+
+Two more runs of the same 8 scripted interruptions, speaker in front, 80%: `--aec` alone (arm 1) and `--duck-db -15` alone (arm 2). In arm 1 the owner also said some unscripted apologies, so its counts are rough. One session per condition, 8 interruptions each: a comparison, not rates.
+
+| | Session 2: none, speaker behind | Arm 1: `--aec` only | Arm 2: `--duck-db -15` only | Session 3: both |
+|---|---|---|---|---|
+| Replies cut off before the beep by the bot's own voice | 1 | **7 of 20** | **0 of 14** | **0 of 16** |
+| Beep to stop p50 | 0.41 s | 0.36 s (n=4) | 0.39 s (n=12) | 1.34 s (n=9) |
+| Transcripts starting with its own words | 5 of 8 | about 2 | 5 of 8 | **0 of 7** |
+| Junk turns (its own words answered) | about 4 | 6 | 1 answered, 2 ignored by the text guard | 1 |
+| Wrong or spurious actions | 3 `STOP`, a second timer | 1 `STOP`, 1 contact lookup | 1 (played music instead of pausing) | 0 |
+| Opening words garbled or lost | 0 of 6 | 2 of 6 | 1 of 6, 1 lost | 2 of 6 |
+| Scripted interruptions ending right | 6 of 8 | 3-4 of 8 | 6 of 8 | 5 of 8 |
+
+- **Cancelling works as an echo canceller**: the microphone level during replies fell from -29.3 dBFS (session 2) to -43.7 (arm 1), almost the room floor (-44), and the echo-to-played ratio from 0.33 to 0.07 at the median. It did **not** stop the guard firing on residual bursts in the first 0.4-1.2 s of a reply: 7 of 20 replies were cut off with no voice and no beep (high level, Silero confidence 0.7-0.9).
+- **The duck is what stops those**: the guard needs about 0.22 s of speech to fire, the duck acts after two windows and turns the Pi down 15 dB, which removes the bot's own echo before the guard completes; a real voice is not removed, so the guard still fires. With the duck there were no early fires, with or without cancelling, and the stop stayed fast (0.39 s).
+- **The canceller is what cleans the transcript**; without it the echo is in the text as in session 2 (5 of 8 started with the bot's words), and arm 2's one wrong action ("Stop. Pause the music." heard as "Second novel Stop, Play S...", so it played music) came from that.
+- **The canceller also costs the opening words** (2 of 6 garbled in each run that had it, 0-1 of 6 without), and the slow stop in session 3 (1.34 s) appeared only in the run with both (it includes the owner's reaction time).
+
+**Next:** (1) text-level guards (drop leading words that match what the bot was just saying; an interruption that is only echo counts as a stop; never run a home command whose words match the bot's recent speech), which would fix arm 2's failures without the canceller's cost; (2) try the canceller for the guard only and give the recogniser the uncancelled audio, then compare the opening words; (3) keep the duck on.
+
 ## What comes next
 
 1. ~~Cross-device echo cancellation (`--aec`) and duck-then-stop (`--duck-db`)~~: built and tried in session 3 above; the A/B to separate their effects on the first words is next.
