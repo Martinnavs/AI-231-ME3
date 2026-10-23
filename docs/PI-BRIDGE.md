@@ -2,6 +2,8 @@
 
 `scripts/pi_bridge.py` runs on the Raspberry Pi. It listens through the Pi's microphone, sends the audio over the LAN to the laptop's `lan_speech` server (Parakeet STT), says the reply through the Pi's speaker using the laptop's TTS (Supertonic), and stops talking if the user talks over it. The Pi runs **no speech model**; the only model on it is the Silero VAD (barge-in), as the professor's rule allows.
 
+The setup the project is moving to instead, with the laptop owning the microphone and the Pi only the loudspeaker, is in `docs/PI-REMOTE-SPEAKER.md`; this bridge keeps the Pi-microphone path working.
+
 There is no language model: the reply is `You said: <transcript>`, so the loop measures only STT and TTS. Measured 2026-10-23, one speaker, one room, 10 turns per run.
 
 ```mermaid
