@@ -124,6 +124,29 @@ Live (Gemini, cue beep, Pi speaker at 80%, 6 question/pivot pairs; one speaker, 
 
 **A retrieval bug the real model exposed.** A question of five words or fewer was searched together with the previous question, on the assumption that it was a follow-up. "Tell me about the road." (five words) was searched as "About Blood Meridian. Tell me about the road." and "Tell me about The Counselor." together with the *Outer Dark* question before it, so the wrong book's text came back and the model said it did not know. A short question now borrows the previous one only if it starts with "and/but/so…" or points back with a pronoun ("when was it published?"). Separately, BM25 prefers short documents, so a title line alone (16 characters) outranked the paragraph that answers; fragments under 60 characters are now dropped when the corpus is split. With a large corpus use `--chunk-size 1000 --top-k 3` (the defaults, 500 and 2, gave two content-free hits for an open-ended question).
 
+## Metrics summary (2026-10-23)
+
+Laptop: Intel i5-1145G7, CPU only. Pi 4 as loudspeaker only (no model on it). Parakeet v2 STT with hotwords and name repair, Supertonic TTS (4 steps), Gemini `gemini-3.1-flash-lite`, BM25 over 454 chunks. One speaker, one room; counts are small, so read them as indications.
+
+| Stage | Measure | Result |
+|---|---|---|
+| End-of-turn | client pause hold | 0.64 s (fixed setting) |
+| STT | finalize latency (client ends the turn -> final transcript) | p50 0.32 s, p95 0.55 s, n=26 turns (1-3 s utterances). The stream itself is decoded while you talk; no backlog. A separate STT real-time factor was not measured |
+| Retrieval | BM25 | p50 0.4 ms, p95 3.8 ms |
+| LLM | Gemini first token | p50 1.03 s, p95 1.45 s (n=11), plus one 8.6 s cold start on the first call |
+| TTS | first audio chunk | p50 0.37 s, p95 0.49 s (30 syntheses) |
+| TTS | **real-time factor** (synthesis time / audio time) | **p50 0.19, p95 0.48** (worst for 1-6 word replies: a fixed cost of about 250 ms) |
+| Streaming pipeline | **RTF** (time to generate and synthesise the whole reply / reply audio duration) | **p50 0.23, max 0.29**: stays well ahead of playback; 0 audio underruns on the Pi in 11 replies |
+| End to end | you stop talking -> first answer audio leaves the server | **p50 2.57 s, p95 2.86 s** (n=11): 0.64 pause + 0.39 STT + 1.03 LLM + 0.39 TTS (they overlap a little). Add about 0.1-0.3 s to reach the Pi speaker (not measured acoustically). With the model-free reply (fixed 0.3 s delay) it was 1.69 s |
+| Barge-in guard | compute per 100 ms block | Silero stage 1.3-1.5 ms (p99 4-7 ms), level stage 0.2 ms: RTF about 0.016 on the laptop |
+| Interrupts | cued replies stopped after the beep | **19 of 19** (4 sessions pooled), 0 missed, 0 stopped before the beep |
+| Interrupts | beep -> stop | p50 0.65 s, p95 1.31 s, min 0.33 s, max 1.45 s (includes your reaction and about 0.2 s for the beep to reach the room) |
+| Interrupts | decision -> player aborted (software) | p50 6 ms, p95 15 ms, max 18 ms (n=20); the Pi then drops what it holds and fades out; time to acoustic silence was not measured |
+| Echo | quiet replies interrupted by echo | **0 of 27** (the one uncued interruption was the user asking the next question early; the echo-text guard fired 0 times). Without the fixed guard: 7 of 7 |
+| Pivots | stopped and the new question answered on the right topic | 5 of 5 (median 0.42 s from the beep) |
+| Recognition | questions exactly right | 30 of 41 scripted utterances over the final sessions; most errors are the first one or two words |
+| Pi speaker | load while playing | 8-17% of one core (1 s samples), 44 MB, load average 0.00, 48 degrees C, not throttled |
+
 ## What this does not show
 
 * **One speaker, one room, 9 interruptions and 15 echo-only clips in total.** The speaker-to-microphone distance and the user-to-microphone distance were not recorded.

@@ -9,6 +9,20 @@
 
 Sections 1-11 were written on 2026-10-21, before the Pi was tested. This section says what happened since; where it disagrees with a later section, this one wins (the later sections are updated below where it matters).
 
+**Where it stands against the 2026-10-21 state (before the Pi test).** One speaker, one room throughout; most counts are small.
+
+| | 2026-10-21 (written before the Pi test) | 2026-10-23 |
+|---|---|---|
+| Hardware | the Pi was untested; a speakerphone was assumed | separate USB mic (weak: 5-15 dB over its noise) and speaker; the chosen setup is laptop mic + Pi loudspeaker, with the Pi running no model |
+| Barge-in with the assistant's voice leaking into the mic | every software detector failed (simulated leak); Silero worst | Silero fires on the Pi speaker's echo at 40-90% volume; the echo guard (Silero AND level above the echo's *peaks*) stops it: 0 of 27 quiet replies interrupted by echo, 19 of 19 cued interruptions stopped (beep to stop p50 0.65 s) |
+| Stopping | 150-340 ms after the voice begins (no echo, synthetic voice, 2 repetitions) | abort within 6 ms (p50) of the decision; a decision needs about 0.22 s of speech (7 of 10 windows) |
+| Whole path on the Pi | not built | works end to end: Pi speaker via `pi_speaker.py`, laptop mic, STT, retrieval, Gemini, TTS, stop and pivot |
+| Speech to text | Parakeet + hotwords, 4.5% WER on 25 live turns; finalize p50 0.72 s (0.46 s for commands under 3 s) | finalize p50 0.32 s, p95 0.55 s on 1-3 s utterances; 30 of 41 scripted utterances exactly right, errors mostly the first words |
+| Reply latency | Gemini first token about 0.9 s; real run: answer starts p50 3.06 s, p95 9.7 s after you stop | first token p50 1.03 s; you stop -> first answer audio p50 2.57 s, p95 2.86 s (plus about 0.1-0.3 s to the Pi speaker); one 8.6 s cold start |
+| Real-time factors | Supertonic RTF 0.147 on a long paragraph (battery) | TTS RTF p50 0.19 (p95 0.48); whole streaming pipeline RTF p50 0.23; guard RTF about 0.016; 0 underruns |
+| Cut-offs | 7 of 40 turns ended while the user was still speaking (0.6 s hold) | none seen in the final sessions on the laptop mic (on the Pi's own mic a 1.2 s hold was needed) |
+| Biggest open items | the Pi test itself | the laptop-mic + Pi-speaker brief question; first-words recognition; a second speaker and room; real echo cancellation if the volume must go above about 80% |
+
 **What was done** (details in the linked documents):
 
 | Step | Result | Where |
