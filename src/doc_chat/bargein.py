@@ -72,18 +72,36 @@ class EchoModel:
     """
 
     def __init__(
-        self, prior: float = 0.5, margin: float = 1.8, window: int = 15, min_samples: int = 4
+        self,
+        prior: float = 0.5,
+        margin: float = 1.8,
+        window: int = 15,
+        min_samples: int = 4,
+        quantile: float = 0.5,
     ) -> None:
         self.prior = prior
         self.margin = margin
         self.min_samples = min_samples
+        self.quantile = quantile
         self._ratios: deque[float] = deque(maxlen=window)
 
     @property
     def coupling(self) -> float:
+        """The speaker-to-microphone ratio to expect: the ``quantile`` of the recent ratios.
+
+        The median (the default) follows the typical echo; the echo is spiky, though (on the Pi
+        speaker's echo the median ratio was 0.34 but one block in twenty was above 0.7), so a
+        bar built on the median is cleared by ordinary echo peaks. Use a high quantile (0.95)
+        with a longer window when the speaker is in the room."""
         if len(self._ratios) < self.min_samples:
             return self.prior
-        return statistics.median(self._ratios)
+        if self.quantile == 0.5:
+            return statistics.median(self._ratios)
+        ordered = sorted(self._ratios)
+        pos = self.quantile * (len(ordered) - 1)
+        lo = int(pos)
+        hi = min(lo + 1, len(ordered) - 1)
+        return ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo)
 
     def expected(self, played_level: float) -> float:
         """The microphone level above which a block is more than the echo."""

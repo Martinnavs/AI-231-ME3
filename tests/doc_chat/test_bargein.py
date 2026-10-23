@@ -440,6 +440,30 @@ async def test_stop_and_wait_only_silence_it_and_do_not_quit_or_start_an_answer(
     assert [r.get("stop_word") for r in s.records[:2]] == [True, True]
 
 
+async def test_the_stop_attempts_answered_in_the_last_session_now_only_silence() -> None:
+    # the three transcripts (cue-test-1) that were answered as questions and made it talk again
+    s, client = session()
+    s.args.ask_to_add = False
+    answered: list[str] = []
+
+    async def handle(idx: int, heard: HeardTurn) -> None:
+        answered.append(heard.text)
+
+    s.handle = handle  # type: ignore[method-assign]
+    client.heard.extend(
+        [
+            turn("A young pilot. Wait, stop!"),  # its own words came back, then the user said stop
+            turn("Quick, stop!"),  # "wait" heard as "quick"
+            turn("Mr. Ballard. Wait, stop."),
+            turn("Who is Ron?"),
+            turn("Quit."),
+        ]
+    )
+    await asyncio.wait_for(s.run_mic(), timeout=10)
+    assert answered == ["Who is Ron?"]
+    assert [r.get("stop_word") for r in s.records[:3]] == [True, True, True]
+
+
 # ---- the Silero VAD, as main's design would run it ----
 
 from pathlib import Path  # noqa: E402
@@ -611,6 +635,8 @@ def test_stop_phrases_silence_the_assistant_but_questions_do_not() -> None:
     from doc_chat.__main__ import _is_stop_phrase
 
     for yes in (
+        "a young pilot wait stop",  # its own words came back, then the user said stop
+        "mr ballard wait stop",
         "stop",
         "wait stop",
         "stop wait",
@@ -626,6 +652,36 @@ def test_stop_phrases_silence_the_assistant_but_questions_do_not() -> None:
         "on it",
         "please",
         "wait for me to finish my long question",
+        "why did the road stop",
         "",
     ):
         assert not _is_stop_phrase(no.split()), no
+
+
+def test_echo_model_quantile_follows_the_peaks_not_the_middle() -> None:
+    from doc_chat.bargein import EchoModel
+
+    typical = EchoModel(window=60)
+    peaky = EchoModel(window=60, quantile=0.95)
+    for m in (typical, peaky):
+        for r in [0.3] * 54 + [0.8] * 6:  # a steady echo with an occasional loud syllable
+            m.learn(r * 0.2, 0.2)
+    assert abs(typical.coupling - 0.3) < 1e-6
+    assert peaky.coupling > 0.7
+    assert peaky.expected(0.2) > typical.expected(0.2) * 2
+
+
+def test_guard_with_a_peak_following_bar_ignores_a_spiky_echo() -> None:
+    from doc_chat.bargein import BargeInGuard, EchoModel
+
+    def run(echo: EchoModel) -> bool:
+        g = BargeInGuard(0.01, mode="energy", echo=echo, level_kofn=(3, 8))
+        spiky = [0.16 if i % 8 in (0, 3, 6) else 0.05 for i in range(80)]  # 3 in 8 at ratio 0.8
+        learn = [(lv, 0.2) for lv in spiky[:40]]
+        for lv, pl in learn:  # learning phase: the echo alone, below the bar
+            echo.learn(lv, pl)
+        blocks = [b for lv in spiky[40:] for b in _blocks(lv, 1)]
+        return any(_run(g, blocks, played=0.2))
+
+    assert run(EchoModel(prior=0.8, margin=1.0, window=60))  # follows the median: the peaks fire
+    assert not run(EchoModel(prior=0.8, margin=1.2, window=60, quantile=0.95))
