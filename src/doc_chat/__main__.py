@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
-from doc_chat.bargein import EchoModel, OnsetDetector, PreRoll, SileroOnset, looks_like_echo
+from doc_chat.bargein import BargeInGuard, EchoModel, PreRoll, SileroOnset, looks_like_echo
 from doc_chat.chain import (
     SentenceStream,
     build_answer_chain,
@@ -191,10 +191,14 @@ class Session:
 
     async def say(self, text: str) -> None:
         """Speak one short line of our own (a clarifying question), outside the LLM path."""
-        from doc_chat.playback import Player
+        from doc_chat.playback import make_player
 
         print(f"bot:  {text}", flush=True)
-        player = Player(self.client.tts_sample_rate) if self.args.play else None
+        player = (
+            make_player(self.client.tts_sample_rate, getattr(self.args, "play_remote", None))
+            if self.args.play
+            else None
+        )
         self._player = player
         self._spoken.append(text)
         try:
@@ -216,12 +220,12 @@ class Session:
 
     async def play_pcm(self, text: str, pcm: bytes) -> None:
         """Play a line that was synthesised in advance (no waiting for the speech server)."""
-        from doc_chat.playback import Player
+        from doc_chat.playback import make_player
 
         print(f"bot:  {text}", flush=True)
         if not self.args.play:
             return
-        player = Player(self.client.tts_sample_rate)
+        player = make_player(self.client.tts_sample_rate, getattr(self.args, "play_remote", None))
         try:
             player.push(pcm)
         finally:
@@ -330,12 +334,16 @@ class Session:
         heard: HeardTurn | None = None,
     ) -> None:
         """Answer one question and speak it; records the timing of every stage."""
-        from doc_chat.playback import Player
+        from doc_chat.playback import make_player
 
         print(f"you:  {question}", flush=True)
         if heard is not None and heard.raw_text and heard.raw_text != heard.text:
             print(f"      (recognised as: {heard.raw_text})", flush=True)
-        player = Player(self.client.tts_sample_rate) if self.args.play else None
+        player = (
+            make_player(self.client.tts_sample_rate, getattr(self.args, "play_remote", None))
+            if self.args.play
+            else None
+        )
         self._player = player
         on_chunk = self._chunk(player)
 
@@ -600,8 +608,6 @@ class Session:
         noise = self.client.noise_floor or 0.015
         ratio = float(getattr(self.args, "barge_ratio", 4.0))
         min_s = float(getattr(self.args, "barge_ms", 300)) / 1000.0
-        idle = OnsetDetector(noise, ratio=IDLE_RATIO, min_s=min_s)
-        playing = OnsetDetector(noise, ratio=ratio, min_s=min_s)
         roll = PreRoll()
         step = 3200  # 100 ms of 16-bit samples
         blocks = [tail[i : i + step] for i in range(0, len(tail), step)]
@@ -610,45 +616,34 @@ class Session:
             prior=float(getattr(self.args, "barge_echo_prior", 0.5)),
             margin=float(getattr(self.args, "barge_echo_margin", 1.8)),
         )
-        use_echo = echo.margin > 0
-
         silero = (
             SileroOnset(
                 str(getattr(self.args, "vad_model", "assets/silero_vad.onnx")),
                 confidence=float(getattr(self.args, "vad_confidence", 0.7)),
                 min_s=min_s,
+                kofn=_kofn(getattr(self.args, "silero_kofn", None)),
             )
             if getattr(self.args, "vad", "energy") in ("silero", "both")
             else None
         )
         vad_mode = getattr(self.args, "vad", "energy")
 
-        def feed(block: bytes) -> bool:
-            import numpy as np
+        guard = BargeInGuard(
+            noise,
+            ratio=ratio,
+            idle_ratio=IDLE_RATIO,
+            min_s=min_s,
+            mode=vad_mode,
+            silero=silero,
+            echo=echo,
+            level_kofn=_kofn(getattr(self.args, "level_kofn", None)),
+        )
 
+        def feed(block: bytes) -> bool:
             roll.push(block)
-            if silero is not None and vad_mode == "silero":
-                return silero.feed(block)  # the model decides; loudness and echo are not looked at
-            x = np.frombuffer(block, dtype=np.int16).astype(np.float32) / 32768.0
-            level = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
-            dur = len(block) / 2 / 16000
-            if self._answer_started is None:
-                fired_idle = idle.feed(level, dur)
-                if silero is not None:
-                    return silero.feed(block) and level > idle.threshold
-                return fired_idle
-            played = 0.0
             level_of = getattr(self._player, "level_recent", None)
-            if use_echo and level_of is not None:
-                played = float(level_of())
-            extra = echo.expected(played) if played > 0.01 else 0.0
-            fired = playing.feed(level, dur, extra)
-            bar = max(playing.threshold, extra)
-            if played > 0.01 and level <= bar:
-                echo.learn(level, played)  # not the user: this is what the speaker sounds like here
-            if silero is not None:  # both: the model says speech, and it is above the echo
-                return silero.feed(block) and level > bar
-            return fired
+            played = float(level_of()) if level_of is not None else 0.0
+            return guard.feed(block, played, answering=self._answer_started is not None)
 
         for block in blocks:  # speech that went on while the server was still answering
             if feed(block):
@@ -673,6 +668,16 @@ class Session:
             return new
         print(f"      (joined {previous.text!r} + {new.text!r})", flush=True)
         return joined
+
+
+def _kofn(spec: str | None) -> tuple[int, int] | None:
+    """'7/10' -> (7, 10); None stays None."""
+    if not spec:
+        return None
+    k, _, n = spec.partition("/")
+    if not (k.isdigit() and n.isdigit()) or not 0 < int(k) <= int(n):
+        raise SystemExit(f"expected K/N with 0 < K <= N, got {spec!r}")
+    return int(k), int(n)
 
 
 def _summary(records: list[dict[str, Any]]) -> None:
@@ -856,6 +861,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     group.add_argument("--text", help="Text question string (skips STT)")
 
     parser.add_argument("--play", action="store_true", help="Play audio via sounddevice")
+    parser.add_argument(
+        "--play-remote",
+        metavar="WS_URL",
+        help="play on another machine's speaker (scripts/pi_speaker.py), e.g. ws://pi:8780; "
+        "uses the LAN_SPEECH_TOKEN; implies --play",
+    )
     parser.add_argument("--out", help="Output directory for generated WAVs")
     parser.add_argument(
         "--log",
@@ -937,6 +948,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--vad-model", default="assets/silero_vad.onnx")
     parser.add_argument(
         "--vad-confidence", type=float, default=0.7, help="Silero speech confidence (default: 0.7)"
+    )
+    parser.add_argument(
+        "--silero-kofn",
+        metavar="K/N",
+        help="Silero onset when K of the last N 32 ms windows are speech, instead of --barge-ms of "
+        "unbroken speech (measured on the Pi: 7/10 with --vad-confidence 0.5)",
+    )
+    parser.add_argument(
+        "--level-kofn",
+        metavar="K/N",
+        help="with --vad both: loudness counts when K of the last N 100 ms blocks are above the "
+        "echo allowance, instead of a net 0.3 s (measured laptop mic + Pi speaker: 3/8)",
     )
     parser.add_argument(
         "--echo-text-guard",
@@ -1031,6 +1054,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    if args.play_remote:
+        args.play = True
     if args.ask_to_add and not args.mic:
         print("--ask-to-add needs --mic", file=sys.stderr)
         return 2

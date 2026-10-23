@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import os
 import queue
 import threading
 import time
@@ -103,3 +105,122 @@ class Player:
             if not self._aborted.is_set():  # a cut-off already stopped it, from the writing thread
                 self._stream.stop()
             self._stream.close()
+
+
+# ---- a speaker on another machine (the Pi), reached over the LAN ----
+
+REMOTE_LEAD_S = 0.25  # audio is kept at most this far ahead of the speaker, so an abort is quick
+
+
+class RemoteSpeaker:
+    """One connection to ``scripts/pi_speaker.py``; every reply gets its own `RemotePlayer`.
+
+    Messages: the Pi sends ``{"type": "hello", "rate": N}`` (the rate its speaker opens at); we
+    send ``{"type": "begin"}``, binary frames of 16-bit mono PCM at that rate, then ``{"type":
+    "end"}`` (let it finish) or ``{"type": "abort"}`` (go silent now). The bearer token is the
+    speech server's (``LAN_SPEECH_TOKEN``)."""
+
+    def __init__(self, url: str, token: str | None = None) -> None:
+        from websockets.sync.client import connect
+
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        self._cm: Any = connect(url, additional_headers=headers, open_timeout=5)
+        self._ws: Any = self._cm.__enter__()  # kept open for the whole session
+        self.rate = int(json.loads(self._ws.recv(timeout=5))["rate"])
+
+    def send(self, data: bytes | str) -> None:
+        self._ws.send(data)
+
+    def close(self) -> None:
+        with contextlib.suppress(Exception):
+            self._cm.__exit__(None, None, None)
+
+
+class RemotePlayer:
+    """The same interface as `Player`, with the sound coming out of another machine.
+
+    Each pushed chunk (a sentence) is resampled to the remote speaker's rate, then sent in 50 ms
+    slices paced at playing speed, never more than `REMOTE_LEAD_S` ahead. The remote end drops
+    what it holds on ``abort``, so the stop is the lead plus its own device buffer."""
+
+    def __init__(self, speaker: RemoteSpeaker, sample_rate: int) -> None:
+        from math import gcd
+
+        self._speaker = speaker
+        self._rate = speaker.rate
+        g = gcd(sample_rate, self._rate)
+        self._up, self._down = self._rate // g, sample_rate // g
+        self._queue: queue.Queue[bytes | None] = queue.Queue()
+        self._aborted = threading.Event()
+        self._levels: deque[tuple[float, float]] = deque(maxlen=64)
+        self.underruns = 0
+        self._speaker.send(json.dumps({"type": "begin"}))
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        from scipy.signal import resample_poly
+
+        slice_n = max(int(self._rate * SLICE_S), 1)
+        t0, sent = 0.0, 0  # playing started at t0; `sent` samples are scheduled since
+        while (pcm := self._queue.get()) is not None:
+            if self._aborted.is_set():
+                continue
+            x = np.frombuffer(pcm[: len(pcm) // 2 * 2], dtype=np.int16).astype(np.float64)
+            y = resample_poly(x, self._up, self._down) if self._up != self._down else x
+            data = np.clip(y, -32768, 32767).astype(np.int16)
+            for i in range(0, len(data), slice_n):
+                piece = data[i : i + slice_n]
+                now = time.perf_counter()
+                if sent == 0 or now > t0 + sent / self._rate:  # first slice, or we fell behind
+                    if sent:
+                        self.underruns += 1
+                    t0, sent = now, 0
+                while (wait := t0 + sent / self._rate - REMOTE_LEAD_S - time.perf_counter()) > 0:
+                    if self._aborted.is_set():
+                        break
+                    time.sleep(min(wait, 0.02))
+                if self._aborted.is_set():
+                    break
+                try:
+                    self._speaker.send(piece.tobytes())
+                except Exception:
+                    self._aborted.set()
+                    break
+                level = float(np.sqrt(np.mean((piece.astype(np.float32) / 32768.0) ** 2)))
+                self._levels.append((time.perf_counter() + REMOTE_LEAD_S, level))
+                sent += len(piece)
+        if not self._aborted.is_set():
+            with contextlib.suppress(Exception):
+                self._speaker.send(json.dumps({"type": "end"}))
+
+    def level_recent(self, window_s: float = 0.3) -> float:
+        now = time.perf_counter()
+        return max((lv for t, lv in list(self._levels) if 0 <= now - t <= window_s), default=0.0)
+
+    def push(self, pcm: bytes) -> None:
+        self._queue.put(pcm)
+
+    def abort(self) -> None:
+        self._aborted.set()
+        with contextlib.suppress(queue.Empty):
+            while True:
+                self._queue.get_nowait()
+        with contextlib.suppress(Exception):
+            self._speaker.send(json.dumps({"type": "abort"}))
+
+    def close(self) -> None:
+        self._queue.put(None)
+        self._thread.join(timeout=2.0)
+
+
+_remote: dict[str, RemoteSpeaker] = {}
+
+
+def make_player(sample_rate: int, remote_url: str | None = None) -> Player | RemotePlayer:
+    """The local speaker, or (with ``remote_url``) the speaker of another machine."""
+    if remote_url is None:
+        return Player(sample_rate)
+    if remote_url not in _remote:
+        _remote[remote_url] = RemoteSpeaker(remote_url, os.environ.get("LAN_SPEECH_TOKEN"))
+    return RemotePlayer(_remote[remote_url], sample_rate)

@@ -491,3 +491,117 @@ def test_silero_reset_matches_a_fresh_instance() -> None:
     for i in range(0, len(audio), 3200):
         reused.feed(audio[i : i + 3200])
     assert reused.history == fresh.history
+
+
+# ---- BargeInGuard: the user versus the assistant's own voice coming back ----
+
+
+def _blocks(level: float, n: int) -> list[bytes]:
+    """n 100 ms blocks of a noise-like signal at the given RMS (0-1)."""
+    rng = np.random.default_rng(7)
+    return [(rng.normal(0, level, SR // 10) * 32767).astype(np.int16).tobytes() for _ in range(n)]
+
+
+def _run(guard: object, blocks: list[bytes], played: float, answering: bool = True) -> list[bool]:
+    from doc_chat.bargein import BargeInGuard
+
+    assert isinstance(guard, BargeInGuard)
+    return [guard.feed(b, played, answering) for b in blocks]
+
+
+def _guard(coupling_prior: float = 0.3) -> object:
+    from doc_chat.bargein import BargeInGuard, EchoModel
+
+    return BargeInGuard(
+        0.01, ratio=4.0, min_s=0.3, mode="energy", echo=EchoModel(prior=coupling_prior, margin=1.8)
+    )
+
+
+def test_guard_ignores_echo_at_the_expected_coupling() -> None:
+    # played 0.3 loud, the speaker leaks 30% of it back: the microphone hears 0.09
+    assert not any(_run(_guard(), _blocks(0.09, 30), played=0.3))
+
+
+def test_guard_hears_a_user_clearly_above_the_echo() -> None:
+    g = _guard()
+    _run(g, _blocks(0.09, 10), played=0.3)  # the echo alone, so the coupling is learned
+    fired = _run(g, _blocks(0.35, 8), played=0.3)  # the user, about 12 dB above it
+    assert any(fired)
+
+
+def test_guard_cannot_separate_a_user_no_louder_than_the_echo() -> None:
+    # the known limit of a level guard: speech at the echo's level is indistinguishable from it
+    g = _guard()
+    _run(g, _blocks(0.09, 10), played=0.3)
+    assert not any(_run(g, _blocks(0.10, 10), played=0.3))
+
+
+def test_guard_idle_phase_needs_no_echo_allowance() -> None:
+    # the assistant is not speaking yet: ordinary speech above the room is enough
+    assert any(_run(_guard(), _blocks(0.1, 8), played=0.0, answering=False))
+
+
+def test_guard_default_prior_is_cautious_about_a_leaky_speaker() -> None:
+    from doc_chat.bargein import BargeInGuard, EchoModel
+
+    # a speaker leaking 47% of its level back (loud, near the mic): the default prior (0.5) holds
+    g = BargeInGuard(0.01, mode="energy", echo=EchoModel())
+    assert not any(_run(g, _blocks(0.14, 30), played=0.3))
+
+
+def test_guard_with_an_optimistic_prior_never_learns_a_leaky_speaker() -> None:
+    # blocks above the bar are taken for the user and not learned from, so a too-low prior keeps
+    # firing on the echo: why the prior is cautious (docs/BARGE-IN.md)
+    g = _guard(coupling_prior=0.05)
+    assert sum(_run(g, _blocks(0.15, 40), played=0.3)) > 20
+
+
+@needs_silero
+def test_guard_one_loud_block_of_echo_does_not_fire_with_the_model() -> None:
+    from doc_chat.bargein import BargeInGuard, EchoModel, SileroOnset
+
+    silero = SileroOnset(str(SILERO), min_s=0.3)
+    silero.confidence = -1.0  # the model calls every window speech, as it does for the TTS voice
+    g = BargeInGuard(0.01, mode="both", silero=silero, echo=EchoModel())
+    quiet, loud = _blocks(0.05, 12), _blocks(0.5, 1)
+    fired = _run(g, quiet[:6] + loud + quiet[6:], played=0.3)  # one burst among echo-level blocks
+    assert not any(fired)
+
+
+@needs_silero
+def test_guard_sustained_speech_above_the_echo_fires_with_the_model() -> None:
+    from doc_chat.bargein import BargeInGuard, EchoModel, SileroOnset
+
+    silero = SileroOnset(str(SILERO), min_s=0.3)
+    silero.confidence = -1.0
+    g = BargeInGuard(0.01, mode="both", silero=silero, echo=EchoModel())
+    _run(g, _blocks(0.05, 8), played=0.3)  # the echo alone
+    assert any(_run(g, _blocks(0.5, 8), played=0.3))  # the user, well above it, for 0.8 s
+
+
+def test_kofn_flag_parses_and_rejects_nonsense() -> None:
+    import pytest as _pytest
+
+    from doc_chat.__main__ import _kofn
+
+    assert _kofn("7/10") == (7, 10) and _kofn(None) is None and _kofn("") is None
+    for bad in ("7", "0/10", "11/10", "a/b", "7/"):
+        with _pytest.raises(SystemExit):
+            _kofn(bad)
+
+
+@needs_silero
+def test_silero_kofn_rides_over_a_dip_that_resets_the_strict_rule() -> None:
+    from doc_chat.bargein import SileroOnset
+
+    def run(v: SileroOnset) -> bool:
+        pattern = [1.0] * 6 + [0.0] + [1.0] * 4  # speech windows with one dip inside
+        hit = False
+        for c in pattern:
+            v.confidence = 0.5
+            v._confidence = lambda w, c=c: c  # type: ignore[method-assign]
+            hit = v.feed(np.zeros(SileroOnset.WINDOW * 2, dtype=np.int16).tobytes()[:1024]) or hit
+        return hit
+
+    assert run(SileroOnset(str(SILERO), min_s=0.25, kofn=(7, 10)))
+    assert not run(SileroOnset(str(SILERO), min_s=0.25))  # unbroken 0.25 s needs 8 windows
