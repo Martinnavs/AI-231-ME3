@@ -1,0 +1,15 @@
+RESEARCH TASK. Web search only: do not run shell commands, do not read local files, do not fetch URLs directly. Use only your search capability. Today is 2026-10-23, so prefer sources from 2026 and say when a source is older.
+
+PURPOSE. We are building a real-time English voice assistant (speech in, speech out, tool calling, barge-in). The language model is the latency-critical part: time to first token matters most, then price, then tool-calling reliability. We need a baseline "fast model" from Google (Gemini API / AI Studio, and Vertex only if it differs). Anthropic Haiku 4.5 and Groq-hosted open models are the comparison points.
+
+QUESTIONS. Answer each with a short section.
+1. Which Google models are currently available through the Gemini API (generally available and preview) that support function calling AND streaming? List each with its exact model ID.
+2. For each, the price per million input tokens and per million output tokens (state the date of the source), and whether a free tier exists with its rate limits (requests per minute / per day).
+3. Which is the cheapest one that still supports function calling reliably? Which is the fastest in time-to-first-token? Cite any independent latency numbers (Artificial Analysis, OpenRouter, vendor claims) and label vendor claims as such.
+4. Thinking/reasoning controls: does the cheapest fast model think by default? How is it turned off or limited (thinking budget / thinking level), and what does turning it off do to latency and tool-call quality?
+5. Function calling details that matter for streaming: does the OpenAI-compatible endpoint stream tool calls correctly? Known bugs or limits (parallel calls, tool-call IDs, schema restrictions, forced tool choice)?
+6. Context caching or implicit caching: which models support it, minimum prefix size, price discount.
+7. Deprecation or retirement dates for the candidate model IDs.
+8. A ranking: top three candidates for a latency-first voice agent with tools, with one line of reason each.
+
+RULES. Give exact numbers only when search results support them. If sources disagree, say so. Never invent a model ID, price or latency; write "not found" instead. List the sources (URL and date) for each answer at the end, and list claims you could not verify. Output plain markdown.

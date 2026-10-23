@@ -1,8 +1,11 @@
 # 19: Media MCP server — real music playback from a local library, ducked around speech
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
-**Blocked by:** 16 (extends its preflight and runbook; needs ticket 12's pipeline hooks)
+**Blocked by:** 16, 11, 28
 **Status:** ready-for-agent
+
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Playback path changes before this is built. With the Pi as loudspeaker only, `mpv` running on the Pi would be invisible to the echo guard (it only knows the level of audio it sent), so music would look like a barge-in. Decode and mix on the **laptop** and send the audio through `RemoteSpeaker`, so music counts as played level. Ducking then happens in the laptop mixer (`OutputGain`, ticket 12), not by `mpv` IPC. The Pi-side `dmix`/`dsnoop` setup (item 5) is dropped. Tools, search and the library (items 1 and 3) are unchanged.
 
 ## Files
 - `src/voice_agent/media/__init__.py`, `src/voice_agent/media/library.py`, `src/voice_agent/media/player.py`

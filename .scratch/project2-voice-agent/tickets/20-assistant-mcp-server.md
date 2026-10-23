@@ -4,6 +4,9 @@
 **Blocked by:** 19 (shares the `PipelineDeps.tools` hook it adds)
 **Status:** ready-for-agent
 
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Unaffected by the new topology: due-event announcements go through the same TTS path and count as played audio for the guard. Last in the order.
+
 ## Files
 - `src/voice_agent/assistant/__init__.py`, `src/voice_agent/assistant/store.py`, `src/voice_agent/assistant/weather.py`
 - `src/voice_agent/mcp_servers/assistant.py`

@@ -2,10 +2,13 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 21, 22, 10 and 11 (the entry point and `ScriptedLLMClient`). Note: 10 and 11 currently wait on D1 only for model IDs and the cloud adapter; the scripted LLM needs no vendor. If the human splits D1 (agent core with a scripted client first), this ticket can start as soon as 11 lands.
-**Status:** ready-for-agent after the blockers
+**Status:** reduced; superseded in part
 
 ## Why
 Most of the early work is making the agent feel interactive (turn-taking, fillers, barge-in). This ticket makes that work testable on the laptop with no paid keys: real mic, real speaker, real local STT/TTS, scripted replies. It is also the baseline the Pi results get compared to.
+
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Largely superseded: `python -m doc_chat --play-remote ... ` with a model-free or Gemini reply already runs the laptop loop with real mic, local STT/TTS and the Pi speaker, and `docs/PI-REMOTE-SPEAKER.md` holds the results table. What remains, once 11 exists: the `--fake-llm` flag, `config/laptop.toml`, and `scripts/run_laptop.sh`. The results-table item is done; do not redo it.
 
 ## Files
 - `config/laptop.toml` (profile: `stt_backend="lan"`, `tts_backend="lan"`, loopback URL; mic/speaker devices left null)

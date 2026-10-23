@@ -1,0 +1,13 @@
+RESEARCH TASK. Web search only: do not run shell commands, do not read local files, do not fetch URLs directly. Use only your search capability. Today is 2026-10-23, so prefer sources from 2026 and say when a source is older.
+
+PURPOSE. We are building a real-time English voice assistant (speech in, speech out, tool calling, barge-in) that runs from the Philippines (Metro Manila). The language model is the latency-critical part: time to first token (TTFT) first, then price, then reliable streaming function calling. We want the cheapest models that are still good enough. Hard price ceilings: input under USD 0.01 and output under USD 0.05. The unit is not stated by the requester, so report every price per 1 million tokens, and mark each model as meeting the ceilings read as per 1M tokens, or only if read as per 1K tokens.
+
+QUESTIONS. Answer each with a short section or table.
+1. Groq: current model IDs that support streaming tool calling, price per 1M input and output tokens, free-tier limits, published TTFT and tokens/second (label vendor claims). Does Groq have any server region in Asia, or does a request from the Philippines go to the US or Europe? Cite the source for each region claim.
+2. Other cheap hosted providers with an OpenAI-compatible streaming tool-calling API (examples to check, add others you find: Cerebras, Together AI, Fireworks, DeepInfra, SambaNova, OpenRouter routes, Mistral small models, Alibaba Cloud Model Studio / Qwen in the Singapore region, Gemini Flash-Lite, OpenAI nano models, Anthropic Haiku for reference). For each: model ID, price per 1M input/output, whether a region near Southeast Asia exists (Singapore, Tokyo, Hong Kong, Mumbai), tool-calling support, and published TTFT.
+3. Independent TTFT measurements for these models (Artificial Analysis, OpenRouter, others), noting the measurement location. Say clearly if no independent number exists.
+4. Which models meet both price ceilings (per 1M reading) and which meet them only per 1K reading.
+5. For the top five by latency among those with reliable tool calling: known tool-calling problems (streamed arguments, parallel calls, schema limits, small-model accuracy on function calling, e.g. Berkeley Function Calling Leaderboard scores if available).
+6. Final ranking: top three for a latency-first voice agent run from the Philippines, with one line of reason each.
+
+RULES. Give exact numbers only when search results support them. If sources disagree, say so. Never invent a model ID, price, region or latency; write "not found" instead. List sources (URL and date) at the end, and list claims you could not verify. Output plain markdown.

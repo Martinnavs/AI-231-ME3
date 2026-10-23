@@ -1,8 +1,17 @@
 # 12: Barge-in gating, cancel/flush, speculative LLM start, fillers
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
-**Blocked by:** 11
+**Blocked by:** 11 (barge-in gate part closed, see below)
 **Status:** ready-for-agent
+
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Split. The barge-in gate is already built and validated in `src/doc_chat/bargein.py` (`BargeInGuard`; docs `docs/BARGE-IN.md`, `docs/PI-REMOTE-SPEAKER.md`, `docs/HANDOFF.md` section 0). The plain `min_barge_in_ms = 250` gate in item 1 is **superseded**: 7 of the last 10 Silero windows at 0.5 AND the level stage. Porting it into the pipeline is ticket 11's `BargeInProcessor`, not work here.
+Remaining scope for this ticket:
+- Item 1, duck/fade/restore (`OutputGain`): still wanted. With the guard, `BOT_DUCKED` fires on the first speech window and the level stage's expected echo must use the **ducked** played level (the guard already works from measured played level; add a test).
+- Item 2: TTS cancel/flush and LLM cancel with `record_interruption` stay.
+- Item 3, speculative LLM start: stays; measured upper bound of the gain is about 0.6 s (the pause hold).
+- Item 4, fillers: stays and is the biggest perceived gain (first sound about 2.5 s down to about 1.1 s). Fillers are played audio, so the echo guard must count them as played level and a barge-in during a filler stops it. Tests must cover this.
+- Gate for this ticket in its own words: replace "250 ms" with the k-of-n values from `config` (`silero_kofn`, `level_kofn`).
 
 ## Files
 - `src/voice_agent/pipeline/barge_in.py`, `src/voice_agent/pipeline/gain.py`, `src/voice_agent/pipeline/speculative.py`, `src/voice_agent/pipeline/fillers.py`

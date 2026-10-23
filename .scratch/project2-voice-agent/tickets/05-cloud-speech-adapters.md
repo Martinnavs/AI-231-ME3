@@ -2,7 +2,12 @@
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
 **Blocked by:** 04, and decision **D1** recorded as confirmed in `DESIGN.md` (if D1 still says "proposed", stop and report BLOCKED)
-**Status:** ready-for-agent
+**Status:** parked
+
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Parked. The baseline is now local (`lan_speech`: Parakeet + Supertonic), so Deepgram/Cartesia are only a later comparison.
+- The one piece other tickets need is the shared `SpeechBackendError` / `SpeechAuthError` types (`audio_engine/_ws.py`). If 22 lands first, 22 creates that module with just those types and this ticket adds the vendor clients on top.
+- D1's STT/TTS vendors are no longer a blocker for 11, 22 or 23.
 
 ## Files
 - `src/audio_engine/deepgram.py`, `src/audio_engine/cartesia.py`, `src/audio_engine/_ws.py` (shared reconnecting WebSocket helper)

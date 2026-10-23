@@ -4,6 +4,12 @@
 **Blocked by:** 09; decision **D1** confirmed in `DESIGN.md` (model IDs)
 **Status:** ready-for-agent
 
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Direction changes (the agent is still built later):
+- **Baseline fast model is Google (Gemini API), not Anthropic.** The model ID comes from the research in `.scratch/speech-hosting/AGY-GEMINI-FAST.md` and is recorded in `DESIGN.md` D1/D4 once confirmed. `src/doc_chat/gemini.py` already streams from the OpenAI-compatible endpoint; the `LLMClient` ABC here must allow that client, so build the OpenAI-compatible client (ticket 18 section 2) together with, or before, the Anthropic one. Anthropic Haiku and the subagent stay as comparison and delegate.
+- **Framework split (recommendation, confirm at dispatch):** Pipecat owns audio and turn-taking (ticket 11). The fast voice path stays one streaming LLM call with tools, with no graph in between (a graph step adds latency to every turn). Use **LangGraph only for the delegated subagent** (multi-step research, tool loops, checkpoints), behind the same `delegate` tool contract, so replacing the hand-rolled runner does not change any other ticket.
+- The agent exposes `doc_chat` retrieval as a normal tool (ticket 28), so the current testing runs through the real agent path.
+
 ## Files
 - `src/voice_agent/agent/llm.py` (LLM client protocol + Anthropic implementation + scripted fake)
 - `src/voice_agent/agent/session.py` (fast user-facing agent)

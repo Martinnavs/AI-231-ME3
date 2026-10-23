@@ -132,6 +132,9 @@ Execution is strictly sequential (`01` → `16`, `19`, `20`, `18`, `17`), which 
 | — | Base tasks that need free values (timers, alarms, reminders) and music live in our own MCP servers (19, 20); the ME2 dashboard keeps only lights, thermostat and phone, whose fixed values are believable device limits. | settled 2026-10-15 |
 | — | Hardware AEC (USB speakerphone or ReSpeaker playing through its own output). Software AEC is not built. | settled (review §6 decision 2) |
 | — | One engine, two interfaces: `audio_engine` is imported by Pipecat processors *and* the speech MCP server. | settled (review §6 decision 4); the professor's "tool for listening, tool for speaking" matches the speech MCP server; confirm the live loop may import the engine directly (Q1) |
+| D5 | Direction change 2026-10-23: speech is local (`lan_speech`: Parakeet + Supertonic); the laptop owns the mic and models, the Pi is only a loudspeaker (`RemoteSpeaker`); barge-in is `BargeInGuard` (Silero 7-of-10 AND level 3-of-8 above the learned echo bar), which supersedes the plain 250 ms gate. Deepgram/Cartesia (ticket 05) are parked as a later comparison. | confirmed 2026-10-23 |
+| D6 | **Pipecat stays** for the live pipeline (ticket 11), with a custom output transport (`RemoteSpeaker`) and a `BargeInProcessor` wrapping `BargeInGuard`. `doc_chat` becomes a tool inside it (ticket 28) and stays as a standalone loop until the pipeline matches it on interrupts, latency and echo. LangGraph is proposed only for the delegated subagent (ticket 10), not the fast voice path. | confirmed 2026-10-23 (Pipecat, doc_chat as tool); LangGraph scope proposed |
+| D7 | Baseline fast model: Gemini `gemini-3.1-flash-lite` through Pipecat's native `GoogleLLMService`, system prompt `pipeline/config/eval/system_v2_router.txt`. Dry run 2026-10-23 (47 prompts, 50 turns, one tool): 50/50 exact, no false calls, no leaks; serial latency from LLM input: first spoken reply 0.52 s p50 (plain), 1.31 s (tool turn). Groq 8B rejected for tool calling (26-40/48, tool syntax spoken); Groq 70B 49/50 but slower; Gemini's OpenAI-compatible endpoint breaks tool round trips from Pipecat (thought signatures). Details `docs/SMART-HOME-TOOL.md`. Supersedes D1/D4's Anthropic default. | confirmed (owner) 2026-10-23 |
 | — | No router LLM: the fast model answers immediately and calls `delegate(task, kind)` for slow work. | settled (review §2 item 6) |
 | — | MCP SDK pinned `mcp>=1.2,<2` (FastMCP at `mcp.server.fastmcp`; the 2026-07-28 spec release changed the SDK). | settled (notebooks) |
 | — | Python `>=3.12,<3.14` via uv (dev host 3.12, Debian 13 ships 3.13). | settled |
@@ -159,3 +162,12 @@ These need hardware or paid API calls. The tickets build the tools; a human runs
 ## Findings index
 
 (empty: one line per closed R1/R2 review finding, pointing at its ticket)
+
+
+## Order after the 2026-10-23 reassessment
+
+1. 22 (lan backend, lifted from `doc_chat/speech.py`), 16 (Pi speaker deploy + preflight): unblocked.
+2. 25 laddered TTS, 26 first-words recognition, 27 end-of-turn on spontaneous speech: measurable on the laptop with no agent code.
+3. 12 (remaining: duck/fade, cancel, fillers, speculative start), built in `doc_chat` and measured live first.
+4. 11 (Pipecat pipeline with `BargeInProcessor` and the remote output transport), then 10 (agent core), 28 (doc_chat as a tool), 18, 19 (laptop-side playback), 20, 15 (shrunk), 17.
+5. Parked: 05. Reduced: 23.

@@ -1,8 +1,16 @@
 # 22: `lan` backend — audio_engine client for the laptop speech server
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
-**Blocked by:** 21 Phase 2 merged (the protocol module and doc are the producer; read the real `src/lan_speech/protocol.py`, not the ticket prose); 05 for `_ws.SpeechBackendError` (until 05 lands, import it the way `mcp_servers/speech.py` does)
-**Status:** ready-for-agent after 21 is GO and merged
+**Blocked by:** 21 (done); does not need 05 (create the two error types as in the note)
+**Status:** ready-for-agent
+
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Move to the front of the queue. Changes:
+- **Lift, don't rewrite:** `src/doc_chat/speech.py` already talks to `lan_speech` (STT stream, finalize, TTS stream, token header). Start from it and re-express it behind the `Transcriber` / `Synthesizer` ABCs. Read it first and say in the log what was lifted.
+- TTS output is 44.1 kHz; the Pi speaker is 48 kHz and `RemoteSpeaker` resamples, so `Synthesizer.sample_rate_out` must report the server's rate and not assume the config's.
+- Pass-through of entity / hotword config to the server (`config/entities-*.json`) as `lan` options.
+- Create `src/audio_engine/_ws.py` with `SpeechBackendError` and `SpeechAuthError` only, unless 05 landed first.
+- Cancel semantics: `TTS.cancel()` and the late-chunk filter must be tested against the barge-in sequence (cancel while a clause is mid-synthesis).
 
 ## Files
 - `src/audio_engine/lan.py` (`LanTranscriber`, `LanSynthesizer`)

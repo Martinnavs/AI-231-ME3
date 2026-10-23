@@ -1,8 +1,15 @@
 # 16: Pi deployment — preflight check, systemd user services, setup runbook
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
-**Blocked by:** 12
+**Blocked by:** None (was 12; unblocked)
 **Status:** ready-for-agent
+
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Rewritten scope: the Pi is now **only a loudspeaker**, with no mic and no model.
+- Preflight (`python -m voice_agent.preflight --role speaker`) checks: the USB speaker `CD002` opens at 48 kHz, PortAudio found (including `LD_LIBRARY_PATH` when unpacked under `~/.local`), the laptop address reachable on the cable, the protocol port open (the firewall rule was needed last time), the token file mode 0600, throttling `0x0`.
+- Deploy: a systemd user service for `scripts/pi_speaker.py` with linger, the token read from a file. The agent writes files; the human installs.
+- `docs/PI-SETUP.md` records the failures that cost hours so far (ALSA default is HDMI, 48 kHz only, `No route to host` = firewalld, key-only ssh).
+- The old mic and wake-word items are dropped. The Pi keeps no speech model (professor).
 
 ## Files
 - `src/voice_agent/preflight.py`

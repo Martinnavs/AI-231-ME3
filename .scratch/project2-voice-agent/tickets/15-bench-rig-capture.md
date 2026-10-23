@@ -1,8 +1,14 @@
 # 15: Benchmark rig capture — play stimulus, record bot + loopback, run end to end
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
-**Blocked by:** 14, 11 (dry-run drives `python -m voice_agent`)
+**Blocked by:** 14 (done), 11 for the dry run
 **Status:** ready-for-agent
+
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Shrunk. With the laptop mic and the Pi as loudspeaker, the laptop mic hears the Pi speaker, so acoustic "you stopped to first sound" can be measured on the laptop alone (the cue-beep method, `scripts/cue_report.py`). Do not buy or wire a multichannel interface for this. Scope now:
+- `rig.py` plays `stimulus.wav` from the laptop speaker (or a second device) into the laptop mic, records the mic only, and reads the stage log from the laptop. No `scp` of Pi logs.
+- Check first whether ticket 14's analysis can read the `doc_chat` / pipeline stage logs; if not, the adapter is the work.
+- The in-system estimate "server-side time plus 0.1-0.3 s to the Pi speaker" in the docs is replaced by a measured number.
 
 ## Files
 - `src/bench/rig.py`, `src/bench/run.py`

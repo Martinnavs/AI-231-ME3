@@ -4,6 +4,9 @@
 **Blocked by:** 19, 20 (the suite exercises the media and assistant tools); transitively 10, 14, 15
 **Status:** ready-for-agent
 
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Provider baseline is Google (Gemini API) per D4 once `AGY-GEMINI-FAST.md` is reviewed; Anthropic Haiku and Groq remain comparison rows. `OpenAICompatLLMClient` (section 2) is needed earlier than this ticket, by 10 and 11; schedule it as the first part (or move it into 10).
+
 ## Files
 - `src/voice_agent/agent/llm_openai_compat.py` (OpenAI-compatible implementation of `LLMClient`)
 - `src/voice_agent/config.py`, `config/agent.toml`, `.env.example` (provider fields + `GROQ_API_KEY`, `DGX_API_KEY`)

@@ -1,8 +1,17 @@
 # 11: Live pipeline — Pipecat assembly, VAD + cloud end-of-turn, stage telemetry, entry point
 
 **Repo:** /mnt/jfs_hpc/home/anthony.martin.navarez/ME3
-**Blocked by:** 02, 05, 10
+**Blocked by:** 02 (done), 22 (replaces 05); 10 only for the real agent: use `ScriptedLLMClient` first
 **Status:** ready-for-agent
+
+## Amendment 2026-10-23 (direction change: local speech, laptop mic + Pi loudspeaker, `doc_chat` findings)
+Pipecat stays (human decision 2026-10-23). What `doc_chat` learned changes how it is assembled:
+- **Audio topology:** input is the laptop mic. Output is a custom Pipecat output transport that plays through `RemoteSpeaker` (Pi loudspeaker, `docs/PI-REMOTE-SPEAKER.md`) or the local speaker. Do not use Pipecat's default interruption path for barge-in. Add a `BargeInProcessor` that wraps `doc_chat.bargein.BargeInGuard` (Silero 7-of-10 AND level above the learned echo bar, 3-of-8) and pushes Pipecat's interruption frame; the transport must feed it the played level (`RemotePlayer.level_recent`). Move `bargein.py` into `voice_agent` or import it; do not rewrite it.
+- **Endpointing:** the end-of-turn rule is a pause hold (0.64 s measured) plus STT finalize (about 0.35 s). Keep `endpointing = "stt"` as the default shape but make the hold a config value; ticket 27 tunes it on spontaneous speech.
+- **Turn-level text rules** move over from `doc_chat/__main__.py` as processors: stop phrases (`_is_stop_phrase`), pivots (`_strip_stop_prefix`), "wait for playback to finish before listening" (`close()` waits reply length).
+- **Cue-beep mode and `--trace-guard`** are kept as options of the entry point (measurement of echo and latency).
+- TTS starts on the first clause; ticket 25 refines the chunking.
+- Pipecat version pin and thread checks (A1-A5, P7, P8) are unchanged.
 
 ## Files
 - `src/voice_agent/pipeline/__init__.py`, `src/voice_agent/pipeline/processors.py`, `src/voice_agent/pipeline/file_transport.py`, `src/voice_agent/pipeline/app.py`
