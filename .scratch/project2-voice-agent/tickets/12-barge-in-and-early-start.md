@@ -8,14 +8,14 @@
 - `src/voice_agent/pipeline/barge_in.py`, `src/voice_agent/pipeline/gain.py`, `src/voice_agent/pipeline/speculative.py`, `src/voice_agent/pipeline/fillers.py`
 - `src/voice_agent/pipeline/processors.py`, `src/voice_agent/pipeline/app.py` (wire the above)
 - `scripts/make_fillers.py`, `assets/fillers/README.md`
-- `src/voice_agent/config.py`, `config/agent.toml`, `tests/test_config.py` (add the two `TurnConfig` fields below, nothing else)
+- `src/voice_agent/config.py`, `config/agent.toml`, `tests/test_config.py` (add the five `TurnConfig` fields below, nothing else)
 - `tests/pipeline/test_barge_in.py`, `tests/pipeline/test_gain.py`, `tests/pipeline/test_speculative.py`, `tests/pipeline/test_fillers.py`
 
 ## Action
 The review's full-duplex refinements:
 
-1. **Barge-in gate** (review §2 item 2, decision 2): hardware AEC reduces echo but doesn't remove it, so while the bot is speaking, interrupt only after **`min_barge_in_ms` (250) of continuous VAD speech**. Shorter blips (coughs, clicks, residual echo) don't interrupt. When the bot is silent, normal VAD behavior applies.
-   - **Duck first** (`FULL-DUPLEX-RESEARCH.md` §3.3): the moment VAD reports speech while the bot is speaking, ramp the bot's output gain to `barge_in_duck_db` (−15 dB) over 5 ms and emit `BOT_DUCKED`. If the speech ends before the gate fires, ramp back to 0 dB over `3 × barge_in_fade_ms` and emit `BOT_RESTORED`. The user hears the bot back off within one VAD frame instead of talking over them for 250 ms, and quieter playback also leaves less echo for the AEC.
+1. **Barge-in gate** (review §2 item 2, decision 2): hardware AEC reduces echo but doesn't remove it, so while the bot is speaking, interrupt on a speech window once **at least `barge_in_k` (7) of the last `barge_in_n` (10) 32 ms VAD windows were speech** (a window is speech when Silero confidence ≥ `barge_in_confidence`, 0.5). Brief dips inside an utterance don't reset the count, and shorter blips (coughs, clicks, residual echo) don't interrupt. This replaces the earlier "250 ms of unbroken speech at 0.7" rule: on the Pi pilot (`docs/PI-RESULTS.md`, branch `agy/interrupts`) that rule interrupted 58% of barge-ins at 0.67 s median against 67% at 0.35 s for 7-of-10, with 0 false events in a 5-minute silent soak for both. `min_barge_in_ms` is kept in config as the lower bound for the "shorter blips" tests but no longer drives the gate. When the bot is silent, normal VAD behavior applies.
+   - **Duck first** (`FULL-DUPLEX-RESEARCH.md` §3.3): the moment VAD reports speech while the bot is speaking, ramp the bot's output gain to `barge_in_duck_db` (−15 dB) over 5 ms and emit `BOT_DUCKED`. If the speech ends before the gate fires, ramp back to 0 dB over `3 × barge_in_fade_ms` and emit `BOT_RESTORED`. The user hears the bot back off within one VAD frame instead of talking over them for 250 ms, and quieter playback also leaves less echo for the AEC. Duck and restore are unchanged by the rule: duck at the first speech window, restore at the first window below the confidence.
    - **Fade, don't cut**: when the gate fires, ramp from the current gain to silence over `barge_in_fade_ms` (15 ms, linear in dB is fine; must reach ≤ −60 dB) before the queue is dropped, so the stop doesn't click.
    - Gain is applied by one `OutputGain` stage just before `transport.output()`, sample-accurate across frame boundaries.
 2. **On barge-in:** emit `BARGE_IN_DETECTED`; start the fade; push Pipecat's interruption; `synthesizer.cancel()` (flush, review §2 item 8: cancel and flush, no "POSIX signal"); drop queued output audio; cancel the agent's `respond()` and call `record_interruption(turn_id, spoken_chars)`; emit `BARGE_IN_MUTE` when the fade has finished and the output transport has actually stopped emitting bot audio. After the mute, reset the gain to 0 dB for the next reply.
@@ -34,7 +34,7 @@ The review's full-duplex refinements:
 | user speech 200 ms while bot speaks | no interruption; `bot_ducked` then `bot_restored`; bot keeps talking; no `barge_in_detected` |
 | VAD speech while the bot is silent | no ducking (nothing to duck); normal turn |
 | new bot reply starts while still ducked (speech ongoing, gate not yet fired) | the new reply starts at the ducked gain, not 0 dB |
-| user speech ≥ 250 ms while bot speaks | duck at speech start, then interruption at 250 ms; 15 ms fade; bot audio stops; `barge_in_mute − barge_in_detected` < 100 ms in file mode (asserted) |
+| user speech while bot speaks reaches 7 speech windows of the last 10 (about 224 ms unbroken, sooner than strict only when dips occur) | duck at speech start, then interruption on that window; 15 ms fade; bot audio stops; `barge_in_mute − barge_in_detected` < 100 ms in file mode (asserted) |
 | barge-in during a filler | filler stops; pending real answer is cancelled too |
 | barge-in after the LLM finished but TTS still playing | TTS cancel + flush; history records only the spoken prefix |
 | speculative text ≠ final text | cancel; `LLM_CANCELLED` with `reason="text_changed"`; fresh request on final |
@@ -51,15 +51,15 @@ The review's full-duplex refinements:
 ```python
 # src/voice_agent/pipeline/barge_in.py
 class BargeInGate:
-    def __init__(self, *, min_speech_ms: int) -> None: ...
+    def __init__(self, *, confidence_k: int, window_n: int) -> None: ...   # defaults 7 of 10
     def on_bot_speaking(self, speaking: bool, t_mono_ns: int) -> None: ...
-    def on_vad(self, speech: bool, t_mono_ns: int) -> GateAction: ...   # INTERRUPT exactly once per barge-in
+    def on_vad(self, speech: bool, t_mono_ns: int) -> GateAction: ...   # called once per 32 ms window; speech = confidence >= barge_in_confidence   # INTERRUPT exactly once per barge-in
 
 class GateAction(StrEnum):
     NONE = "none"
     DUCK = "duck"            # bot speaking, VAD speech started
-    RESTORE = "restore"      # speech ended before min_speech_ms
-    INTERRUPT = "interrupt"  # min_speech_ms reached
+    RESTORE = "restore"      # speech ended before the k-of-n rule fired
+    INTERRUPT = "interrupt"  # k of the last n windows were speech and this window is speech
 
 # src/voice_agent/pipeline/gain.py
 class OutputGain:
@@ -89,7 +89,7 @@ def load_fillers(directory: Path, sample_rate: int) -> list[Filler]: ...
 class FillerPolicy:
     def choose(self, turn_id: int, already_spoke: bool, kind: str = "delegate") -> Filler | None: ...   # kind: delegate | stall | notice; rotates; max one per kind per turn
 
-# src/voice_agent/config.py — TurnConfig gains: stall_filler_ms: int = 700; stall_notice_ms: int = 2500 (also in config/agent.toml)
+# src/voice_agent/config.py — TurnConfig gains: stall_filler_ms: int = 700; stall_notice_ms: int = 2500; barge_in_confidence: float = 0.5; barge_in_k: int = 7; barge_in_n: int = 10 (also in config/agent.toml)
 
 # scripts/make_fillers.py  — main(argv) -> int ; --backend {fake,cartesia} --out assets/fillers
 ```
@@ -103,7 +103,7 @@ class FillerPolicy:
 ### P — Proof
 | # | Test | Command |
 |---|---|---|
-| P1 | `test_gate_thresholds` — table: 100/200/249 ms → `DUCK` then `RESTORE`, never `INTERRUPT`; 250/400 ms → `DUCK` then `INTERRUPT` once; bot silent → `INTERRUPT` immediately at VAD start, no `DUCK` | `uv run pytest -q tests/pipeline/test_barge_in.py` |
+| P1 | `test_gate_thresholds` — per-window table at 32 ms: 6 consecutive speech windows → `DUCK` then `RESTORE` when speech stops, never `INTERRUPT`; 7 consecutive → `DUCK` then `INTERRUPT` once; 9 windows with two dips inside (7 of the last 10 reached) → `INTERRUPT`; 6 speech then 1 miss → no `INTERRUPT` on the miss window; bot silent → `INTERRUPT` immediately at VAD start, no `DUCK` | `uv run pytest -q tests/pipeline/test_barge_in.py` |
 | P2 | `test_barge_in_file_mode` — `main(--fake --input-wav barge.wav …)` where the user speaks 500 ms into the bot's reply: output WAV bot energy ends within 150 ms of `barge_in_detected` (asserted on the WAV, not just the log) and `barge_in_mute − barge_in_detected < 100 ms` | same |
 | P3 | `test_cough_ducks_then_restores` — 150 ms noise burst during bot reply: output WAV RMS (10 ms frames) drops 15 ± 2 dB within 20 ms of `bot_ducked` and is back within 1 dB of the pre-burst level within 100 ms of `bot_restored`; bot keeps talking | same |
 | P6 | `test_gain_ramps` — on a constant 1 kHz tone: `ramp_to(-15, 5)` reaches −15 ± 0.5 dB in 5 ms; `ramp_to(-inf, 15)` ends ≤ −60 dB at 15 ms ± 1 sample; a ramp split across 1-, 160- and 320-sample frames gives identical output; the largest sample-to-sample step during the fade is ≤ the tone's own largest step (no click) | `uv run pytest -q tests/pipeline/test_gain.py` |
@@ -123,6 +123,8 @@ None new.
 - [ ] All Proof rows green; ticket 11 tests still green; gate suite green
 
 ## Non-Goals
+- Re-deciding the k-of-n values on new hardware: 0.5 / 7 of 10 come from one speaker, one room, the Pi 4 with the USB mic (`docs/PI-RESULTS.md`, `agy/interrupts`); a second-speaker repeat is a pending next step, so keep them in config
+- Supporting one-word interrupts ("Stop"): about 39% interrupted live; needs a different detector, not this gate
 - Software AEC (hardware AEC is the decision)
 - Tuning thresholds on real hardware (human checkpoint 2)
 
@@ -130,6 +132,7 @@ None new.
 no
 
 ## Shared Context
+- `docs/PI-RESULTS.md` (branch `agy/interrupts`): live evidence for the k-of-n rule. Operating envelope: 75% playback volume without AEC, speaker within about 5-10 cm of the mic; raising volume needs AEC. Reference implementation: `Gate` with `rule='kofn'` in `src/doc_chat/pi_pilot.py` and its three tests (port the logic, not the pilot class)
 - `.scratch/project2-voice-agent/RUNNER.md`
 - `docs/EVENT-LOG.md`
 
