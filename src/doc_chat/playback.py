@@ -17,6 +17,13 @@ SLICE_S = 0.05  # audio is handed to the device in pieces this long, so a stop t
 FADE_S = 0.008  # a cut-off ends with a fade this long instead of a step (which is heard as a click)
 
 
+def apply_gain(x: np.ndarray, start: float, end: float) -> np.ndarray:
+    """16-bit samples scaled by a gain that moves in a straight line from `start` to `end`."""
+    ramp = np.linspace(start, end, len(x), dtype=np.float32)
+    scaled: np.ndarray = np.clip(x.astype(np.float32) * ramp, -32768, 32767).astype(np.int16)
+    return scaled
+
+
 class Player:
     """Writes PCM to the speakers from a background thread; `close` waits for it to finish.
 
@@ -37,6 +44,7 @@ class Player:
         self._rate = sample_rate
         self.underruns = 0  # slices the device had to wait for (heard as a stutter)
         self._pushed_s = 0.0  # seconds of audio queued so far: how long `close` may have to wait
+        self._gain = 1.0  # 1.0 = as pushed; set_gain ducks it
         self._stream: Any = sd.RawOutputStream(samplerate=sample_rate, channels=1, dtype="int16")
         self._stream.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -45,6 +53,7 @@ class Player:
     def _run(self) -> None:
         stopped = False
         last = 0  # the last sample handed to the device
+        applied = 1.0  # the gain at the end of the previous slice
 
         def stop_device() -> None:
             nonlocal stopped
@@ -66,6 +75,10 @@ class Player:
                     break
                 piece = pcm[i : i + self._slice]
                 x = np.frombuffer(piece[: len(piece) // 2 * 2], dtype=np.int16)  # whole samples
+                if self._gain != 1.0 or applied != 1.0:  # ducked, or just let back up
+                    x = apply_gain(x, applied, self._gain)
+                    applied = self._gain
+                    piece = x.tobytes()
                 level = (
                     float(np.sqrt(np.mean((x.astype(np.float32) / 32768.0) ** 2)))
                     if x.size
@@ -88,6 +101,10 @@ class Player:
         """The loudest slice (RMS, 0-1) handed to the speaker in the last ``window_s`` seconds."""
         now = time.perf_counter()
         return max((lv for t, lv in list(self._levels) if now - t <= window_s), default=0.0)
+
+    def set_gain(self, db: float) -> None:
+        """Turn the speaker down (negative dB) or back to normal (0), from the next slice on."""
+        self._gain = 10 ** (db / 20)
 
     def push(self, pcm: bytes) -> None:
         self._pushed_s += len(pcm) / 2 / self._rate
@@ -170,10 +187,14 @@ class RemotePlayer:
     slices paced at playing speed, never more than `REMOTE_LEAD_S` ahead. The remote end drops
     what it holds on ``abort``, so the stop is the lead plus its own device buffer."""
 
-    def __init__(self, speaker: RemoteSpeaker, sample_rate: int) -> None:
+    def __init__(self, speaker: RemoteSpeaker, sample_rate: int, canceller: Any = None) -> None:
         from math import gcd
 
         self._speaker = speaker
+        self._canceller = canceller  # gets what is sent, as 16 kHz audio, to cancel its echo
+        self._gain = 1.0
+        if canceller is not None:
+            canceller.gain = 1.0
         self._rate = speaker.rate
         g = gcd(sample_rate, self._rate)
         self._up, self._down = self._rate // g, sample_rate // g
@@ -188,6 +209,8 @@ class RemotePlayer:
         self._thread.start()
 
     def _run(self) -> None:
+        from math import gcd
+
         from scipy.signal import resample_poly
 
         slice_n = max(int(self._rate * SLICE_S), 1)
@@ -198,6 +221,10 @@ class RemotePlayer:
             x = np.frombuffer(pcm[: len(pcm) // 2 * 2], dtype=np.int16).astype(np.float64)
             y = resample_poly(x, self._up, self._down) if self._up != self._down else x
             data = np.clip(y, -32768, 32767).astype(np.int16)
+            ref16 = None
+            if self._canceller is not None:
+                g16 = gcd(16000, self._tts_rate)
+                ref16 = resample_poly(x, 16000 // g16, self._tts_rate // g16)
             for i in range(0, len(data), slice_n):
                 piece = data[i : i + slice_n]
                 now = time.perf_counter()
@@ -216,6 +243,11 @@ class RemotePlayer:
                 except Exception:
                     self._aborted.set()
                     break
+                if ref16 is not None:
+                    a = round(i * 16000 / self._rate)
+                    b = round((i + len(piece)) * 16000 / self._rate)
+                    reference = np.clip(ref16[a:b], -32768, 32767).astype(np.int16)
+                    self._canceller.reference(reference.tobytes())
                 level = float(np.sqrt(np.mean((piece.astype(np.float32) / 32768.0) ** 2)))
                 self._levels.append((time.perf_counter() + REMOTE_LEAD_S, level))
                 sent += len(piece)
@@ -225,7 +257,17 @@ class RemotePlayer:
 
     def level_recent(self, window_s: float = 0.3) -> float:
         now = time.perf_counter()
-        return max((lv for t, lv in list(self._levels) if 0 <= now - t <= window_s), default=0.0)
+        loudest = max((lv for t, lv in list(self._levels) if 0 <= now - t <= window_s), default=0.0)
+        return loudest * self._gain
+
+    def set_gain(self, db: float) -> None:
+        """Turn the speaker down (negative dB) or back to normal (0), now: the Pi applies it to
+        what it has not yet played, and the canceller's reference follows."""
+        self._gain = 10 ** (db / 20)
+        if self._canceller is not None:
+            self._canceller.gain = self._gain
+        with contextlib.suppress(Exception):
+            self._speaker.send(json.dumps({"type": "gain", "db": db}))
 
     def push(self, pcm: bytes) -> None:
         self._pushed_s += len(pcm) / 2 / self._tts_rate
@@ -238,6 +280,8 @@ class RemotePlayer:
                 self._queue.get_nowait()
         with contextlib.suppress(Exception):
             self._speaker.send(json.dumps({"type": "abort"}))
+        if self._canceller is not None:
+            self._canceller.clear()
 
     def close(self) -> None:
         """Return when everything pushed has been sent *and played* (or at once after `abort`).
@@ -252,10 +296,12 @@ class RemotePlayer:
 _remote: dict[str, RemoteSpeaker] = {}
 
 
-def make_player(sample_rate: int, remote_url: str | None = None) -> Player | RemotePlayer:
+def make_player(
+    sample_rate: int, remote_url: str | None = None, canceller: Any = None
+) -> Player | RemotePlayer:
     """The local speaker, or (with ``remote_url``) the speaker of another machine."""
     if remote_url is None:
         return Player(sample_rate)
     if remote_url not in _remote:
         _remote[remote_url] = RemoteSpeaker(remote_url, os.environ.get("LAN_SPEECH_TOKEN"))
-    return RemotePlayer(_remote[remote_url], sample_rate)
+    return RemotePlayer(_remote[remote_url], sample_rate, canceller)

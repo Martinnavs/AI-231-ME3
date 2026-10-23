@@ -18,7 +18,14 @@ from dataclasses import replace as dc_replace
 from pathlib import Path
 from typing import IO, Any
 
-from doc_chat.bargein import BargeInGuard, EchoModel, PreRoll, SileroOnset, looks_like_echo
+from doc_chat.bargein import (
+    BargeInGuard,
+    Ducker,
+    EchoModel,
+    PreRoll,
+    SileroOnset,
+    looks_like_echo,
+)
 from doc_chat.chain import (
     SentenceStream,
     build_answer_chain,
@@ -270,7 +277,11 @@ class Session:
 
         print(f"bot:  {text}", flush=True)
         player = (
-            make_player(self.client.tts_sample_rate, getattr(self.args, "play_remote", None))
+            make_player(
+                self.client.tts_sample_rate,
+                getattr(self.args, "play_remote", None),
+                self.client.canceller,
+            )
             if self.args.play
             else None
         )
@@ -315,7 +326,11 @@ class Session:
         print(f"bot:  {text}", flush=True)
         if not self.args.play:
             return
-        player = make_player(self.client.tts_sample_rate, getattr(self.args, "play_remote", None))
+        player = make_player(
+            self.client.tts_sample_rate,
+            getattr(self.args, "play_remote", None),
+            self.client.canceller,
+        )
         try:
             player.push(pcm)
         finally:
@@ -430,7 +445,11 @@ class Session:
         if heard is not None and heard.raw_text and heard.raw_text != heard.text:
             print(f"      (recognised as: {heard.raw_text})", flush=True)
         player = (
-            make_player(self.client.tts_sample_rate, getattr(self.args, "play_remote", None))
+            make_player(
+                self.client.tts_sample_rate,
+                getattr(self.args, "play_remote", None),
+                self.client.canceller,
+            )
             if self.args.play
             else None
         )
@@ -748,6 +767,9 @@ class Session:
         )
 
         trace = self._guard_trace
+        duck_db = float(getattr(self.args, "duck_db", 0.0))
+        duck_k = int(getattr(self.args, "duck_k", 2))
+        ducker = Ducker(duck_db) if duck_db < 0.0 else None
 
         def feed(block: bytes) -> bool:
             roll.push(block)
@@ -755,6 +777,12 @@ class Session:
             played = float(level_of()) if level_of is not None else 0.0
             answering = self._answer_started is not None
             fired = guard.feed(block, played, answering=answering)
+            set_gain = getattr(self._player, "set_gain", None)
+            if ducker is not None and silero is not None and answering and set_gain is not None:
+                voiced = guard.last_level > guard.last_bar and silero.recent_speech >= duck_k
+                new_gain = ducker.update(voiced, fired, time.perf_counter())
+                if new_gain is not None:
+                    set_gain(new_gain)
             if trace is not None:  # one line per 100 ms block: what the guard saw and decided
                 trace.write(
                     json.dumps(
@@ -771,6 +799,7 @@ class Session:
                             "model": guard.last_model,
                             "level_hit": guard.last_level_hit,
                             "fired": fired,
+                            "ducked": ducker is not None and ducker.ducked,
                             "cue_s": self._cue_s,
                         }
                     )
@@ -902,9 +931,15 @@ async def async_main(args: argparse.Namespace) -> int:
     await client.connect()
     hub: MicHub | None = None
     if args.mic and args.barge_in:
-        hub = MicHub()
+        canceller = None
+        if args.aec:
+            from doc_chat.aec import EchoCanceller
+
+            canceller = EchoCanceller(args.aec_lead_ms)
+        hub = MicHub(canceller=canceller)
         hub.start()  # one microphone stream for the whole session: heard while it thinks and talks
         client.hub = hub
+        client.canceller = canceller
 
     record_dir = Path(args.record) if args.record else None
     if record_dir is not None:  # one folder per run: everything needed to look back at it
@@ -1010,6 +1045,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="WS_URL",
         help="play on another machine's speaker (scripts/pi_speaker.py), e.g. ws://pi:8780; "
         "uses the LAN_SPEECH_TOKEN; implies --play",
+    )
+    parser.add_argument(
+        "--aec",
+        action="store_true",
+        help="cancel the remote speaker's echo in the microphone, using what is sent to it as the "
+        "reference (needs --play-remote and --mic; docs/AEC-REMOTE-SPEAKER.md)",
+    )
+    parser.add_argument(
+        "--aec-lead-ms",
+        type=int,
+        default=50,
+        help="with --aec: ms of reference fed ahead of the microphone (default: 50; more is worse "
+        "as the path delay grows)",
+    )
+    parser.add_argument(
+        "--duck-db",
+        type=float,
+        default=0.0,
+        help="turn the remote speaker down by this many dB (negative, e.g. -15) at the first "
+        "sign of your voice over the answer, and back up if you do not interrupt (default: off)",
+    )
+    parser.add_argument(
+        "--duck-k",
+        type=int,
+        default=2,
+        help="with --duck-db: speech windows among the last 10 that count as the first sign",
     )
     parser.add_argument("--out", help="Output directory for generated WAVs")
     parser.add_argument(
@@ -1245,6 +1306,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.play_remote:
         args.play = True
+    if args.aec and not (args.play_remote and args.mic and args.barge_in):
+        print("--aec needs --play-remote, --mic and --barge-in", file=sys.stderr)
+        return 2
     if args.ask_to_add and not args.mic:
         print("--ask-to-add needs --mic", file=sys.stderr)
         return 2

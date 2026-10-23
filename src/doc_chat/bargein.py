@@ -60,6 +60,32 @@ class PreRoll:
         return list(self._blocks)
 
 
+class Ducker:
+    """Turn the speaker down at the first sign of a voice, and back up if no barge-in follows."""
+
+    def __init__(self, db: float, restore_s: float = 0.6) -> None:
+        self.db = db
+        self.restore_s = restore_s
+        self._since: float | None = None
+
+    @property
+    def ducked(self) -> bool:
+        return self._since is not None
+
+    def update(self, voiced: bool, fired: bool, now: float) -> float | None:
+        """The gain in dB to set (negative to duck, 0.0 to restore), or None to leave it."""
+        if self._since is None:
+            if voiced and not fired:
+                self._since = now
+                return self.db
+        elif fired:
+            self._since = None
+        elif not voiced and now - self._since >= self.restore_s:
+            self._since = None
+            return 0.0
+        return None
+
+
 class EchoModel:
     """How much of the assistant's own voice comes back through the microphone.
 
@@ -286,6 +312,11 @@ class SileroOnset:
         self.last_confidence = 0.0
         if self.history is not None:
             self.history.clear()
+
+    @property
+    def recent_speech(self) -> int:
+        """Speech windows among the last n (needs kofn): a rise is the first sign of a voice."""
+        return sum(self._recent)
 
     def _confidence(self, window: object) -> float:
         np = self._np
