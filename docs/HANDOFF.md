@@ -1,6 +1,6 @@
 # Handoff: laptop speech, the doc_chat test client, interruptions, the Pi, and the Pi-as-loudspeaker setup
 
-**First written:** 2026-10-21; **updated:** 2026-10-23 (Philippine time). **Tip of the stack:** branch `agy/interrupts` at `c6986a6` (two commits ahead of `origin/agy/interrupts` `4a9b3ef`, not pushed). **Tests at the tip:** 562 pass, 9 skipped, 2 xfailed, 1 fails (see section 0); ruff and mypy clean on everything touched.
+**First written:** 2026-10-21; **updated:** 2026-10-23 (Philippine time). **Tip of the stack:** branch `agy/interrupts`; `origin/agy/interrupts` is at `ec221a7` (pushed); later local commits (the McCarthy corpus, the playback and stop-phrase fixes, the guard calibration) are not pushed, see `git log origin/agy/interrupts..`. **Tests at the tip:** 562 pass, 9 skipped, 2 xfailed, 1 fails (see section 0); ruff and mypy clean on everything touched.
 **Audience:** the owner picking this up on the Raspberry Pi, or any person or AI assistant continuing the work with no memory of how it got here. Everything needed is in the repository; this file is the map.
 
 ---
@@ -18,9 +18,13 @@ Sections 1-11 were written on 2026-10-21, before the Pi was tested. This section
 | Pi bridge: Pi mic and speaker, laptop STT and TTS over a cable | Works end to end. Stop-speaking to first sound: 1.99 s (1.2 s pause hold + 0.44 s server + 0.32 s TTS). The weak mic fragments long phrases at the 0.6 s hold, so 1.2 s is used | `docs/PI-BRIDGE.md`, `scripts/pi_bridge.py` |
 | Laptop mic with the Pi as loudspeaker (the owner's proposed production setup) | The Pi speaker's echo fires Silero on every clip at 40-90% volume. An echo guard (Silero stage AND level-above-expected-echo stage) detected 6 of 6 interruptions with 0 of 6 echo-only clips firing at 80% (held-out; one speaker, one room) | `docs/PI-REMOTE-SPEAKER.md` |
 | End-of-turn rules replayed on a Pi recording of 14 read phrases | A Silero-based rule with a 0.5 s hold cut 0 of 14 phrases and fired 0.48 s after the phrase ended; the loudness rule at 1.2 s also cut 0 of 14 but took 1.04 s. Read speech only; the spontaneous recording was silent, so this is not settled | `scripts/eot_replay.py` |
+| Live `doc_chat` conversation with the guard, Pi speaker at 80%, model-free random-sentence replies over the McCarthy corpus | After fixing three bugs and re-calibrating the echo bar from traces: 0 of 14 quiet replies interrupted by echo (6 + 8), 7 of 7 cued interruptions stopped (median 0.76 s from the beep), stop to first answer audio 1.69 s p50, 11 of 18 questions recognised exactly (errors mostly the first words). One speaker, one room, small counts | `docs/PI-REMOTE-SPEAKER.md` ("In the real doc_chat loop") |
+| Cormac McCarthy corpus (33 files, 25,600 words, researched by four search-only agy runs, hand-checked) for a larger doc-chat test | 562 retrieval chunks, retrieval 0.7 ms; not a citable source (errors found and fixed are listed) | `docs/CORPUS-MCCARTHY.md`, `corpus/cormac-mccarthy/` |
 | Main's ticket 12 (barge-in gate) amended to the 7-of-10 rule | On local branch `docs/ticket-12-kofn-gate` (`ce0851a`, off main, not pushed). Ticket 12 itself is **not built**: it needs the agent pipeline (tickets 05, 10, 11), which the owner parked to focus on interrupts and STT | `.scratch/project2-voice-agent/tickets/12-...md` |
 
-**Tests.** `uv run --group laptop pytest -q` gives 562 passed, 9 skipped, 2 xfailed and **1 failed**: `tests/doc_chat/test_flow.py::test_llm_echo_is_accepted_without_documents`. It connects to a speech server on `127.0.0.1:8765` and fails the same way on the commit before this work; start the server (section 9) and it passes. `ruff check` over the whole `scripts/` folder still reports E501 in `scripts/pi_synth_report.py` (an older file). **Do not run `ruff format` over `scripts/`**: it reformats that file and you will commit an unrelated change; format only the files you edit.
+**Tests.** `uv run --group laptop pytest -q` gives about 570 passed, 9 skipped, 2 xfailed and **1 failed** (counts move as tests are added): `tests/doc_chat/test_flow.py::test_llm_echo_is_accepted_without_documents`. It connects to a speech server on `127.0.0.1:8765` and fails the same way on the commit before this work; start the server (section 9) and it passes. `ruff check` over the whole `scripts/` folder still reports E501 in `scripts/pi_synth_report.py` (an older file). **Do not run `ruff format` over `scripts/`**: it reformats that file and you will commit an unrelated change; format only the files you edit.
+
+**Doc-chat flags the guard needs (2026-10-23):** `--vad both --vad-confidence 0.5 --silero-kofn 7/10 --level-kofn 3/8 --barge-echo-quantile 0.95 --barge-echo-window 60 --barge-echo-margin 1.2 --barge-echo-prior 0.8`. Without the last four the assistant interrupts itself on every reply with the Pi speaker in the room. Measurement flags: `--cue-beep 2.5 --cue-every 2` (a beep on every second reply to talk over), `--trace-guard` with `--record DIR` (a line per mic block in `DIR/guard.jsonl`), and `scripts/cue_report.py DIR` to score the session.
 
 **State of the physical setup right now** (all of it disappears; rebuild with `docs/PI-BRIDGE.md` and `docs/PI-REMOTE-SPEAKER.md`):
 
@@ -178,6 +182,10 @@ Added 2026-10-23:
 - **`pkill -f "<name>"` over SSH or in a shell whose own command line contains `<name>` kills that shell.** Use `pgrep -af` first and `kill <pid>`.
 - **zsh does not word-split `$VAR`**: put commands in functions, scripts or an ssh config alias, not in a variable.
 - **Run commands that take over 2 minutes in the background**; the tool times out and moves them anyway.
+- **The assistant heard itself because `Player.close()` returned after 2 s** while a long reply was still playing (synthesis is much faster than playback); it now waits for the reply's length. A silent-looking console is not evidence that playback finished.
+- **The echo bar was built on the median echo, but the echo is spiky** (ratio p50 0.34, p99 0.79); and an echo model that restarts on every reply never learns. A harness run in a noisier room hid both. Calibrate on traces from the real loop (`--trace-guard`), not only on the harness.
+- **A free-running spoken test has no ground truth.** Use the cue beep and `scripts/cue_report.py`.
+- **"Wait, stop" was answered as a question** because the stop-word list was an exact-match set; later, 3 of 7 live stop attempts were still answered (its own words attached before "wait, stop", or "wait" heard as "quick"). Now handled: only-stop-words, two words ending in stop/wait/pause, or a short utterance ending in a stop phrase; "why did the road stop" is still a question. A bare two-word "bus stop" would count as a stop command.
 
 Earlier (2026-10-21):
 
@@ -213,10 +221,10 @@ Earlier (2026-10-21):
 
 1. **Does the brief allow the laptop to own the microphone with the Pi only as loudspeaker?** If not, the Pi microphone path (weak mic: 5-15 dB over its noise, 5-10 cm operating distance) must be fixed with hardware or placement instead.
 2. **End of turn on whichever microphone ships.** Record spontaneous requests (with the hesitations real users have) on both the laptop mic and the Pi mic, then replay the rules with `scripts/eot_replay.py`; the current numbers come from 14 read phrases on the Pi mic only.
-3. **The echo guard has only run in a test harness**, not in a full spoken `doc_chat` conversation with an LLM, and the interruption cue there was predictable (a beep at a fixed time). Real, unexpected interruptions will be slower to detect.
+3. **The echo guard now works in the real `doc_chat` loop (see section 0) but with small counts**, a predictable cue (a beep at 2.5 s) and model-free replies; real, unexpected interruptions will be slower to detect, and it has not been run with a real language model reading the corpus.
 4. **A level guard has a ceiling.** At 90% volume the echo is 18-32 dB over the room, as loud as speech; not tried with the guard. Real echo cancellation (using the sent audio as the reference) would lift it, and was not built.
 5. **Room noise rose from about -44 to -35 dBFS** during the 2026-10-23 runs and the cause is unknown; it moves every threshold that is relative to the room.
-6. **The first words of an utterance were dropped in 3 of 10 turns** in one bridge run ("What time is it?" heard as "Is it?"); not investigated.
+6. **The first one or two words of a question are often misrecognised** (4 of 18 live questions: "What prize did The Road win?" as "Price did the road win"; also 3 of 10 in a bridge run). The recorded audio shows the words reach the server (a loud onset after silence), so it is a recognition weakness on short opening words, not clipping; not yet addressed (hotwords, a lead-in, or the early-decode setting are the places to look).
 7. Word error under echo cancellation, and the acoustic time until the speaker is silent after an interruption, were never measured.
 8. Only one speaker (the owner), one accent, one room, 9 interruptions in the guard runs. Other speakers are untested.
 9. Real coughs and knocks: the benchmark used white noise.
@@ -228,7 +236,7 @@ Earlier (2026-10-21):
 ## 7. Next actions, in order
 
 1. **(Owner)** Decide or ask the professor: is "laptop microphone, Pi loudspeaker" acceptable (section 6, item 1)? Everything below branches on it.
-2. **(Both)** Run a full spoken `doc_chat` conversation with the guard on: `--play-remote ws://<pi>:8780 --vad both --vad-confidence 0.5 --silero-kofn 7/10 --level-kofn 3/8` (section 9). Watch for self-interruptions and missed interruptions; use `--record` and `scripts/session_report.py`.
+2. **(Both)** Repeat the live test with a real language model (`--llm gemini`, key read at run time) so the answers come from the McCarthy corpus, with the guard flags above and `--cue-beep`; then with a second speaker.
 3. **(Both)** Record spontaneous requests with `scripts/pi_record.py` (3 s of silence between requests; on the laptop `--in-device default --in-rate 16000`), then compare end-of-turn rules with `scripts/eot_replay.py`. Pick a hold and decide whether the Silero-based rule replaces the loudness rule in `listen_turn`.
 4. **(Assistant)** Add duck-then-stop to `doc_chat` (the pilot has it; ticket 12 specifies it), then try the guard at 90% volume and with the speaker moved; decide whether real echo cancellation is needed.
 5. **(Owner)** Push `agy/interrupts` (two commits ahead of origin) and `docs/ticket-12-kofn-gate`; choose how to land the branches (`docs/BRANCHES.md`); then `git pull` on the Pi (section 0).

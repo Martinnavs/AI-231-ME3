@@ -47,11 +47,9 @@ _STOP_CORE = {"stop", "wait", "hold", "hang", "pause", "shush", "enough", "never
 _STOP_FILLER = {"on", "it", "okay", "ok", "please", "now", "just", "never"}
 
 
-def _is_stop_phrase(said: list[str]) -> bool:
-    """A short utterance that only tells the assistant to be quiet ("wait, stop", "hold on please").
-
-    Exact phrases in `_STOP_WORDS`, or up to four words that are all stop words or fillers with at
-    least one real stop word among them, so a question that merely contains "stop" is not one."""
+def _only_stop_words(said: list[str]) -> bool:
+    """Exact stop phrases, or up to four words that are all stop words or fillers with at least
+    one real stop word among them."""
     if " ".join(said) in _STOP_WORDS:
         return True
     return (
@@ -59,6 +57,22 @@ def _is_stop_phrase(said: list[str]) -> bool:
         and all(w in _STOP_CORE or w in _STOP_FILLER for w in said)
         and any(w in _STOP_CORE for w in said)
     )
+
+
+def _is_stop_phrase(said: list[str]) -> bool:
+    """An utterance that only tells the assistant to be quiet ("wait, stop", "hold on please").
+
+    Three cases, so a question that merely contains "stop" is not one:
+    * only stop words (`_only_stop_words`);
+    * two words ending in stop/wait/pause ("quick stop": the first word was misheard);
+    * a short utterance that *ends* in a stop phrase ("a young pilot wait stop": the assistant's own
+      words came back in the same turn, then the user said stop). Only the strict check applies to
+      the tail, so "why did the road stop" is a question."""
+    if _only_stop_words(said):
+        return True
+    if len(said) == 2 and said[-1] in ("stop", "wait", "pause"):
+        return True
+    return 3 <= len(said) <= 8 and _only_stop_words(said[-2:])
 
 
 def _p50_p95(vals: list[float]) -> tuple[float, float]:
@@ -199,6 +213,7 @@ class Session:
     _answer_started: float | None = None  # perf_counter of the first answer audio
     _replies: int = 0  # replies started this session (for --cue-every)
     _guard_trace: IO[str] | None = None  # --trace-guard: a JSON line per microphone block
+    _echo_model: EchoModel | None = None  # speaker-to-microphone coupling, learned over the session
     _cue_s: float | None = None  # seconds into this reply a cue beep sounds, if it has one
     _spoken: list[str] = field(default_factory=list)  # sentences begun so far
     _prompt_count: int = 0
@@ -648,10 +663,16 @@ class Session:
         step = 3200  # 100 ms of 16-bit samples
         blocks = [tail[i : i + step] for i in range(0, len(tail), step)]
 
-        echo = EchoModel(
-            prior=float(getattr(self.args, "barge_echo_prior", 0.5)),
-            margin=float(getattr(self.args, "barge_echo_margin", 1.8)),
-        )
+        if (
+            self._echo_model is None
+        ):  # one for the session: what it learns carries to the next reply
+            self._echo_model = EchoModel(
+                prior=float(getattr(self.args, "barge_echo_prior", 0.5)),
+                margin=float(getattr(self.args, "barge_echo_margin", 1.8)),
+                window=int(getattr(self.args, "barge_echo_window", 15)),
+                quantile=float(getattr(self.args, "barge_echo_quantile", 0.5)),
+            )
+        echo = self._echo_model
         silero = (
             SileroOnset(
                 str(getattr(self.args, "vad_model", "assets/silero_vad.onnx")),
@@ -1055,6 +1076,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=1.8,
         help="while it speaks, you must be this many times louder than its own voice coming back "
         "through the microphone (learned as it speaks); 0 turns the echo allowance off",
+    )
+    parser.add_argument(
+        "--barge-echo-quantile",
+        type=float,
+        default=0.5,
+        help="which part of the recent echo to stay above: 0.5 follows the typical echo, 0.95 its "
+        "peaks (use 0.95 with --barge-echo-window 60 and a speaker in the room)",
+    )
+    parser.add_argument(
+        "--barge-echo-window",
+        type=int,
+        default=15,
+        help="how many recent 100 ms blocks of echo the allowance is learned from (default: 15)",
     )
     parser.add_argument(
         "--barge-echo-prior",
