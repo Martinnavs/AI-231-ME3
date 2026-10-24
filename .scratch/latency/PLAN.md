@@ -55,3 +55,8 @@ Spoken check (`.scratch/mcp-set/PLAN.md`, one session): end of speech to first s
 2. R2 and R3: the assistant writes the phrase sets and the fast-path phrase list for your review before ticketing?
 3. R3: which commands may skip the LLM (proposal: the list in the table)?
 4. R1: 30-60 minutes, two requests a minute (well under 1 cent)?
+
+## R1 results
+
+- **R1(b), Open-Meteo idle connection (2026-10-24, `.scratch/latency/keepalive_probe.py`, 2 tries per wait):** a request on the open connection after 1-3 s idle took 264-303 ms; after 5, 10, 20, 40 or 60 s idle it took 1.10-1.83 s (a new connection). The server closes idle connections after 3-5 s, so keeping the client open cannot help across turns minutes apart, and a keep-alive ping that tight (over 1,000 requests an hour to a free API) is not reasonable. **R5's warm weather = refresh the home forecast in the background every 10 minutes** (answered from memory); other places cost ~1.2 s plus a place lookup.
+- R1(a), the LLM spike probe: running (45 min).
