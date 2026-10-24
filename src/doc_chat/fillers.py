@@ -3,8 +3,9 @@
 Three moments in a turn, measured from when the transcript is ready (the agent starts then,
 ~1.0-1.3 s after the user stops): `stall` (no answer yet at `stall_s`, 1.2 s: fast answers get no
 filler), `notice` (still nothing at `notice_s`, once, honest) and `giveup` (nothing at
-`giveup_s`: the turn is dropped with an apology). A tool call that arrives before anything was
-said plays that tool's line instead of a stall. At most one stall-or-tool line per turn; none once
+`giveup_s`: the turn is dropped with an apology). A timed line never starts until the previous
+filler has finished playing and `gap_s` of silence has passed, so lines never run together.
+A tool call that arrives before anything was said plays that tool's line instead of a stall. At most one stall-or-tool line per turn; none once
 the real answer has started. Each set rotates least-recently-used first, so the same line never
 comes twice in a row. Lines never claim a result. The phrases are reviewed by the owner
 (`.scratch/latency/fillers-draft.md`) and live in `config/fillers.json`; their audio is
@@ -32,6 +33,7 @@ class Fillers:
         self.stall_s = float(timing.get("stall_s", 1.2))
         self.notice_s = float(timing.get("notice_s", 2.5))
         self.giveup_s = float(timing.get("giveup_s", 8.0))
+        self.gap_s = float(timing.get("gap_s", 0.0))  # silence left after a filler finishes playing
         self.sets: dict[str, deque[str]] = {
             "stall": deque(config["stall"]),
             "notice": deque(config["notice"]),

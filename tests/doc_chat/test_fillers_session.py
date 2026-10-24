@@ -95,3 +95,19 @@ async def test_giving_up_drops_the_turn_and_logs_it() -> None:
     assert played == ["Sorry, that's taking too long. Could you ask me again?"]
     assert s.records[-1]["gave_up"] is True
     assert client.tts_cancels == 1
+
+
+async def test_the_notice_waits_for_the_stall_to_finish_and_a_gap() -> None:
+    import time
+
+    s, pushed = _with_fillers()
+    s.fillers.gap_s = 0.15  # type: ignore[union-attr]
+    s.fillers.giveup_s = 5.0  # type: ignore[union-attr]
+    times: list[float] = []
+    inner = s._filler_push
+    s._filler_push = lambda pcm: (times.append(time.perf_counter()), inner(pcm))[1]  # type: ignore[misc]
+    s.client.tts_sample_rate = 15  # the 15-byte stall line then lasts 0.5 s
+    timer = asyncio.create_task(s._filler_timer(time.perf_counter()))
+    await asyncio.sleep(1.2)
+    timer.cancel()
+    assert len(times) == 2 and times[1] - times[0] >= 0.5 + 0.15 - 0.01

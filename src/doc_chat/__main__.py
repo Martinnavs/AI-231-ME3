@@ -273,6 +273,7 @@ class Session:
     _turn_fillers: TurnFillers | None = None
     _filler_push: Callable[[bytes], None] | None = None  # into the answer's player
     _filler_started: float | None = None  # perf_counter of the first filler audio
+    _filler_free_at: float = 0.0  # perf_counter when the queued filler audio has played out
     _filler_lines: list[str] = field(default_factory=list)
     _loop: asyncio.AbstractEventLoop | None = None
 
@@ -356,6 +357,10 @@ class Session:
             self._filler_started = time.perf_counter()
         self._filler_lines.append(text)
         print(f"bot:  ({text})", flush=True)
+        now = time.perf_counter()
+        self._filler_free_at = (
+            max(now, self._filler_free_at) + len(pcm) / 2 / self.client.tts_sample_rate
+        )
         self._filler_push(pcm)
 
     async def _filler_timer(self, t_final: float) -> str:
@@ -363,6 +368,10 @@ class Session:
         turn = self._turn_fillers
         while turn is not None and (at := turn.next_at()) is not None:
             await asyncio.sleep(max(0.0, t_final + at - time.perf_counter()))
+            if at < turn.fillers.giveup_s:  # the give-up is a hard cap; the rest wait their turn
+                await asyncio.sleep(
+                    max(0.0, self._filler_free_at + turn.fillers.gap_s - time.perf_counter())
+                )
             if self._answer_started is not None:
                 break
             kind = turn.due(time.perf_counter() - t_final)
@@ -767,6 +776,7 @@ class Session:
         self._stream = None
         self._player = None
         self._filler_started = None
+        self._filler_free_at = 0.0
         self._filler_lines = []
         self._filler_push = None
         self._loop = asyncio.get_running_loop()
