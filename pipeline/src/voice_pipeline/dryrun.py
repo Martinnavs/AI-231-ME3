@@ -1,6 +1,10 @@
-"""Stress dry run of the agent (native Gemini, smart_home + docs MCP) over a fixed prompt set.
+"""Stress dry run of the agent (native Gemini, smart_home + MCP tools) over a fixed prompt set.
 
-    uv run python -m voice_pipeline.dryrun [--limit N] [--live URL] [--run-id ID]
+    LAN_SPEECH_TOKEN=... uv run python -m voice_pipeline.dryrun [--limit N] [--live URL]
+        [--run-id ID] [--pi-url URL]
+
+Prompts that expect a tool the agent does not have (the Pi's, when it is off) are skipped
+and listed.
 
 One pipeline and one docs server for the whole run; each prompt starts a fresh conversation.
 Per turn it records the tool calls, the reply, and the time to the first tool call and to the
@@ -20,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from voice_pipeline.agent import Agent, build_llm
-from voice_pipeline.agent_tools import build_tools, docs_server
+from voice_pipeline.agent_tools import PI_URL, build_tools, runnable, standard_servers
 
 ROOT = Path(__file__).resolve().parents[2]
 FREE_TEXT = {"CREATE_REMINDER"}
@@ -123,15 +127,20 @@ def summarize(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-async def run(limit: int | None, live: str | None, run_id: str, system_file: Path) -> int:
+async def run(
+    limit: int | None, live: str | None, run_id: str, system_file: Path, pi_url: str | None
+) -> int:
     lines = (ROOT / "config/eval/agent_prompts.jsonl").read_text().splitlines()
     prompts = [json.loads(line) for line in lines if line.strip()][:limit]
     out = ROOT / "out/agent_dryrun" / run_id
     out.mkdir(parents=True, exist_ok=True)
     record: list[dict[str, Any]] = []
-    agent = Agent(
-        build_llm(system_file.read_text()), await build_tools(record, live=live, docs=docs_server())
-    )
+    servers, optional = standard_servers(pi_url)
+    tools = await build_tools(record, live=live, servers=servers, optional=optional)
+    prompts, skipped = runnable(prompts, {t.name for t in tools.standard_tools})
+    if skipped:
+        print(f"skipped (tool not available): {', '.join(skipped)}")
+    agent = Agent(build_llm(system_file.read_text()), tools)
     await agent.start()
     await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
     rows: list[dict[str, Any]] = []
@@ -157,8 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--live", default=None, help="ME2 dashboard URL; default records only")
     parser.add_argument("--run-id", default=time.strftime("%Y%m%d-%H%M%S"))
     parser.add_argument("--system", type=Path, default=ROOT / "config/eval/system_agent.txt")
+    parser.add_argument("--pi-url", default=PI_URL, help="the Pi's device tools; '' for none")
     args = parser.parse_args(argv)
-    return asyncio.run(run(args.limit, args.live, args.run_id, args.system))
+    return asyncio.run(run(args.limit, args.live, args.run_id, args.system, args.pi_url or None))
 
 
 if __name__ == "__main__":

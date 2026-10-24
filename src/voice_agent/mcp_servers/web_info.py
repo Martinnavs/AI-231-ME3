@@ -5,6 +5,10 @@ uv run --group laptop python -m voice_agent.mcp_servers.web_info [--home "Quezon
 Open-Meteo (geocoding and forecast) and Wikipedia's REST API need no key. Answers are one or two
 sentences the assistant can say as they are; a network problem comes back as a sentence too, so
 the model can tell the user instead of failing the turn.
+
+Speed: Open-Meteo's servers are about 270 ms away from the Philippines and a fresh TLS handshake
+costs about 0.6 s, so one HTTP client (one open connection per host) is kept for the server's
+life, place lookups are remembered, and a forecast is reused for FORECAST_TTL_S.
 """
 
 from __future__ import annotations
@@ -12,7 +16,8 @@ from __future__ import annotations
 import argparse
 import os
 import re
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import httpx
@@ -26,6 +31,7 @@ HOME_PLACE = os.environ.get("VOICE_AGENT_HOME_PLACE", "Quezon City")
 # Wikimedia refuses requests whose user agent has no contact (403, "robot policy")
 USER_AGENT = "me3-voice-agent/0.1 (https://github.com/Martinnavs/AI-231-ME3; course project)"
 TIMEOUT_S = 4.0
+FORECAST_TTL_S = 600.0
 MAX_SENTENCES = 3
 MAX_CHARS = 600
 
@@ -47,15 +53,24 @@ def first_sentences(text: str, n: int = MAX_SENTENCES, limit: int = MAX_CHARS) -
 
 
 def build_server(
-    home: str = HOME_PLACE, transport: httpx.AsyncBaseTransport | None = None
+    home: str = HOME_PLACE,
+    transport: httpx.AsyncBaseTransport | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> FastMCP:
-    """A FastMCP server with weather and wiki_summary; `transport` is for tests."""
+    """A FastMCP server with weather and wiki_summary; `transport` and `clock` are for tests."""
     server = FastMCP("web_info")
+    clients: list[httpx.AsyncClient] = []  # made on first use, inside the server's event loop
+    places: dict[str, dict[str, Any]] = {}
+    forecasts: dict[tuple[float, float], tuple[float, dict[str, Any]]] = {}
 
     def client() -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            transport=transport, timeout=TIMEOUT_S, headers={"User-Agent": USER_AGENT}
-        )
+        if not clients:
+            clients.append(
+                httpx.AsyncClient(
+                    transport=transport, timeout=TIMEOUT_S, headers={"User-Agent": USER_AGENT}
+                )
+            )
+        return clients[0]
 
     @server.tool(
         description=(
@@ -67,13 +82,20 @@ def build_server(
     async def weather(place: str | None = None, day: str = "today") -> str:
         name = (place or home).strip()
         offset = 1 if day.strip().lower() == "tomorrow" else 0
+        http = client()
         try:
-            async with client() as http:
+            where = places.get(name.lower())
+            if where is None:
                 geo = await http.get(GEOCODE_URL, params={"name": name, "count": 1})
                 found = geo.json().get("results") or []
                 if not found:
                     return f"I couldn't find a place called {name}."
-                where = found[0]
+                where = places[name.lower()] = found[0]
+            key = (where["latitude"], where["longitude"])
+            cached = forecasts.get(key)
+            if cached is not None and clock() - cached[0] < FORECAST_TTL_S:
+                daily = cached[1]
+            else:
                 params: dict[str, Any] = {
                     "latitude": where["latitude"],
                     "longitude": where["longitude"],
@@ -83,6 +105,7 @@ def build_server(
                     "forecast_days": 2,
                 }
                 daily = (await http.get(FORECAST_URL, params=params)).json()["daily"]
+                forecasts[key] = (clock(), daily)
         except (httpx.HTTPError, KeyError, ValueError):
             return "The weather service did not answer, so I can't say right now."
         sky = WEATHER_WORDS.get(int(daily["weather_code"][offset]), "mixed weather")
@@ -102,14 +125,14 @@ def build_server(
         )
     )
     async def wiki_summary(topic: str) -> str:
+        http = client()
         try:
-            async with client() as http:
-                hits = await http.get(WIKI_SEARCH_URL, params={"q": topic, "limit": 1})
-                pages = hits.json().get("pages") or []
-                if not pages:
-                    return f"I couldn't find a Wikipedia article about {topic}."
-                page = await http.get(WIKI_SUMMARY_URL + pages[0]["key"])
-                extract = page.json().get("extract", "")
+            hits = await http.get(WIKI_SEARCH_URL, params={"q": topic, "limit": 1})
+            pages = hits.json().get("pages") or []
+            if not pages:
+                return f"I couldn't find a Wikipedia article about {topic}."
+            page = await http.get(WIKI_SUMMARY_URL + pages[0]["key"])
+            extract = page.json().get("extract", "")
         except (httpx.HTTPError, KeyError, ValueError):
             return "Wikipedia did not answer, so I can't look that up right now."
         if not extract:
