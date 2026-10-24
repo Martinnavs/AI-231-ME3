@@ -5,11 +5,12 @@ Three moments in a turn, measured from when the transcript is ready (the agent s
 filler), `notice` (still nothing at `notice_s`, once, honest) and `giveup` (nothing at
 `giveup_s`: the turn is dropped with an apology). A timed line never starts until the previous
 filler has finished playing and `gap_s` of silence has passed, so lines never run together.
-A tool call that arrives before anything was said plays that tool's line instead of a
-stall. At most one stall-or-tool line per turn; none once the real answer has started.
-Each set rotates least-recently-used first, so the same line never comes twice in a row. Lines never claim a result. The phrases are reviewed by the
-owner (`.scratch/latency/fillers-draft.md`) and live in `config/fillers.json`; their audio is
-synthesised once at session start, so playing one costs nothing.
+A tool call that arrives before anything was said plays that tool's line instead of a stall.
+At most one stall-or-tool line per turn; none once the real answer has started. Each set
+rotates least-recently-used first, so the same line never comes twice in a row. Lines never
+claim a result. The phrases are reviewed by the owner (`.scratch/latency/fillers-draft.md`) and
+live in `config/fillers.json`; their audio is synthesised once at session start, so playing one
+costs nothing.
 """
 
 from __future__ import annotations
