@@ -1,20 +1,29 @@
 # Handoff: laptop speech, the doc_chat test client, interruptions, the Pi, and the Pi-as-loudspeaker setup
 
-**First written:** 2026-10-21; **updated:** 2026-10-23 (Philippine time). **Tip of the stack:** branch `agy/interrupts`, pushed (68 commits ahead of `main`; the last pushed commit when this was written is `ca8ca21`; `git log origin/agy/interrupts -1` shows the current one). **Tests at the tip:** 597 pass, 9 skipped, 2 xfailed, 1 fails (the known `test_flow` case, see section 0); the Pipecat project passes its own 16 (`make pipeline-test`); ruff and mypy clean; ruff and mypy clean on everything touched.
+**First written:** 2026-10-21; **updated:** 2026-10-24 (Philippine time). **Tip of the stack:** branch `agy/interrupts`, about 85 commits ahead of `main`; `git log origin/agy/interrupts -1` shows the last pushed commit, and some later commits may be local only (section 0). **Tests at the tip (2026-10-24):** 638 pass, 9 skipped, 2 xfailed, 1 fails (the known `test_flow` case, see section 0); the Pipecat project passes its own 24 (`make pipeline-test`); ruff and mypy clean on everything touched.
 **Audience:** the owner picking this up on the Raspberry Pi, or any person or AI assistant continuing the work with no memory of how it got here. Everything needed is in the repository; this file is the map.
 
 ---
 
-## 0. Status as of 2026-10-23 (read this first)
+## 0. Status as of 2026-10-24 (read this first)
 
 Sections 1-11 were written on 2026-10-21, before the Pi was tested. This section says what happened since; where it disagrees with a later section, this one wins (the later sections are updated below where it matters).
 
-**Resume here (written at the end of 2026-10-23, Philippine time).**
+**Resume here (written at the end of 2026-10-24, Philippine time).** This block supersedes the 2026-10-23 one below where they disagree.
+
+* **Echo: solved for the scripted interruptions.** `--aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0`, with pre-roll 0.8 s and canceller lead 0 as the defaults, gave 0/30 early cut-offs, 0/12 echo transcripts and 0 wrong actions over two live sessions. A bare one-word "Stop." is still missed (Silero doesn't hold 7 of 10 windows on it); **the owner decided it is not required**: a stop word plus more words is the interruption. The "Pi's first reply after idle arrives 0.55 s late" below was misattributed: it was a cold `scipy.signal` import (~0.8 s), now loaded at connect. Details: `docs/LIVE-AGENT.md` (the 2026-10-24 sections) and `.scratch/echo-next/PLAN.md`.
+* **Real MCP tools** in the agent: the official time server, our `web_info` (Open-Meteo weather, Wikipedia; keyless) and a Pi device server (`scripts/pi_device_mcp.py`: volume and status over HTTP with the session token). TIME and WEATHER left `smart_home` (17 intents). Dry run 88/92 and a spoken check 8/8 routed right. `docs/MCP-SERVERS.md` ("The agent's real tools").
+* **Latency is the open problem**, and the owner's main worry for the demo. End of speech to first sound took 3.5-10.9 s in the spoken check, because the LLM's first response spikes (0.7-7.7 s) and every answer is a tool turn with two LLM requests. The safeguards are designed and written as reference code: a **fast path** (common commands skip the LLM), the tools' **`say` sentence**, and **doc_chat fillers** (stall at 1.2 s after the transcript, the tool's line, notice at 2.5 s, give-up at 8 s). They are ticketed for agy as `.scratch/latency/tickets/01-03`. **The agy run `.scratch/latency/agy_work/` (run1) was launched at the end of the day**: review its output against the reference before integrating (`docs/AGY-CODING.md` steps 7-8; `.scratch/mcp-set/PLAN.md` shows how the last waves went). All of this is in `docs/LATENCY.md`.
+* **LLM spike probe, final** (44 pairs): one request p50 1.33 s, p90 2.86 s, 8/88 over 4 s; the faster of two simultaneous requests p50 1.18 s, p90 1.94 s; in 7 of 11 slow pairs the twin was fast. **This supports R4 (send two, take the first); the owner decides.** `docs/LATENCY.md`.
+* **Running at the end of the day:** the speech server (127.0.0.1:8770) and the agent server (8781) on the laptop. The Pi's `pi_speaker` and `pi_device_mcp` have been down since a laptop suspend at 16:44; restart them (ask the owner first) before any spoken session.
+* **Model:** `gemini-3.1-flash-lite` stays. Jev Router on OpenRouter was 3x slower to the first token, picked the right tool 14/16 against 16/16, and cost 10x as much.
+
+**State at the end of 2026-10-23** (kept for the record).
 
 * **The repository** is committed and pushed; nothing of value is only on the laptop except recordings under `out/` (git-ignored). Gates at the tip: `ruff`, `ruff format --check`, `mypy` clean; `uv run --group laptop pytest -q` 597 passed, 9 skipped, 2 xfailed, 1 failed (known); `make pipeline-check pipeline-test` clean, 16 passed.
 * **Nothing is running.** The speech server, the agent server and the Pi speaker were all stopped. Start them in this order (commands in section 9): fresh speech token on both sides, the Pi speaker, the speech server, `make agent-server`, then `doc_chat`. The Pi speaker stops itself after 2 hours; the agent server must be running whenever someone speaks, or every answer fails with "Sorry, I couldn't reach the language model".
 * **What was done after the Pi work**, each with its own document: the pending tickets were reassessed for the new direction and four added (`.scratch/project2-voice-agent/DESIGN.md`, D5-D7, order at the end); an LLM choice was researched and measured (`docs/SMART-HOME-TOOL.md`: native Gemini 3.1 flash-lite with a router prompt, 50/50 on the dry run); a `smart_home` tool and a separate Pipecat project `pipeline/` (Pipecat pins `onnxruntime~=1.24`, which the speech models must not take); the agent, with a docs MCP server, in the live loop (`docs/LIVE-AGENT.md`); echo cancellation across the two devices and duck-then-stop (`docs/AEC-REMOTE-SPEAKER.md`, `LIVE-AGENT.md`, `--aec`, `--duck-db`).
-* **Best configuration so far** for the live loop: `--aec --duck-db -15` with the guard flags below. The duck is the part that stops the bot's own echo from interrupting it (0 of 14 and 0 of 16 early cut-offs against 7 of 20 with the canceller alone); the canceller is the part that keeps its words out of the transcript (0 of 7 against 5 of 8) but costs some opening words (2 of 6 garbled in each run that had it). One session per condition, 8 scripted interruptions each: direction, not rates.
+* **Best configuration so far** for the live loop: `--aec --duck-db -15` with the guard flags below. The duck is the part that stops the bot's own echo from interrupting it (0 of 14 and 0 of 16 early cut-offs against 7 of 20 with the canceller alone); the canceller is the part that keeps its words out of the transcript (0 of 7 interruption transcripts with its words in them, against about 6 of 8, counted by eye) but costs some opening words (2 of 6 garbled in each run that had it). One session per condition, 8 scripted interruptions each: direction, not rates.
 * **Known weak spots, in order of how much they hurt:** the Pi's first reply after idle arrives 0.55 s late; home commands take 3.3 s from your last word to the first sound (two LLM requests); opening words are misrecognised (one dropped "Turn off" turned the lights on); the ducked speaker dips on some quiet replies. Section 6 and 7 have the full lists and the order of work.
 * **Who builds code:** agy writes code from level-3 tickets (full code in each ticket, reference code verified by the assistant in a scratch copy first), in a bubblewrap fence that only the owner launches (`.scratch/*/agy_work/fence.sh`, section 8). Everything agy produced so far came back byte-identical to the tickets.
 
@@ -123,6 +132,10 @@ The three `agy/*` branches are a linear stack; today the merge into `main` is cl
 | `src/doc_chat/aec.py`, `agent_client.py`; `bargein.py`/`playback.py`/`speech.py` additions | `EchoCanceller` (WebRTC via LiveKit's `AudioProcessingModule`, reference = what is sent to the Pi, 50 ms lead, `--aec`); `AgentChatModel` (`--llm agent`, streams from the agent server); `Ducker`, `SileroOnset.recent_speech`, `Player/RemotePlayer.set_gain` (`--duck-db`), `MicHub(canceller=)` |
 | `pipeline/` | a separate uv project (own lock and venv) for Pipecat 1.13: `voice_pipeline.agent` (one pipeline, native Gemini), `agent_tools`, `tools/smart_home.py` (19 ME2 intents, open slots, JSON phonebook), `agent_server.py` (ws://127.0.0.1:8781), `dryrun.py` (72 prompts); `README.md` there and `docs/SMART-HOME-TOOL.md` |
 | `src/voice_agent/mcp_servers/docs.py` | the docs MCP server (fastmcp 2.14.7): `search_docs` over the McCarthy corpus |
+| `src/voice_agent/mcp_servers/web_info.py` | the weather + Wikipedia MCP server (fastmcp, stdio, keyless): `weather(place, day)`, `wiki_summary(topic)`; `docs/MCP-SERVERS.md` |
+| `scripts/pi_device_mcp.py` | the Pi's device MCP server (runs on the Pi, HTTP on 8790, session token): `get_volume`, `set_volume`, `device_status` |
+| `pipeline/src/voice_pipeline/agent_tools.py`, `latency_probe.py` | the agent's tools (`standard_servers`: docs, time, web_info, and the Pi's when reachable; `--pi-url`); the LLM spike probe (`docs/LATENCY.md`) |
+| `.scratch/latency/` | the latency safeguards, not yet landed: plan, reviewed phrases, reference code (`skeleton/`, `overlay/`), tickets 01-03, the agy fence |
 
 ### Scripts (all `uv run --group laptop python scripts/<name>.py` unless noted)
 
@@ -290,7 +303,7 @@ Earlier (2026-10-21):
 9. Real coughs and knocks: the benchmark used white noise.
 10. The early-send half of the turn-end policy (decide at a 200 ms pause) needs the speech server to let a turn be resumed; not built.
 11. Main's agent pipeline exists only in a light form: `pipeline/` has the agent core (native Gemini, `smart_home`, the docs MCP server) as a text-only Pipecat pipeline behind a WebSocket, and the live audio path is still `doc_chat`. Tickets 05, 10, 11, 12 and 28 are partly realised (`.scratch/project2-voice-agent/DESIGN.md`, progress note at the end); the real Pipecat audio pipeline with the guard as a processor is not built.
-12. **The Pi's first reply after idle arrives about 0.55 s late** (the device wakes). It adds to latency and mis-times the canceller for that reply. Idea: keep the Pi's sink awake (inaudible silence) in `pi_speaker.py`.
+12. ~~**The Pi's first reply after idle arrives about 0.55 s late** (the device wakes).~~ *Resolved 2026-10-24: the cause was a cold `scipy.signal` import on the laptop (~0.8 s), now loaded at connect; the Pi needs no keep-awake for idles up to 20 s.* It adds to latency and mis-times the canceller for that reply. Idea: keep the Pi's sink awake (inaudible silence) in `pi_speaker.py`.
 13. **The canceller costs opening words** (2 of 6 garbled in each run that had it) and the combined run's beep to stop was 1.34 s p50 (0.36-0.41 s in the other runs; includes the owner's reaction time). Cause not separated beyond the A/B. Try the canceller for the guard only with the recogniser on the raw audio and a text guard.
 14. **False ducks on quiet replies** (3 of 7 in the combined run): audible dips for 0.6 s.
 15. **Home commands cost two LLM requests** (the call at about 1 s, the confirmation at about 2 s): 3.3 s p50 from your last word to the first sound against 2.3-2.6 s before tools. An acknowledgement or a templated result at the tool call would recover most of it.
@@ -301,13 +314,13 @@ Earlier (2026-10-21):
 
 ---
 
-## 7. Next actions, in order
+## 7. Next actions, in order (updated 2026-10-24)
 
-1. **(Owner)** Decide or ask the professor: is "laptop microphone, Pi loudspeaker" acceptable (section 6, item 1)? Everything below branches on it. Choose how to land the branches (`docs/BRANCHES.md`; 68 commits ahead of `main`).
-2. **(Assistant, agy builds)** Text-level guards, a level-3 ticket with reference code first: drop leading words that match what the bot was just saying; an interruption that is only echo counts as a stop; never run a home command whose words match the bot's recent speech. They fix the duck-only failures (wrong "play" for "pause", an answered echo) without the canceller's cost. Then repeat the interruption session, duck alone and combined.
-3. **(Assistant)** Try the canceller for the guard only, the recogniser on the uncancelled audio plus the text guard, and compare the opening words (one more session).
-4. **(Assistant)** Keep the Pi's sink awake in `pi_speaker.py` (removes the 0.55 s first-reply delay and the canceller mis-alignment).
-5. **(Assistant)** Tool turns: speak an acknowledgement (or the tool's result from a template) when the tool call arrives instead of waiting for the second LLM request; a minimal system-prompt template whose routing lives in each tool's description (the owner asked for "minimal yet scalable to all tools/MCP"); exercise `--live` against the ME2 dashboard.
+1. **(Owner)** Decide or ask the professor: is "laptop microphone, Pi loudspeaker" acceptable (section 6, item 1)? Everything below branches on it. Choose how to land the branches (`docs/BRANCHES.md`; about 85 commits ahead of `main`).
+2. **(Assistant)** Review agy's latency run (`.scratch/latency/agy_work/run1.md`, `run1.done`): diff `orig` against `work`, `cmp` every file against `.scratch/latency/overlay/`, re-run the Proofs, integrate, run the gate, commit by file name. If it stopped partway, relaunch from the first unfinished ticket (they are sequential: 01 -> 02 -> 03).
+3. **(Assistant, cents)** A dry run with the fast path and `say`: routing unchanged, and `say` sentences short, true and not claiming results. Then **(both)** a spoken session with `--fillers` and the 2026-10-24 echo flags (fillers over fast answers, the guard over filler audio, the give-up).
+4. **(Owner, then assistant)** Decide R4 (the probe supports it). Then R6, the demo warm-up (touch every server and tool, network check, keep-alive), and R5 (one LLM request for tools whose answer is already a sentence, after a Gemini history test; home forecast refreshed every 10 minutes). Plan: `.scratch/latency/PLAN.md`.
+5. **(Assistant)** Delete or keep `--level-kofn-ducked` (it did not help); a minimal system prompt whose routing lives in each tool's description (the owner asked for "minimal yet scalable to all tools").
 6. **(Both)** Ticket 26 (first words of a question), 27 (end of turn on spontaneous speech, record on the laptop mic), 25 (laddered TTS, about 0.15-0.2 s).
 7. **(Both)** Repeat the spoken sessions with a second speaker, another room, and a recorded speaker distance; try 90% volume now that the canceller exists.
 8. **(Assistant)** Tickets 22 (lift `doc_chat/speech.py` into the `lan` backend of `audio_engine`) and 16 (Pi speaker deploy and preflight) are unblocked; then the real Pipecat pipeline (ticket 11) with the guard and the duck as processors, then 10, 28, 18, 19 (laptop-side playback), 20, 15 (shrunk), 17. Pipecat code stays in `pipeline/` (it cannot import the root packages without taking their dependency pins).
@@ -378,20 +391,24 @@ uv run --group laptop python scripts/eot_replay.py out/pi_bridge/eot-session.wav
 ssh -i ~/.ssh/id_ed25519_pi rpi-anavarez@169.254.230.219 'cd ~/Documents/AI-231-ME3 && LD_LIBRARY_PATH=$HOME/.local/portaudio/usr/lib/aarch64-linux-gnu LAN_SPEECH_TOKEN=$(cat ~/.config/lan_speech_token) timeout 7200 .venv/bin/python -u scripts/pi_speaker.py --device CD002 --rate 48000'
 # 2. the speech server on the cable address (see "Pi bridge" above); 3. the agent server (reads ~/.secrets/google-ai-studio/)
 make agent-server                                    # ws://127.0.0.1:8781; one row per turn in pipeline/out/agent_server/
-# 4. the live loop; best configuration so far is --aec --duck-db -15; add --cue-beep 2.5 --cue-every 1 for the interruption script
+#    Pi device tools (docs/MCP-SERVERS.md): on the Pi, LAN_SPEECH_TOKEN=$(cat ~/.config/lan_speech_token) .venv/bin/python -u scripts/pi_device_mcp.py --port 8790
+#    the agent server needs the same token: LAN_SPEECH_TOKEN=... make agent-server
+# 4. the live loop; best configuration (2026-10-24) is --aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0;
+#    add --cue-beep 2.5 --cue-every 1 for the interruption script; --fillers once the latency tickets land
 LAN_SPEECH_TOKEN=... uv run --group laptop python -W ignore -u -m doc_chat --mic --llm agent --no-docs --stream \
     --server ws://<laptop cable ip>:8770 --play-remote ws://<pi>:8780 --vad both --vad-confidence 0.5 --silero-kofn 7/10 --level-kofn 3/8 \
     --barge-echo-quantile 0.95 --barge-echo-window 60 --barge-echo-margin 1.2 --barge-echo-prior 0.8 --trace-guard \
-    --history 4 --max-words 90 --aec --duck-db -15 --record out/sessions/<name>
+    --history 4 --max-words 90 --aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0 --record out/sessions/<name>
 uv run --group laptop python scripts/cue_report.py out/sessions/<name>          # score a cue-beep session
-make agent-dryrun                                    # 72 prompts, native Gemini (costs cents); LIMIT=5 for a short one
+make agent-dryrun                                    # 87 prompts, native Gemini (costs cents); LIMIT=5 for a short one
+cd pipeline && LAN_SPEECH_TOKEN=... uv run python -m voice_pipeline.latency_probe --minutes 45 --every 60   # LLM spike probe (well under a cent)
 make pipeline-check pipeline-test                    # the Pipecat project's own gates
 # echo cancellation measurements (stay silent while the probe plays noise at the Pi's volume)
 LAN_SPEECH_TOKEN=... uv run --group laptop python scripts/echo_path_probe.py --url ws://<pi>:8780 --out out/remote_echo/probe-80
 uv run --group laptop --with livekit python scripts/aec_offline.py out/remote_echo/fresh80 --delays 300 --ppm 137 [--stt]
 # put new code on the Pi (it is not a git pull): the duck needs both files
 scp -i ~/.ssh/id_ed25519_pi src/doc_chat/playback.py rpi-anavarez@169.254.230.219:Documents/AI-231-ME3/src/doc_chat/
-scp -i ~/.ssh/id_ed25519_pi scripts/pi_speaker.py rpi-anavarez@169.254.230.219:Documents/AI-231-ME3/scripts/
+scp -i ~/.ssh/id_ed25519_pi scripts/pi_speaker.py scripts/pi_device_mcp.py rpi-anavarez@169.254.230.219:Documents/AI-231-ME3/scripts/
 
 # the gate
 uv run --group laptop ruff check src tests scripts && uv run --group laptop ruff format --check src tests scripts \

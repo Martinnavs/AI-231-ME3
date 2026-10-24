@@ -20,6 +20,8 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `LIVE-AGENT.md` | the agent (smart_home + docs MCP server) in the live voice loop: what was built, the stress dry run, the two spoken sessions (latency, tool routing, interruptions) and what broke (echo in the transcripts) |
 | `AEC-REMOTE-SPEAKER.md` | echo cancellation across two devices (laptop mic, Pi speaker): the 137 ppm clock drift, offline results on real recordings, what is not shown |
 | `SMART-HOME-TOOL.md` | the one `smart_home` tool for the 19 ME2 commands, the separate Pipecat project `pipeline/`, and the LLM choice: native Gemini 3.1 flash-lite + router prompt 50/50, first reply 0.52 s (plain) / 1.31 s (tool) |
+| `MCP-SERVERS.md` | the MCP servers; the last section is the live agent's real tools (time, weather + Wikipedia, the Pi's device server), their security and how to start them |
+| `LATENCY.md` | where an answer's time goes, the LLM spike probe, the research on fillers, and the safeguards (fast path, the tools' `say` sentence, doc_chat fillers with a give-up at 8 s): ticketed, not yet landed |
 
 ## Speech and the test client
 

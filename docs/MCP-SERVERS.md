@@ -212,3 +212,29 @@ Arguments are validated against `/api/vocab` (fetched once at startup, refreshed
 ## smart_home tool (pipeline/, not an MCP server)
 
 One Pipecat function, `smart_home(intent, slot=None)`, covers all 19 ME2 intents by posting to the dashboard's `POST /api/command`; it lives in the separate Pipecat project `pipeline/` (`voice_pipeline.tools.smart_home`). The `home` server above is unchanged. See `docs/SMART-HOME-TOOL.md`.
+
+## The agent's real tools (2026-10-24; `pipeline/`, plan `.scratch/mcp-set/PLAN.md`)
+
+These are the MCP servers the live agent (`make agent-server`) loads, wired in `pipeline/src/voice_pipeline/agent_tools.py` (`standard_servers()` returns the required and optional servers, and `build_tools()` gives the Pipecat tools). They are separate from the design above: the agent calls each tool by its plain name (`weather`, not `web_info__weather`). An optional server that can't be reached is left out with a warning, and the agent still starts. The dry run skips prompts whose tool is missing.
+
+| Server | Transport | Tools | Notes |
+|---|---|---|---|
+| `docs` (`src/voice_agent/mcp_servers/docs.py`, fastmcp 2.14.7) | stdio | `search_docs` | BM25 over the McCarthy corpus; a sample server, kept |
+| time (official `mcp-server-time==2026.10.19`, in `pipeline/pyproject.toml`) | stdio, `python -m mcp_server_time --local-timezone Asia/Manila` | `get_current_time`, `convert_time` | took TIME out of `smart_home` (the owner: the requirement is the ME2 phrases, not ME2's structure) |
+| `web_info` (`src/voice_agent/mcp_servers/web_info.py`, fastmcp 2.14.7) | stdio (root project) | `weather(place=None, day="today")` (Open-Meteo geocoding + forecast; default place `VOICE_AGENT_HOME_PLACE`, "Quezon City"); `wiki_summary(topic)` (Wikipedia search + REST summary, at most 3 sentences / 600 characters) | keyless; 4 s timeouts; errors come back as one sentence the model can say. Keeps one client for the server's life, remembers place lookups, and reuses a forecast for 10 minutes. The User-Agent must carry a contact URL, or Wikimedia answers 403. Took WEATHER out of `smart_home` |
+| `pi_device` (`scripts/pi_device_mcp.py`, `mcp` 1.30 FastMCP, **runs on the Pi**) | streamable HTTP, port 8790, `http://169.254.230.219:8790/mcp` (`--pi-url`, `''` for none) | `get_volume`, `set_volume(percent)` (clamped 0-100, `wpctl` on the CD002 sink, argument list, no shell), `device_status` (CPU temperature, uptime, load, free memory, speaker connected) | **security-sensitive:** bearer token from `LAN_SPEECH_TOKEN` (the session token, compared with `hmac`; refuses to start without one). DNS-rebinding protection stays on, with the allowed Host list built from `hostname -I` (without it, mcp 1.x accepts only localhost and the laptop gets `421 Invalid Host header`) |
+
+**Routing** is in `pipeline/config/eval/system_agent.txt`:
+- `smart_home` (17 intents now): home commands, including relative music volume.
+- time, weather and general knowledge: the real tools above.
+- The speaker volume with a number, and the Pi's status: `pi_device`.
+
+**Results** (`.scratch/mcp-set/PLAN.md`):
+- Dry run with the Pi reachable, two runs: 88/92 exact in both, device prompts 5/5.
+- Spoken check: 8/8 questions routed right, but end of speech to first sound took 3.5-10.9 s (see `docs/LATENCY.md`).
+
+**Start the Pi server** (ask the owner first; the Pi runs no model):
+```
+ssh -i ~/.ssh/id_ed25519_pi rpi-anavarez@169.254.230.219 'cd ~/Documents/AI-231-ME3 && LAN_SPEECH_TOKEN=$(cat ~/.config/lan_speech_token) timeout 7200 .venv/bin/python -u scripts/pi_device_mcp.py --port 8790'
+```
+The agent server needs the same token in its environment (`LAN_SPEECH_TOKEN=... make agent-server`).
