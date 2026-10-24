@@ -18,7 +18,9 @@ class FakeAgent:
         self.asked: list[list[dict[str, Any]]] = []
         self.cancelled = asyncio.Event()
 
-    async def ask(self, messages: list[dict[str, Any]], *, reset: bool, on_text: Any) -> dict:
+    async def ask(
+        self, messages: list[dict[str, Any]], *, reset: bool, on_text: Any, on_tool: Any = None
+    ) -> dict:
         self.asked.append(messages)
         self.record.append({"intent": "LIGHT_ON", "slot": None})
         await on_text("Lights ")

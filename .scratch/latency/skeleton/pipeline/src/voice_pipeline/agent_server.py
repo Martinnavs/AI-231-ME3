@@ -73,6 +73,10 @@ class AgentServer:
             with contextlib.suppress(ConnectionClosed):
                 await ws.send(json.dumps({"text": text}))
 
+        async def on_tool(name: str) -> None:
+            with contextlib.suppress(ConnectionClosed):
+                await ws.send(json.dumps({"event": "tool", "name": name}))
+
         async with self.lock:
             before = len(self.record)
             last = messages[-1] if messages else {}
@@ -84,7 +88,9 @@ class AgentServer:
             if found is not None and found.tool in self.tools:
                 turn = asyncio.create_task(self.fast(found, on_text))
             else:
-                turn = asyncio.create_task(self.agent.ask(messages, reset=True, on_text=on_text))
+                turn = asyncio.create_task(
+                    self.agent.ask(messages, reset=True, on_text=on_text, on_tool=on_tool)
+                )
             closed = asyncio.create_task(ws.wait_closed())
             await asyncio.wait({turn, closed}, return_when=asyncio.FIRST_COMPLETED)
             cancelled = not turn.done()
