@@ -17,6 +17,7 @@ from mcp import StdioServerParameters
 from mcp.client.session_group import StreamableHttpParameters
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.mcp_service import MCPClient
 
@@ -28,6 +29,9 @@ DOCS_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.docs"]
 WEB_INFO_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
 TIME_COMMAND = [sys.executable, "-m", "mcp_server_time", "--local-timezone", "Asia/Manila"]
 PI_URL = "http://169.254.230.219:8790/mcp"
+# Tools whose result is already a sentence to say: no second LLM request (R5; TurnTap decides).
+SPOKEN_RESULT_TOOLS = {"weather", "wiki_summary", "get_volume", "set_volume"}
+NO_SECOND_REQUEST = FunctionCallResultProperties(run_llm=False)
 SAY = {
     "type": "string",
     "description": "One short sentence said to the user the moment this call starts, saying "
@@ -72,6 +76,13 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         args = {k: v for k, v in params.arguments.items() if k != "say"}
         record.append({"tool": schema.name, "args": args})
         params.arguments = args  # the real tool never sees `say`
+        if schema.name in SPOKEN_RESULT_TOOLS:
+            deliver = params.result_callback
+
+            async def result_callback(result: Any, *, properties: Any = None) -> None:
+                await deliver(result, properties=properties or NO_SECOND_REQUEST)
+
+            params.result_callback = result_callback
         await inner(params)
 
     return FunctionSchema(

@@ -11,7 +11,7 @@ async def _call(arguments: dict[str, Any], base_url: str | None = None) -> tuple
     record: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
 
-    async def result_callback(result: dict[str, Any]) -> None:
+    async def result_callback(result: dict[str, Any], *, properties: Any = None) -> None:
         results.append(result)
 
     handler = smart_home.make_handler(base_url=base_url, record=record)

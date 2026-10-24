@@ -16,6 +16,7 @@ from typing import Any
 
 import httpx
 from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 
 PHONEBOOK = Path(__file__).resolve().parents[3] / "config" / "phonebook.json"
@@ -126,7 +127,12 @@ def make_handler(
             result = {"ok": True, "message": "recorded"}
         else:
             result = await _post(base_url, to_command(intent, slot))
-        await params.result_callback(result)
+        # a command that worked needs no second LLM request: the model's `say` is the reply
+        # (TurnTap checks that there is one)
+        await params.result_callback(
+            result,
+            properties=FunctionCallResultProperties(run_llm=False) if result.get("ok") else None,
+        )
 
     return handler
 
