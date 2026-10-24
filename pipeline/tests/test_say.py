@@ -157,3 +157,20 @@ async def test_spoken_result_tools_ask_for_no_second_request() -> None:
     params = SimpleNamespace(arguments={}, result_callback=deliver)
     await _recorded(other, []).handler(params)
     assert got[0][1] is None
+
+
+async def test_a_failure_sentence_still_goes_to_the_model() -> None:
+    got: list[Any] = []
+
+    async def inner(params: Any) -> None:
+        await params.result_callback("I couldn't find a Wikipedia article about Nobel lists.")
+
+    async def deliver(result: Any, *, properties: Any = None) -> None:
+        got.append(properties)
+
+    schema = FunctionSchema(
+        name="wiki_summary", description="w", properties={}, required=[], handler=inner
+    )
+    params = SimpleNamespace(arguments={}, result_callback=deliver)
+    await _recorded(schema, []).handler(params)
+    assert got == [None]

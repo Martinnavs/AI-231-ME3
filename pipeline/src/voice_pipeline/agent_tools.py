@@ -8,6 +8,7 @@ Pi's is optional: without a token, or when the Pi is unreachable, the agent star
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -31,6 +32,9 @@ TIME_COMMAND = [sys.executable, "-m", "mcp_server_time", "--local-timezone", "As
 PI_URL = "http://169.254.230.219:8790/mcp"
 # Tools whose result is already a sentence to say: no second LLM request (R5; TurnTap decides).
 SPOKEN_RESULT_TOOLS = {"weather", "wiki_summary", "get_volume", "set_volume"}
+# a failure sentence is not an answer: the model gets it and recovers (another topic, its own
+# knowledge), as before R5
+FAILURE = re.compile(r"couldn't find|did not answer|not connected|can't say|error", re.IGNORECASE)
 NO_SECOND_REQUEST = FunctionCallResultProperties(run_llm=False)
 SAY = {
     "type": "string",
@@ -80,7 +84,10 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             deliver = params.result_callback
 
             async def result_callback(result: Any, *, properties: Any = None) -> None:
-                await deliver(result, properties=properties or NO_SECOND_REQUEST)
+                failed = isinstance(result, str) and FAILURE.search(result) is not None
+                await deliver(
+                    result, properties=properties or (None if failed else NO_SECOND_REQUEST)
+                )
 
             params.result_callback = result_callback
         await inner(params)
