@@ -161,3 +161,16 @@ def test_mix_beep_covers_the_right_samples_even_across_two_chunks() -> None:
     assert np.array_equal(np.frombuffer(a + b, dtype=np.int16), whole)
     # a chunk that does not reach the beep is returned untouched
     assert mix_beep(quiet[:1000], 0, rate, 0.5) == quiet[:1000]
+
+
+def test_connecting_loads_the_resampler_before_the_first_reply(
+    pi: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib
+
+    loaded: list[str] = []
+    real = importlib.import_module
+    monkeypatch.setattr(importlib, "import_module", lambda name: loaded.append(name) or real(name))
+    speaker = RemoteSpeaker(f"ws://127.0.0.1:{PORT}", "secret")
+    speaker.close()
+    assert "scipy.signal" in loaded

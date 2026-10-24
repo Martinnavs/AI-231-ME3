@@ -742,3 +742,15 @@ def test_a_question_that_ends_in_stop_is_not_swallowed_after_an_interruption() -
 
     assert not _is_stop_phrase(["tell", "me", "about", "the", "bus", "stop"], after_interrupt=True)
     assert _is_stop_phrase(["the", "provided", "text", "is", "not", "stop"], after_interrupt=True)
+
+
+async def test_the_interruption_keeps_only_preroll_s_of_audio_before_the_decision() -> None:
+    s, client = session(preroll_s=0.2)
+
+    async def handle(idx: int, heard: HeardTurn) -> None:
+        await asyncio.sleep(10)
+
+    s.handle = handle  # type: ignore[method-assign]
+    client.hub.put(0.001, 0.001, 0.001, 0.001, 0.2, 0.2, 0.2, 0.2)
+    result = await asyncio.wait_for(s.respond(1, turn("break from the document")), timeout=5)
+    assert isinstance(result, Interruption) and len(result.blocks) == 2

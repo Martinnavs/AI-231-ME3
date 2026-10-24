@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import json
 import os
 import queue
@@ -171,6 +172,9 @@ class RemoteSpeaker:
         self._cm: Any = connect(url, additional_headers=headers, open_timeout=5)
         self._ws: Any = self._cm.__enter__()  # kept open for the whole session
         self.rate = int(json.loads(self._ws.recv(timeout=5))["rate"])
+        # each reply resamples with scipy.signal; loading it cold takes ~0.8 s, which the first
+        # reply of a session would otherwise wait for (.scratch/echo-next/PLAN.md, idle-gap test)
+        importlib.import_module("scipy.signal")
 
     def send(self, data: bytes | str) -> None:
         self._ws.send(data)
