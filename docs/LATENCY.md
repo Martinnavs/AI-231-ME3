@@ -1,6 +1,6 @@
 # Latency: making slow answers sound deliberate (2026-10-24)
 
-**Status:** measured and designed; the code is written and tested as reference, ticketed for agy (`.scratch/latency/tickets/01-03`), **not yet in `src/` or `pipeline/`**. Plan and decisions: `.scratch/latency/PLAN.md`; research: `.scratch/latency-research/SUMMARY.md`.
+**Status:** R2 and R3 are **landed** (agy tickets `.scratch/latency/tickets/01-03`, commits `deaa6d5`, `891f756`) and were tried once in a spoken session; **two bugs found, not yet fixed** (below). Plan and decisions: `.scratch/latency/PLAN.md`; research: `.scratch/latency-research/SUMMARY.md`.
 
 **The problem (owner, 2026-10-24):** the LLM's response time spikes, and the demo will see the same. The goal is that a slow turn sounds deliberate and a stuck one ends with a sentence. Lowering the average is only part of it.
 
@@ -72,7 +72,25 @@ The reference code was tested in a scratch copy (`.scratch/latency/overlay/`, `s
 
 The tickets are generated from real file states by `.scratch/latency/gen_tickets.py`. They were applied from their text alone by `apply_ticket.py`, every Proof was green, and the result matched the reference byte for byte.
 
-**Not yet done:**
-- A paid dry run to check that routing still holds and that the `say` sentences are good.
-- A spoken session with `--fillers` (does a filler collide with a fast answer? does the guard stay quiet over filler audio?).
-- The owner's call on R4.
+## Dry run with `say` (87 prompts, Pi absent; rows `pipeline/out/agent_dryrun/latency-say-1..4`)
+
+Before `say`: 85-88 exact. With `say`: 81 and 79, because the model called tools with no value for incomplete requests ("Set an alarm", "Message my boss"); the tool then asked the question, so the spoken answer was right but the call was wrong. A one-line prompt change (Case E gets no tool call and no `say`, `891f756`) gave 82 and 81. Still about 3-4 exact below before. Keeping `say` on is the working choice; turn it off if the spoken session shows no gain.
+
+## Spoken session 1 with `--fillers` (`out/sessions/fillers-1`, 2026-10-24, owner speaking, Pi 80%)
+
+Flags: `--aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0 --fillers`.
+
+**Worked**
+- **Give-up:** with the agent server paused, the stall line, the notice, and at 8 s the apology and silence; the loop stayed alive. Logged `gave_up`.
+- **Fast path:** "Turn the lights on" took 0.0 s on the server; "Set the volume to sixty percent" 0.23 s (2.0 s to first sound). No filler on the second.
+- **Routing:** weather, Wikipedia, docs right.
+
+**Bug 1: the `say` sentence is spoken late.** The server sends it the instant the tool call starts (1.4 s), but the client's `SentenceStream` (`src/doc_chat/chain.py`) releases a sentence only once the next one starts, so it waited for the tool result (~5.4 s). Weather: first answer audio 6.9 s after the user stopped, the `say` behind the stall and the notice. Because `say` replaces the tool event, the tool's own filler line never played either. **Fix:** send the `say` as its own event, speak it directly (synthesise and push to the player, bypassing the splitter), and always send the tool event too.
+
+**Bug 2: filler audio leaks into the transcript.** The user paused mid-question, fillers played, the user resumed, and the recogniser heard the filler's words: "...two Nobel Prizes? **Almost there. Got it.**" `--strip-echo-prefix` only removes the start of a transcript. **Fix:** the filler phrases are a fixed set, so strip any exact occurrence of them anywhere in the transcript.
+
+**Smaller:** on the first turn "Mm, one moment." played although the fast-path answer was ready at 0.4 s (audio only started 1.3 s after the transcript: a cold first turn). The stall should check whether answer text has arrived, not only whether audio has started.
+
+## Not yet done
+- The four fixes above (small, in `__main__.py`, `agent_client.py`, `agent.py`, `fillers.py`; direct or a fourth agy ticket: the owner's choice), then repeat the same spoken script.
+- R4 (the owner's call), R6 (warm-up), R5.
