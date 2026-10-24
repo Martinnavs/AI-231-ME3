@@ -17,3 +17,15 @@ Three search-only agy runs (`AGY-A-tools.md`, `AGY-B-preemptive.md`, `AGY-C-gemi
 | Vertex AI in Singapore | **Contradicted for our model:** Pipecat's `GoogleVertexLLMService` says `global` is "the only location that serves the Gemini 3 series; the regional endpoints serve the 2.5 series". agy C's 240-340 ms cited our own prompt as its source | only with a 2.5 model; unmeasured | Pipecat source |
 | Implicit caching | Dropped: minimum prefix 2,048-4,096 tokens, our prompts are far below | 0 | agy C |
 | Gemini Live API | Dropped for now: echo-sensitive server VAD, higher cost, reported 2-4 s processing tails | - | agy C |
+
+## Run D: how products hide or fake latency (2026-10-24, `AGY-D-perceived.md`)
+
+Citations checked by the assistant: Lala, Nakamura, Kawahara, "Analysis of Effect and Timing of Fillers in Natural Turn-Taking", Interspeech 2019 (ISCA archive: fillers let a system take the turn sooner without losing naturalness; an appropriate timing window exists and depends on the filler's form); Maslych et al., arXiv:2507.22352 (2025, VR virtual agents with verbal and gesture fillers: latency above 4 s degrades quality of experience; natural fillers improve perceived response time, most in high-delay conditions). Other points are as reported by agy (mostly product docs; not each re-checked):
+
+- Fillers work best early: claim the turn within roughly 200-500 ms of the user stopping (Lala 2019); ticket 12's `stall` at 700 ms is in the same range.
+- Non-speech sounds alone confirm "I heard you" but do not reduce annoyance on multi-second waits; verbal fillers do (Maslych 2025).
+- Rotation matters: Google's conversation-design guidance says to randomize acknowledgements and skip them on some turns, or the persona sounds robotic. No study found on how many variants are needed.
+- Products: Alexa's Progressive Response API (up to 5 interim messages, skill turn still limited to 8 s); Vapi `request-start` / `request-response-delayed` (after a threshold, e.g. 5 s) and `bot_say` (the model writes the acknowledgement into the tool call itself, so it costs no extra request); Retell `speak_during_execution` and backchannels; Siri's "Hold on" / "Still working"; Google's same-room chime instead of a spoken confirmation.
+- Device commands: templated confirmations or local fulfilment with no second model request (Alexa Brief Mode, Google local home SDK).
+- Failure: Alexa's 8 s limit; products apologise and offer to retry rather than go silent.
+- Targets: human turn gaps cluster at 0-200 ms (Stivers et al. 2009, English about 236 ms); over about 1 s is noticed; over 4 s degrades the experience.

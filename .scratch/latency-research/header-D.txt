@@ -1,0 +1,14 @@
+RESEARCH TASK (web search and page reading only; do not run shell commands, do not read local files, do not write files).
+
+PAGE ACCESS. You may open (read_url) pages ONLY on these domains: developer.amazon.com, developers.google.com, developer.apple.com, www.nngroup.com, research.google, www.amazon.science, aclanthology.org, dl.acm.org, arxiv.org, github.com, raw.githubusercontent.com, pypi.org, docs.livekit.io, blog.livekit.io, docs.pipecat.ai, docs.vapi.ai, docs.retellai.com, platform.openai.com, developers.openai.com, ai.google.dev, cloud.google.com, developers.googleblog.com, deepmind.google, docs.deepgram.com, developers.deepgram.com, artificialanalysis.ai, openrouter.ai, www.daily.co, docs.cartesia.ai, www.assemblyai.com, huggingface.co, www.isca-archive.org. Opening any other domain fails and ends your run with nothing, so never try. For anything else use search results only and say the evidence is a search snippet. Work efficiently: at most about 25 page reads in total.
+
+OUR SYSTEM (all you need). A Python voice assistant: laptop microphone -> local speech recognition (Parakeet, sherpa-onnx, CPU; final transcript about 0.5 s after the client detects 0.5-0.65 s of silence) -> an agent server running a Pipecat 1.13 pipeline with Gemini `gemini-3.1-flash-lite` through Pipecat's native GoogleLLMService (thinking_level minimal), streaming; tools: `smart_home(intent, slot)` for home commands and `search_docs(query)` (an MCP server, BM25 over a small corpus) for questions -> local TTS (Supertonic, about 0.25 s fixed cost per chunk) -> a speaker on a Raspberry Pi. Measured: from the end of the user's speech to the first sound, 3.2-4.9 s (median about 3.7 s); because every answer calls a tool first (search_docs or smart_home), every answer costs two LLM requests; LLM first spoken text 1.5-2.4 s after the transcript. Isolated (text only): the tool call arrives at about 0.72 s, plain replies start at about 0.52 s, tool turns at about 1.31 s. The user is in the Philippines; Google AI Studio API (no region choice).
+
+RULES.
+- Answer each question below with evidence. Every factual claim gets [source: URL, date or version] with a short VERBATIM quote, or is marked [inference], or "NOT FOUND". No invented parameter names, numbers or citations; prefer primary sources (official docs, source code, papers, vendor benchmarks with method).
+- Give numbers where they exist (milliseconds saved, rates), with their conditions.
+- Do not present our measurements back to us as findings.
+
+OUTPUT (Markdown): 1) a 6-line summary; 2) one section per question with evidence; 3) a table "technique | expected saving for us (ms) | risk | effort | evidence strength"; 4) a list of exact parameter / API names to look at, each with its source; 5) what you could not find.
+
+QUESTIONS:
