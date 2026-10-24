@@ -167,8 +167,14 @@ class BargeInGuard:
         silero: SileroOnset | None = None,
         echo: EchoModel | None = None,
         level_kofn: tuple[int, int] | None = None,
+        warmup_blocks: int = 0,
     ) -> None:
         self.mode = mode
+        # for the first warmup_blocks blocks of a reply the echo allowance uses the echo model's
+        # prior (no canceller), not what it learned from cancelled audio: the canceller leaks
+        # while it settles at the start of a reply (.scratch/echo-next/PLAN.md, E2)
+        self.warmup_blocks = warmup_blocks
+        self._played_blocks = 0
         # level_kofn=(k, n): speech once k of the last n blocks were above the bar (speech has
         # gaps between words; a net-time counter never builds up on a 30-40% duty cycle)
         self.level_kofn = level_kofn
@@ -188,6 +194,7 @@ class BargeInGuard:
         self.idle.reset()
         self.playing.reset()
         self._above.clear()
+        self._played_blocks = 0
         if self.silero is not None:
             self.silero.reset()
 
@@ -214,12 +221,18 @@ class BargeInGuard:
             return fired_idle
         use_echo = self.echo is not None and self.echo.margin > 0
         extra = self.echo.expected(played) if use_echo and self.echo and played > 0.01 else 0.0
-        fired = self.playing.feed(level, dur, extra)
+        if self._played_blocks or played > 0:
+            self._played_blocks += 1
+        guarded = extra
+        if self.echo is not None and 0 < self._played_blocks <= self.warmup_blocks:
+            guarded = max(extra, self.echo.margin * self.echo.prior * played)
+        fired = self.playing.feed(level, dur, guarded)
         bar = max(self.playing.threshold, extra)
+        guarded_bar = max(self.playing.threshold, guarded)
         if self.level_kofn is not None:
-            self._above.append(level > bar)
-            fired = level > bar and sum(self._above) >= self.level_kofn[0]
-        self.last_bar, self.last_level = bar, level
+            self._above.append(level > guarded_bar)
+            fired = level > guarded_bar and sum(self._above) >= self.level_kofn[0]
+        self.last_bar, self.last_level = guarded_bar, level
         if self.echo is not None and played > 0.01 and level <= bar:
             self.echo.learn(
                 level, played
@@ -253,6 +266,79 @@ def looks_like_echo(heard: str, spoken: str, min_words: int = 3, share: float = 
         0, len(a), 0, len(b)
     )
     return match.size >= min_words and match.size / len(a) >= share
+
+
+_TOKEN = re.compile(r"[A-Za-z0-9']+")
+_STOP_AT = {"stop", "wait", "pause"}
+_LEADING_STOP = re.compile(r"^\W*(?:(?:stop|wait|hold on|hang on)\b\W*)+", re.IGNORECASE)
+
+
+def _similar(a: str, b: str) -> bool:
+    """The same word, or a misheard one ("mccartney" for "mccarthy"): 4+ letters, 75% alike."""
+    if a == b:
+        return True
+    return min(len(a), len(b)) >= 4 and difflib.SequenceMatcher(None, a, b).ratio() >= 0.75
+
+
+def _reply_words(spoken: str) -> list[str]:
+    return [w.lower().strip("'") for w in _TOKEN.findall(spoken.replace("-", " "))]
+
+
+def is_all_echo(heard: str, spoken: str, min_run: int = 3, share: float = 0.6) -> bool:
+    """The whole transcript is a run of the assistant's words, misheard words allowed.
+
+    `looks_like_echo` needs exact words and 80%; the recogniser mishears the echo ("Novel
+    published in 2007." for "novel published in 2006"), so this allows near words and 60%: an
+    in-order run of at least ``min_run`` near words that is at least ``share`` of what was heard.
+    """
+    a = [w.lower().strip("'") for w in _TOKEN.findall(heard)]
+    b = _reply_words(spoken)
+    if len(a) < min_run or not b:
+        return False
+    best = 0
+    prev = [0] * (len(b) + 1)
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        for j in range(1, len(b) + 1):
+            if _similar(a[i - 1], b[j - 1]):
+                cur[j] = prev[j - 1] + 1
+                best = max(best, cur[j])
+        prev = cur
+    return best >= min_run and best / len(a) >= share
+
+
+def strip_echo_prefix(heard: str, spoken: str, max_prefix: int = 8) -> str:
+    """'2005 border. Stop. Set a timer.' -> 'Set a timer.' when '2005 border' is the assistant's.
+
+    After a barge-in the recogniser gets the pre-roll, so the assistant's last words often come
+    before the user's "stop". If at most ``max_prefix`` words come before the first stop word
+    ("stop", "wait", "pause", "hold on", "hang on") and one of them (3+ letters) is near a word
+    of the reply, they are dropped, and so are the stop words when at least two words remain.
+    Otherwise the text comes back unchanged.
+    """
+    words = list(_TOKEN.finditer(heard))
+    k = next(
+        (
+            i
+            for i, m in enumerate(words)
+            if m.group().lower() in _STOP_AT
+            or (
+                m.group().lower() in ("hold", "hang")
+                and i + 1 < len(words)
+                and words[i + 1].group().lower() == "on"
+            )
+        ),
+        0,
+    )
+    if k == 0 or k > max_prefix:
+        return heard
+    reply = set(_reply_words(spoken))
+    content = [m.group().lower() for m in words[:k] if len(m.group()) >= 3]
+    if not any(_similar(w, r) for w in content for r in reply):
+        return heard
+    rest = heard[words[k].start() :]
+    after = _LEADING_STOP.sub("", rest)
+    return after[0].upper() + after[1:] if len(after.split()) >= 2 else rest
 
 
 class SileroOnset:

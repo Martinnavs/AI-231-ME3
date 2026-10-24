@@ -7,8 +7,10 @@ through `process`. Measured offline in docs/AEC-REMOTE-SPEAKER.md: the two sound
 137 ppm, which the canceller tracks by itself.
 
 Both streams are fed in 10 ms frames in lockstep, as the canceller expects. The first slice of a
-reply starts `lead_ms` of reference ahead. 50 ms was the best of 0-300 ms on a real recording
-(docs/AEC-REMOTE-SPEAKER.md): more makes the canceller worse as the path delay grows.
+reply can start `lead_ms` of reference ahead; the default is none. AEC3 resets its render buffer
+when the reference stays more than 32 ms ahead of the microphone for a second, and it finds
+render-to-echo delays only up to about 0.5 s, so any lead uses up that range
+(.scratch/echo-next/PLAN.md, E1: lead 0 left the least echo 1-2 s into a clip).
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ SILENCE = bytes(FRAME_BYTES)
 class EchoCanceller:
     """Remove the reference (what was sent to the speaker) from the microphone."""
 
-    def __init__(self, lead_ms: int = 50) -> None:
+    def __init__(self, lead_ms: int = 0) -> None:
         self._apm = rtc.AudioProcessingModule(echo_cancellation=True)
         self._apm.set_stream_delay_ms(lead_ms)
         self._lead = lead_ms // 10
