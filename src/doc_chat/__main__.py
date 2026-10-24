@@ -36,7 +36,7 @@ from doc_chat.chain import (
 )
 from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
-from doc_chat.fillers import Fillers, TurnFillers
+from doc_chat.fillers import Fillers, TurnFillers, strip_fillers
 from doc_chat.speech import (
     STITCH_GAP_S,
     DocChatSpeechClient,
@@ -375,13 +375,19 @@ class Session:
 
     def on_agent_event(self, event: dict[str, Any]) -> None:
         """A message from the agent server (any thread): a tool call may play its filler."""
-        if self._loop is not None and event.get("event") == "tool":
-            self._loop.call_soon_threadsafe(self._tool_filler, str(event.get("name", "")))
+        if self._loop is None:
+            return
+        if event.get("event") == "tool":
+            self._loop.call_soon_threadsafe(
+                self._tool_filler, str(event.get("name", "")), bool(event.get("said"))
+            )
+        elif event.get("event") == "text" and self._turn_fillers is not None:
+            self._loop.call_soon_threadsafe(self._turn_fillers.text_arrived)
 
-    def _tool_filler(self, name: str) -> None:
+    def _tool_filler(self, name: str, said: bool = False) -> None:
         turn = self._turn_fillers
         if turn is not None and self._answer_started is None:
-            kind = turn.tool(name)
+            kind = turn.tool(name, said)
             if kind is not None:
                 self._play_filler(kind)
 
@@ -469,6 +475,10 @@ class Session:
     async def handle(self, idx: int, heard: HeardTurn) -> None:
         """What to do with a heard turn: answer it, or ask something first."""
         text = heard.text.strip()
+        if self.fillers is not None and (clean := strip_fillers(text, self.fillers.lines())):
+            if clean != text:
+                print(f"      (a filler line dropped: {clean!r})", flush=True)
+            text = clean
         if self.pending is not None:
             pending, self.pending = self.pending, None
             reply = parse_yes_no(text) if pending.kind == "confirm" else None

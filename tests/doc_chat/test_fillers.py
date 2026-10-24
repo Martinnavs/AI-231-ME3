@@ -70,3 +70,28 @@ def test_the_reviewed_phrase_file_loads() -> None:
     assert len(f.sets["tool:weather"]) == 7 and len(f.sets["default"]) == 7
     for name in ("smart_home", "get_current_time", "wiki_summary", "set_volume", "device_status"):
         assert len(f.sets[f"tool:{name}"]) == 7, name
+
+
+def test_filler_lines_are_stripped_from_anywhere_in_a_transcript() -> None:
+    from doc_chat.fillers import strip_fillers
+
+    lines = ["Almost there.", "Got it.", "Mm, one moment."]
+    assert strip_fillers("two Nobel Prizes? Almost there. Got it.", lines) == "two Nobel Prizes?"
+    assert (
+        strip_fillers("Who won? mm, one moment and then", lines)
+        == "Who won? mm, one moment and then"
+    )
+    assert strip_fillers("what is a got itself", lines) == "what is a got itself"
+    assert strip_fillers("Almost there.", lines) == ""
+
+
+def test_a_said_tool_or_arrived_text_skips_the_stall() -> None:
+    from doc_chat.fillers import Fillers, TurnFillers
+
+    f = Fillers({"stall": ["s"], "notice": ["n"], "giveup": ["g"], "default": ["d"], "tools": {}})
+    turn = TurnFillers(f)
+    assert turn.tool("weather", said=True) is None and turn.due(1.5) is None
+    assert turn.due(2.6) == "notice"
+    turn = TurnFillers(f)
+    turn.text_arrived()
+    assert turn.due(1.5) is None

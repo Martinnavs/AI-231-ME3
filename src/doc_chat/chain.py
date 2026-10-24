@@ -264,6 +264,20 @@ def build_answer_chain(
     return RunnableLambda(_answer_fn)
 
 
+FLUSH = "\x1f"  # in a reply: the sentence before it is finished, speak it now (agent `say` lines)
+
+
+def _sentences(visible: str, final: bool) -> list[str]:
+    """Sentences of the reply so far; the last, still-growing one is left out unless `final`
+    or it ends at a FLUSH mark."""
+    parts = visible.split(FLUSH)
+    out: list[str] = []
+    for part in parts[:-1]:
+        out += split_sentences(part)
+    last = split_sentences(parts[-1])
+    return out + (last if final else last[:-1])
+
+
 class SentenceStream:
     """Qwen's reply as it arrives, one finished sentence at a time.
 
@@ -318,7 +332,7 @@ class SentenceStream:
                 if piece and self.first_token_ms is None:
                     self.first_token_ms = (time.perf_counter() - t0) * 1000.0
                 raw += piece
-                ready = split_sentences(_visible_so_far(raw))[:-1]
+                ready = _sentences(_visible_so_far(raw), final=False)
                 for sentence in ready[consumed:]:
                     consumed += 1
                     out = self._take(strip_markdown(sentence), words)
@@ -333,7 +347,7 @@ class SentenceStream:
                 if stopped:
                     break
             if not stopped:
-                for sentence in split_sentences(_visible_so_far(raw))[consumed:]:
+                for sentence in _sentences(_visible_so_far(raw), final=True)[consumed:]:
                     out = self._take(strip_markdown(sentence), words)
                     if out is None:
                         break

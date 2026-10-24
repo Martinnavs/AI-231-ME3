@@ -59,3 +59,22 @@ def test_server_error_raises(agent: tuple[FakeAgent, str]) -> None:
     _, url = agent
     with pytest.raises(RuntimeError, match="boom"):
         list(AgentChatModel(url=url).stream([HumanMessage("x")]))
+
+
+@pytest.mark.parametrize(
+    "agent",
+    [[{"text": "Checking. ", "flush": True}, {"text": "It is 20."}, {"done": True}]],
+    indirect=True,
+)
+def test_flush_marks_the_sentence_and_the_first_text_is_an_event(
+    agent: tuple[FakeAgent, str],
+) -> None:
+    from doc_chat.chain import FLUSH
+
+    _, url = agent
+    events: list[dict[str, Any]] = []
+    model = AgentChatModel(url=url, on_event=events.append)
+    chunks = [c.content for c in model.stream([HumanMessage("q")]) if c.content]
+    assert chunks == ["Checking. " + FLUSH, "It is 20."]
+    assert events == [{"event": "text"}]
+    assert model.invoke([HumanMessage("q")]).content == "Checking. It is 20."

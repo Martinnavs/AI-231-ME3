@@ -36,30 +36,46 @@ def _frame(name: str, args: dict[str, Any]) -> FunctionCallsStartedFrame:
     return FunctionCallsStartedFrame(function_calls=[call])
 
 
-async def test_the_model_s_say_is_spoken_at_the_call() -> None:
+async def test_the_model_s_say_is_its_own_event_and_the_tool_is_always_reported() -> None:
     texts: list[str] = []
-    tools: list[str] = []
+    says: list[str] = []
+    tools: list[tuple[str, bool]] = []
 
     async def on_text(t: str) -> None:
         texts.append(t)
 
-    async def on_tool(n: str) -> None:
-        tools.append(n)
+    async def on_say(t: str) -> None:
+        says.append(t)
+
+    async def on_tool(n: str, said: bool) -> None:
+        tools.append((n, said))
 
     tap = TurnTap()
-    tap.begin(on_text, on_tool)
+    tap.begin(on_text, on_tool, on_say)
     await tap._announce(_frame("weather", {"say": "Checking the weather."}))
-    assert texts == ["Checking the weather. "] and tools == []
+    assert says == ["Checking the weather. "] and texts == [] and tools == [("weather", True)]
     assert tap.first_text is not None
 
 
-async def test_without_say_the_client_is_told_which_tool_runs() -> None:
-    tools: list[str] = []
+async def test_without_a_say_callback_the_sentence_goes_out_as_text() -> None:
+    texts: list[str] = []
 
-    async def on_tool(n: str) -> None:
-        tools.append(n)
+    async def on_text(t: str) -> None:
+        texts.append(t)
+
+    tap = TurnTap()
+    tap.begin(on_text)
+    await tap._announce(_frame("weather", {"say": "Checking the weather."}))
+    assert texts == ["Checking the weather. "]
+
+
+async def test_without_say_the_client_is_told_which_tool_runs() -> None:
+    tools: list[tuple[str, bool]] = []
+
+    async def on_tool(n: str, said: bool) -> None:
+        tools.append((n, said))
 
     tap = TurnTap()
     tap.begin(None, on_tool)
     await tap._announce(_frame("weather", {"place": "Baguio"}))
-    assert tools == ["weather"]
+    assert tools == [("weather", False)]

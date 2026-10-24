@@ -73,9 +73,14 @@ class AgentServer:
             with contextlib.suppress(ConnectionClosed):
                 await ws.send(json.dumps({"text": text}))
 
-        async def on_tool(name: str) -> None:
+        async def on_say(text: str) -> None:
+            # its own flagged message: the client speaks it now instead of holding it back
             with contextlib.suppress(ConnectionClosed):
-                await ws.send(json.dumps({"event": "tool", "name": name}))
+                await ws.send(json.dumps({"text": text, "flush": True}))
+
+        async def on_tool(name: str, said: bool) -> None:
+            with contextlib.suppress(ConnectionClosed):
+                await ws.send(json.dumps({"event": "tool", "name": name, "said": said}))
 
         async with self.lock:
             before = len(self.record)
@@ -89,7 +94,9 @@ class AgentServer:
                 turn = asyncio.create_task(self.fast(found, on_text))
             else:
                 turn = asyncio.create_task(
-                    self.agent.ask(messages, reset=True, on_text=on_text, on_tool=on_tool)
+                    self.agent.ask(
+                        messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say
+                    )
                 )
             closed = asyncio.create_task(ws.wait_closed())
             await asyncio.wait({turn, closed}, return_when=asyncio.FIRST_COMPLETED)

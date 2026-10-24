@@ -7,7 +7,10 @@ is done (the listener interrupted) tells the server to cancel it.
 Protocol, one request per WebSocket connection:
   client -> {"messages": [{"role": "system"|"user"|"assistant", "content": str}, ...]}
   server -> {"text": str} ... then {"done": true}, or {"error": str}; and
-            {"event": "tool", "name": str} when a tool is called (for a filler)
+            {"event": "tool", "name": str, "said": bool} whenever a tool is called (for a
+            filler; "said" = the model's own sentence for the call was already sent);
+            {"text": str, "flush": true} is a sentence to speak now, not held back for the next;
+            {"event": "text"} once, when the first text of the reply arrives
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from websockets.sync.client import connect
+
+from doc_chat.chain import FLUSH
 
 DEFAULT_URL = "ws://127.0.0.1:8781"
 _ROLES = {"system": "system", "human": "user", "ai": "assistant"}
@@ -52,6 +57,7 @@ class AgentChatModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         text = "".join(str(chunk.message.content) for chunk in self._stream(messages))
+        text = text.replace(FLUSH, "")
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
 
     def _stream(
@@ -63,10 +69,15 @@ class AgentChatModel(BaseChatModel):
     ) -> Iterator[ChatGenerationChunk]:
         with connect(self.url, open_timeout=self.timeout) as ws:
             ws.send(json.dumps({"messages": to_wire(messages)}))
+            first = True
             while True:
                 event = json.loads(ws.recv(timeout=self.timeout))
                 if "text" in event:
-                    yield ChatGenerationChunk(message=AIMessageChunk(content=event["text"]))
+                    if first and self.on_event is not None:
+                        self.on_event({"event": "text"})
+                    first = False
+                    text = event["text"] + (FLUSH if event.get("flush") else "")
+                    yield ChatGenerationChunk(message=AIMessageChunk(content=text))
                 elif "event" in event:
                     if self.on_event is not None:
                         self.on_event(event)
