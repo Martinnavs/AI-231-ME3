@@ -777,6 +777,7 @@ class Session:
             echo=echo,
             level_kofn=_kofn(getattr(self.args, "level_kofn", None)),
             warmup_blocks=round(float(getattr(self.args, "barge_warmup_s", 0.0)) * 10),
+            ducked_k=getattr(self.args, "level_kofn_ducked", None),
         )
 
         trace = self._guard_trace
@@ -789,6 +790,7 @@ class Session:
             level_of = getattr(self._player, "level_recent", None)
             played = float(level_of()) if level_of is not None else 0.0
             answering = self._answer_started is not None
+            guard.ducked = ducker is not None and ducker.ducked
             fired = guard.feed(block, played, answering=answering)
             set_gain = getattr(self._player, "set_gain", None)
             if ducker is not None and silero is not None and answering and set_gain is not None:
@@ -1210,6 +1212,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="K/N",
         help="with --vad both: loudness counts when K of the last N 100 ms blocks are above the "
         "echo allowance, instead of a net 0.3 s (measured laptop mic + Pi speaker: 3/8)",
+    )
+    parser.add_argument(
+        "--level-kofn-ducked",
+        type=int,
+        default=None,
+        metavar="K",
+        help="with --level-kofn and --duck-db: while the speaker is ducked, K blocks above the "
+        "echo allowance are enough (try 2: a bare 'stop' gives only one or two loud blocks)",
     )
     parser.add_argument(
         "--echo-text-guard",

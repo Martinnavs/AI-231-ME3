@@ -168,8 +168,14 @@ class BargeInGuard:
         echo: EchoModel | None = None,
         level_kofn: tuple[int, int] | None = None,
         warmup_blocks: int = 0,
+        ducked_k: int | None = None,
     ) -> None:
         self.mode = mode
+        # with level_kofn: while the speaker is ducked (set `ducked` before `feed`), ducked_k
+        # blocks above the bar are enough: the echo is 15 dB down, and a bare "stop" gives only
+        # one or two loud blocks (.scratch/echo-next/PLAN.md, live session 1)
+        self.ducked_k = ducked_k
+        self.ducked = False
         # for the first warmup_blocks blocks of a reply the echo allowance uses the echo model's
         # prior (no canceller), not what it learned from cancelled audio: the canceller leaks
         # while it settles at the start of a reply (.scratch/echo-next/PLAN.md, E2)
@@ -231,7 +237,8 @@ class BargeInGuard:
         guarded_bar = max(self.playing.threshold, guarded)
         if self.level_kofn is not None:
             self._above.append(level > guarded_bar)
-            fired = level > guarded_bar and sum(self._above) >= self.level_kofn[0]
+            k = self.ducked_k if self.ducked and self.ducked_k else self.level_kofn[0]
+            fired = level > guarded_bar and sum(self._above) >= k
         self.last_bar, self.last_level = guarded_bar, level
         if self.echo is not None and played > 0.01 and level <= bar:
             self.echo.learn(
