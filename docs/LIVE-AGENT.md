@@ -2,6 +2,8 @@
 
 **Bottom line.** `doc_chat --llm agent` runs the live loop (laptop mic, echo guard, Pi speaker at 80%) with a Pipecat agent behind it: native Gemini 3.1 flash-lite, the `smart_home` tool (open slots, JSON phonebook for CALL and MESSAGE) and a docs MCP server (fastmcp) for the McCarthy corpus. Tool routing was right on every quiet turn, judged against what the recogniser heard, and pivots after an interruption were acted on correctly (6 of 6). Two things are not good enough yet: **latency** (home commands 3.3 s from your last word to the first answer sound, against 2.3-2.6 s before tools) and **echo** (the Pi speaker's voice reaches the transcript ahead of your words, which broke plain "Stop." and made the assistant act on its own voice once). The cross-device echo canceller in `docs/AEC-REMOTE-SPEAKER.md` is the proposed fix. One speaker, one room, one session each; small counts.
 
+**Update 2026-10-24.** The echo is fixed for the scripted interruptions: 0/30 early cut-offs, 0/12 echo transcripts and 0 wrong actions with `--aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0`. A bare one-word "Stop." is still missed, and the owner decided it is not required. The agent now has real MCP tools (8/8 routed right in a spoken check). Latency is the open problem (`docs/LATENCY.md`). Details are in the two 2026-10-24 sections at the end.
+
 ```mermaid
 flowchart LR
     MIC["doc_chat (root): laptop mic, STT, echo guard, stop/pivot rules, TTS"] -- "conversation, no retrieval" --> S["agent server (pipeline/): one Pipecat pipeline, native Gemini"]
@@ -76,7 +78,7 @@ The code is `src/doc_chat/aec.py` (WebRTC canceller, reference = what is sent to
 | 7 | Stop. When did he die? | "When did it die?" | correct answer, no spurious `STOP` | correct plus a spurious `STOP` |
 | 8 | Stop. Pause the music. | "Pause the music." | paused, no spurious `STOP` | paused plus a spurious `STOP` |
 
-**What improved:** no transcript began with the bot's own words (0 of 7; session 2 had them in 5 of 8); 0 spurious `STOP` commands (3 before); no action on its own voice (1 before); no turn needed the text guard (0 ignored-echo records, 1 before); a bare "Stop!" was heard cleanly once.
+**What improved:** no transcript began with the bot's own words (0 of 7; in session 2 six of the eight interruption transcripts had them, counted by eye); 0 spurious `STOP` commands (3 before); no action on its own voice (1 before); no turn needed the text guard (0 ignored-echo records, 1 before); a bare "Stop!" was heard cleanly once.
 
 **What got worse or is unproven:**
 - 5 of 8 scripted interruptions ended in the right action (session 2: 6 of 8, but 5 of those with side effects). Two were **garbled at the start** ("Stop. What year..." became "Come on. Want you what..."): the canceller's suppression is hardest on the first words of a voice over a playing reply, which is also where the duck acts. This session cannot separate the canceller from the duck.
@@ -96,22 +98,60 @@ Two more runs of the same 8 scripted interruptions, speaker in front, 80%: `--ae
 |---|---|---|---|---|
 | Replies cut off before the beep by the bot's own voice | 1 | **7 of 20** | **0 of 14** | **0 of 16** |
 | Beep to stop p50 | 0.41 s | 0.36 s (n=4) | 0.39 s (n=12) | 1.34 s (n=9) |
-| Transcripts starting with its own words | 5 of 8 | about 2 | 5 of 8 | **0 of 7** |
+| Interruption transcripts with its own words in them (counted by eye) | 6 of 8 | about 4 of 8 | 4 of 8 | **0 of 7** |
 | Junk turns (its own words answered) | about 4 | 6 | 1 answered, 2 ignored by the text guard | 1 |
-| Wrong or spurious actions | 3 `STOP`, a second timer | 1 `STOP`, 1 contact lookup | 1 (played music instead of pausing) | 0 |
+| Wrong or spurious actions (counted from the agent server's log of tool calls) | 3 `STOP`, a second timer | 1 `STOP`, 1 contact lookup | 2 `STOP` (each with `PLAY_MUSIC`, both transcripts had echo words in front of "Stop") | 0 |
 | Opening words garbled or lost | 0 of 6 | 2 of 6 | 1 of 6, 1 lost | 2 of 6 |
 | Scripted interruptions ending right | 6 of 8 | 3-4 of 8 | 6 of 8 | 5 of 8 |
 
 - **Cancelling works as an echo canceller**: the microphone level during replies fell from -29.3 dBFS (session 2) to -43.7 (arm 1), almost the room floor (-44), and the echo-to-played ratio from 0.33 to 0.07 at the median. It did **not** stop the guard firing on residual bursts in the first 0.4-1.2 s of a reply: 7 of 20 replies were cut off with no voice and no beep (high level, Silero confidence 0.7-0.9).
 - **The duck is what stops those**: the guard needs about 0.22 s of speech to fire, the duck acts after two windows and turns the Pi down 15 dB, which removes the bot's own echo before the guard completes; a real voice is not removed, so the guard still fires. With the duck there were no early fires, with or without cancelling, and the stop stayed fast (0.39 s).
-- **The canceller is what cleans the transcript**; without it the echo is in the text as in session 2 (5 of 8 started with the bot's words), and arm 2's one wrong action ("Stop. Pause the music." heard as "Second novel Stop, Play S...", so it played music) came from that.
+- **The canceller is what cleans the transcript**; without it the echo is in the text as in session 2 (six of eight carried the bot's words), and arm 2's two spurious `STOP` commands ("Album published in twenty five Stop, Play Some Music." and "Second novel Stop, Play Some Music.", the second being my "Stop. Pause the music." heard with echo words in front and "Pause" lost) came from that: the leading-"Stop" stripper only works when "Stop" is the first word of the transcript.
 - **The canceller also costs the opening words** (2 of 6 garbled in each run that had it, 0-1 of 6 without), and the slow stop in session 3 (1.34 s) appeared only in the run with both (it includes the owner's reaction time).
 
 **Next:** (1) text-level guards (drop leading words that match what the bot was just saying; an interruption that is only echo counts as a stop; never run a home command whose words match the bot's recent speech), which would fix arm 2's failures without the canceller's cost; (2) try the canceller for the guard only and give the recogniser the uncancelled audio, then compare the opening words; (3) keep the duck on.
 
+## 2026-10-24: the echo fixes, live (`out/sessions/echo-next-live-1`, `-2`)
+
+These come from the offline evaluation in `.scratch/echo-next/PLAN.md` (sections 3 and 6):
+
+| Fix | Flag | Default |
+|---|---|---|
+| "pause" no longer counts as a stop word (it turned "Stop. Pause the music." into "The music.") | - | on |
+| Canceller lead 0 (was 50 ms) | - | on |
+| Pre-roll 0.8 s (was a fixed 1.2 s; transcripts with echo words in front: 9 -> 1 of 43 offline) | `--preroll-s` | 0.8 |
+| `scipy.signal` loaded at connect: the first reply of every session no longer starts ~0.8 s late (the late first reply was a cold import, not the Pi waking) | - | on |
+| Drop leading words that repeat what the bot just said | `--strip-echo-prefix` | off |
+| For the first second of each reply, the guard's bar uses the prior coupling | `--barge-warmup-s` | off |
+
+Agy wrote them from level-3 tickets, byte-identical to the reference.
+
+**Two sessions** were run with `--aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0`. Pi at 80%, speaker in front, the same 8 scripted interruptions; session 2 added `--level-kofn-ducked 2`. Across both:
+- **0/30 replies cut off early.**
+- **0/12 interruption transcripts with the assistant's words in them.**
+- 0 spurious `STOP`, and every home action right (from the agent's tool log).
+- 6/8 and 5/8 scripted interruptions right.
+
+What still failed:
+- **A bare one-word "Stop." was missed 4/4 times**: Silero peaked at 0.66-0.80 and never held 7 of 10 windows.
+- `--level-kofn-ducked` did not help. It is kept but off, and is a candidate for deletion.
+
+**Decision (owner, 2026-10-24):** a bare one-word "Stop." over a reply is not required. A stop word plus more words counts as the interruption.
+
+**The configuration to use** is `--aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0`; pre-roll 0.8 and lead 0 are the defaults.
+
+## 2026-10-24: real MCP tools, spoken check (`out/sessions/mcp-spoken-1`)
+
+The agent now has the official time server, our `web_info` (weather, Wikipedia) and the Pi's `pi_device` server (`docs/MCP-SERVERS.md`, "The agent's real tools"). One session, one question per tool:
+- **8/8 routed to the right tool with the right arguments, and every answer was right.**
+- A mid-reply correction worked: "set it to seventy percent", spoken over the reply, stopped it and called `set_volume 70`. It was the owner's own correction, not echo.
+- **Slow: 3.5-10.9 s from end of speech to first sound.** The LLM's first response alone took 0.7-7.7 s. This started the latency work in `docs/LATENCY.md`.
+
 ## What comes next
 
-1. ~~Cross-device echo cancellation (`--aec`) and duck-then-stop (`--duck-db`)~~: built and tried in session 3 above; the A/B to separate their effects on the first words is next.
-3. Text-level guards: drop leading words that match what the bot was just saying; an interruption that is only echo counts as a stop; never run a home command whose words match the bot's recent speech.
-4. For latency: speak an acknowledgement (or the tool's result from a template) when the tool call arrives, instead of waiting for the second request; roughly 3.3 s to 2.3 s on home commands.
-5. Ticket 26 (first words), because a dropped "Turn off" now means a wrong action.
+1. Land the latency tickets (`docs/LATENCY.md`): fast path, the tools' `say` sentence, and doc_chat fillers. Then a dry run and a spoken session with `--fillers`.
+2. Then the demo warm-up (R6) and one LLM request for tools with sayable answers (R5).
+3. Ticket 26 (first words), because a dropped "Turn off" means a wrong action.
+4. Untested lead: the canceller's suppression may be what softens a lone "stop" (it was heard in the duck-only A/B session). Not needed after the owner's decision.
+
+*Correction, 2026-10-24: the first version of the A/B table counted one wrong action for arm 2; the agent server's tool-call log shows two spurious `STOP` commands (and, in session 3, none). Counts of commands in this document come from that log.*
