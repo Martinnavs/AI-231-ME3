@@ -101,3 +101,18 @@ async def test_requests_without_the_token_are_refused() -> None:
         assert bad.status_code == 401
         good = await client.get("/mcp", headers={"Authorization": "Bearer secret"})
         assert good.status_code == 200
+
+
+def test_allowed_hosts_are_the_pi_s_own_addresses() -> None:
+    from pi_device_mcp import allowed_hosts
+
+    hosts = allowed_hosts("169.254.230.219 192.168.1.34 2001:4454::cd0b\n")
+    assert hosts[:3] == ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    assert hosts[3:] == ["169.254.230.219:*", "192.168.1.34:*", "[2001:4454::cd0b]:*"]
+
+
+def test_the_server_keeps_the_dns_rebinding_check_with_those_hosts() -> None:
+    server = build_server(run=lambda c: "", read=lambda p: "", hosts=["169.254.230.219:*"])
+    security = server.settings.transport_security
+    assert security is not None and security.enable_dns_rebinding_protection
+    assert security.allowed_hosts == ["169.254.230.219:*"]

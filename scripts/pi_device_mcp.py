@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 SINK = "CD002"  # a substring of the speaker sink's name in `wpctl status`
 SINK_LINE = re.compile(r"(\d+)\.\s+([^\[\n]+?)\s+\[vol:\s*([\d.]+)")
@@ -53,9 +54,25 @@ def find_sink(status: str, name: str = SINK) -> tuple[str, float] | None:
     return None
 
 
-def build_server(run: Run = run_command, read: Read = read_file, sink: str = SINK) -> FastMCP:
+def allowed_hosts(addresses: str) -> list[str]:
+    """Host headers to accept, from `hostname -I`: the Pi's own addresses, any port.
+
+    The SDK's DNS-rebinding check otherwise accepts only localhost, so the agent reaching the Pi
+    by its address got 421 "Invalid Host header". The check stays on; it just knows the Pi."""
+    hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    return hosts + [f"[{a}]:*" if ":" in a else f"{a}:*" for a in addresses.split()]
+
+
+def build_server(
+    run: Run = run_command, read: Read = read_file, sink: str = SINK, hosts: list[str] | None = None
+) -> FastMCP:
     """A FastMCP server with the three tools; `run` and `read` are replaced in tests."""
-    server = FastMCP("pi_device")
+    security = (
+        TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=hosts)
+        if hosts
+        else None
+    )
+    server = FastMCP("pi_device", transport_security=security)
 
     @server.tool(description="The speaker's volume on the Raspberry Pi, in percent.")
     def get_volume() -> str:
@@ -127,7 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not token:
         print("LAN_SPEECH_TOKEN is not set; refusing to serve device tools without a token")
         return 2
-    server = build_server(sink=args.sink)
+    server = build_server(sink=args.sink, hosts=allowed_hosts(run_command(["hostname", "-I"])))
     server.settings.stateless_http = True
     app = BearerAuth(server.streamable_http_app(), token)
     print(f"device tools on {args.host}:{args.port}/mcp", flush=True)

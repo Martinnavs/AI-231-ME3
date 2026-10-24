@@ -46,3 +46,10 @@
 - Dry run on the reference (Gemini, 87 turns, Pi tools absent so the 5 device prompts were skipped): **85/87 exact**; time 3/3, weather 3/3, knowledge 3/3, mixed 4/4, all older kinds unchanged except the known "I'm cold" guess (a01) and one extra wiki_summary next to a correct search_docs answer (d08). No leaks.
 - Weather was slow (tool call at 0.6-1.0 s, first text 3.7-5.2 s): Open-Meteo is in Germany (~270 ms RTT) and each request opened a new TLS connection. Ticket 05: repeat question 5 ms, new place on a warm connection 0.55 s; the first weather question of a session is still cold (~3 s): warming at start-up is a possible later change.
 - Ticket 05 added after the plan was confirmed (a measured problem in its own scope); recorded here.
+
+## Ticket 04 (2026-10-24, owner's go)
+
+- `scripts/pi_device_mcp.py` copied to the Pi (checksums match) and started with the session token; `pi_speaker` restarted.
+- **Found on the Pi:** the agent's client got `421 Invalid Host header`. The `mcp` 1.x SDK turns on DNS-rebinding protection for a FastMCP built with the default host and accepts only localhost Host headers; the laptop test had used 127.0.0.1. Fix (written by the assistant directly, owner's choice for a ~10-line change): `allowed_hosts()` builds the allow-list from `hostname -I` (the Pi's own addresses, any port) and the check stays on. Verified on the Pi: the agent's client lists get_volume, set_volume, device_status; a wrong token gets 401; a foreign Host header still gets 421.
+- Dry run with the Pi reachable, two independent runs (`pipeline/out/agent_dryrun/mcp-live-pi`, `mcp-pi-1`): **88/92 exact in both, device 5/5 in both**, no leaks. Misses: a01 "I'm cold" (known), b05 "Call Gary" (the tool refused it correctly; the scorer counts the attempt), d08 (extra wiki_summary next to a correct search_docs answer), and one different flaky miss per run (p07 LIST_REMINDERS called four times; c16 a CALL with no name). The two volume prompts left the Pi at 20%; restored to 80%.
+- Next: the spoken check (owner speaking), one question per tool.
