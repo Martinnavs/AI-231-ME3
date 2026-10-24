@@ -1,0 +1,72 @@
+"""fillers: rotation, timing per turn, and the reviewed phrase file."""
+
+import asyncio
+
+from doc_chat.fillers import Fillers, TurnFillers
+
+CONFIG = {
+    "timing": {"stall_s": 0.5, "notice_s": 2.5, "giveup_s": 8.0},
+    "stall": ["Mm, one moment.", "Okay, let me see.", "Hmm, okay."],
+    "notice": ["Sorry, this is taking a little longer than usual."],
+    "giveup": ["Sorry, that's taking too long. Could you ask me again?"],
+    "default": ["One moment."],
+    "tools": {"weather": ["Let me check the weather.", "Checking the weather now."]},
+}
+
+
+def _ready() -> Fillers:
+    f = Fillers(CONFIG)
+    asyncio.run(f.synthesise(lambda line: _pcm(line)))
+    return f
+
+
+async def _pcm(line: str) -> bytes:
+    return line.encode()
+
+
+def test_lines_rotate_and_never_repeat_back_to_back() -> None:
+    f = _ready()
+    picked = [f.pick("stall") for _ in range(6)]
+    texts = [p[0] for p in picked if p is not None]
+    assert texts == ["Mm, one moment.", "Okay, let me see.", "Hmm, okay."] * 2
+    assert all(a != b for a, b in zip(texts, texts[1:], strict=False))
+    assert picked[0] == ("Mm, one moment.", b"Mm, one moment.")
+
+
+def test_an_unknown_tool_uses_the_default_set_and_missing_audio_is_skipped() -> None:
+    f = _ready()
+    assert f.pick("tool:something_new") == ("One moment.", b"One moment.")
+    f.audio.pop("Let me check the weather.")
+    assert f.pick("tool:weather") == ("Checking the weather now.", b"Checking the weather now.")
+    assert Fillers(CONFIG).pick("stall") is None  # nothing synthesised yet: no filler
+
+
+def test_a_slow_turn_gets_stall_then_notice_then_giveup() -> None:
+    turn = TurnFillers(_ready())
+    assert turn.next_at() == 0.5 and turn.due(0.4) is None
+    assert turn.due(0.5) == "stall" and turn.next_at() == 2.5
+    assert turn.due(1.0) is None and turn.due(2.6) == "notice"
+    assert turn.due(7.9) is None and turn.due(8.0) == "giveup"
+    assert turn.next_at() is None and turn.due(30.0) is None
+
+
+def test_a_tool_call_before_the_stall_replaces_it() -> None:
+    turn = TurnFillers(_ready())
+    assert turn.tool("weather") == "tool:weather"
+    assert turn.tool("weather") is None  # one per turn
+    assert turn.next_at() == 2.5  # the notice is still due if the answer is slow
+
+
+def test_nothing_plays_once_the_answer_has_started() -> None:
+    turn = TurnFillers(_ready())
+    turn.answered = True
+    assert turn.next_at() is None and turn.due(9.0) is None and turn.tool("weather") is None
+
+
+def test_the_reviewed_phrase_file_loads() -> None:
+    f = Fillers.load()
+    assert (f.stall_s, f.notice_s, f.giveup_s) == (1.2, 2.5, 8.0)
+    assert len(f.sets["stall"]) == 7 and len(f.sets["giveup"]) == 5
+    assert len(f.sets["tool:weather"]) == 7 and len(f.sets["default"]) == 7
+    for name in ("smart_home", "get_current_time", "wiki_summary", "set_volume", "device_status"):
+        assert len(f.sets[f"tool:{name}"]) == 7, name

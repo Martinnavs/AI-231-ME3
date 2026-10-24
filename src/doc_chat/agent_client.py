@@ -6,7 +6,8 @@ is done (the listener interrupted) tells the server to cancel it.
 
 Protocol, one request per WebSocket connection:
   client -> {"messages": [{"role": "system"|"user"|"assistant", "content": str}, ...]}
-  server -> {"text": str} ... then {"done": true}, or {"error": str}
+  server -> {"text": str} ... then {"done": true}, or {"error": str}; and
+            {"event": "tool", "name": str} when a tool is called (for a filler)
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ class AgentChatModel(BaseChatModel):
 
     url: str = DEFAULT_URL
     timeout: float = 30.0
+    on_event: Any = None  # called with every {"event": ...} message (worker thread)
 
     @property
     def _llm_type(self) -> str:
@@ -65,6 +67,9 @@ class AgentChatModel(BaseChatModel):
                 event = json.loads(ws.recv(timeout=self.timeout))
                 if "text" in event:
                     yield ChatGenerationChunk(message=AIMessageChunk(content=event["text"]))
+                elif "event" in event:
+                    if self.on_event is not None:
+                        self.on_event(event)
                 elif event.get("done"):
                     return
                 else:
