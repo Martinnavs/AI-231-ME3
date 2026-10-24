@@ -1,0 +1,20 @@
+RESEARCH TASK: FACT-CHECK (web search and page reading only; do not run shell commands, do not read local files, do not write files.)
+
+PAGE ACCESS. You may open (read_url) pages ONLY on these domains: arxiv.org, github.com, raw.githubusercontent.com, webrtc.googlesource.com, chromium.googlesource.com, source.chromium.org, gitlab.freedesktop.org, docs.pipewire.org, pipewire.pages.freedesktop.org, www.speex.org, gitlab.xiph.org, pypi.org, docs.livekit.io, docs.pipecat.ai, docs.vapi.ai, docs.retellai.com, platform.openai.com, developers.openai.com, ai.google.dev, www.isca-archive.org, ieeexplore.ieee.org, huggingface.co, k2-fsa.github.io, wiki.seeedstudio.com, www.seeedstudio.com, www.xmos.com, docs.kernel.org, www.kernel.org, www.alsa-project.org, forums.raspberrypi.com, www.jabra.com, www.anker.com, www.hp.com. Opening any other domain will fail and end your run with nothing, so never try. For anything else use search results only, and say the evidence is a search snippet. For source code prefer raw.githubusercontent.com or github.com mirrors (for WebRTC: github.com/webrtc-sdk/webrtc or the webrtc-audio-processing repo on gitlab.freedesktop.org) if googlesource pages are hard to read.
+
+CONTEXT (all you need). A Python voice assistant on a Linux laptop: the laptop microphone (16 kHz) feeds speech recognition and a barge-in detector (Silero VAD plus a level threshold). The assistant's voice is played on a cheap USB speaker attached to a Raspberry Pi over a LAN, so playback and capture are on two different sound cards whose clocks drift by about 137 ppm, and the playback-to-microphone delay is roughly 0.1-0.2 s (about 0.65 s for a reply after the Pi's USB sound card has been idle). Echo cancellation is done on the laptop with WebRTC's audio processing module through LiveKit's Python SDK (livekit.rtc.AudioProcessingModule, 10 ms frames, process_reverse_stream / process_stream in lockstep, set_stream_delay_ms). Another model wrote a report about this setup WITHOUT web access. Your job is to check specific claims from that report against primary sources.
+
+RULES.
+- For EVERY claim below give exactly one verdict: CONFIRMED, PARTLY (say which part is wrong), CONTRADICTED (give the correct fact), or NOT FOUND.
+- CONFIRMED / PARTLY / CONTRADICTED require: the URL, the date or version of the source, and a short VERBATIM quote (or the exact source-code line) that supports the verdict. No quote -> the verdict is NOT FOUND. Do not reconstruct numbers or names from memory.
+- Prefer primary sources: source code (GitHub, googlesource, Chromium code search), official documentation, papers (arXiv, conference proceedings), vendor datasheets, issue trackers. Blog posts only when nothing primary exists, and say so.
+- If sources disagree or the value changed between versions, say so and give both.
+- Do not add recommendations beyond the CLAIMS section unless the task asks for them.
+
+OUTPUT (Markdown):
+1. A table: claim number | verdict | correct fact if different | source URL | date/version.
+2. Under the table, one section per claim with the verbatim quote(s) and one or two lines of explanation.
+3. A short list "Things I found that the report did not mention but that matter for this setup", each with a source.
+4. A list of searches that found nothing.
+
+CLAIMS TO CHECK:
