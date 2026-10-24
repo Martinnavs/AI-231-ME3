@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     EndFrame,
     Frame,
+    FunctionCallResultFrame,
     FunctionCallsStartedFrame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
@@ -81,6 +83,8 @@ class TurnTap(FrameProcessor):
         self.first_call: float | None = None
         self.first_text: float | None = None
         self.calls_in_response = False
+        self.calls_started = 0  # tool calls in this turn's response
+        self.said = False  # the model's own `say` sentence for the call was spoken
         self.responding = False  # a late end frame from a cancelled turn must not end this one
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
@@ -91,11 +95,14 @@ class TurnTap(FrameProcessor):
             self.responding = True
         elif isinstance(frame, FunctionCallsStartedFrame):
             self.calls_in_response = True
+            self.calls_started = len(frame.function_calls)
             if self.first_call is None:
                 self.first_call = now
             if not self.announced:
                 self.announced = True
                 await self._announce(frame)
+        elif isinstance(frame, FunctionCallResultFrame):
+            await self._result(frame)
         elif isinstance(frame, LLMTextFrame):
             if self.first_text is None and frame.text.strip():
                 self.first_text = now
@@ -118,8 +125,29 @@ class TurnTap(FrameProcessor):
             if self.first_text is None:
                 self.first_text = time.perf_counter() - self.started
             await speak(say + " ")
+        self.said = bool(say and speak is not None)
         if calls and self.on_tool is not None:
-            await self.on_tool(calls[0].function_name, bool(say and speak is not None))
+            await self.on_tool(calls[0].function_name, self.said)
+
+    async def _result(self, frame: FunctionCallResultFrame) -> None:
+        """A tool asked for no second LLM request (`run_llm=False`): allow it only when the turn
+        has one call and something to say without the model: the result when it is a sentence,
+        else the model's `say`. Then speak the result and end the turn. Otherwise the model runs
+        as usual (this tap sits before the aggregator, so it can still change the request)."""
+        props = frame.properties
+        if props is None or props.run_llm is not False:
+            return
+        sentence = frame.result.strip() if isinstance(frame.result, str) else ""
+        if self.calls_started != 1 or not (sentence or self.said):
+            frame.properties = replace(props, run_llm=None)
+            return
+        if sentence:
+            self.text.append(sentence + " ")
+            if self.first_text is None:
+                self.first_text = time.perf_counter() - self.started
+            if self.on_text is not None:
+                await self.on_text(sentence + " ")
+        self.done.set()
 
 
 class Agent:
