@@ -91,6 +91,12 @@ Flags: `--aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0 --fillers`.
 
 **Smaller:** on the first turn "Mm, one moment." played although the fast-path answer was ready at 0.4 s (audio only started 1.3 s after the transcript: a cold first turn). The stall should check whether answer text has arrived, not only whether audio has started.
 
+## Fixes landed 2026-10-25 (not yet heard in a spoken session)
+- **Bug 1:** the server sends the `say` as `{"text", "flush": true}` and always sends `{"event": "tool", "name", "said"}`. The client marks the sentence with `FLUSH` (`chain.py`), so `SentenceStream` releases it at once. A tool event with `said` plays no tool filler.
+- **Bug 2:** `strip_fillers` (`fillers.py`) removes any filler line from the heard text in `Session.handle`.
+- **Smaller:** the client raises `{"event": "text"}` on the first reply text; `TurnFillers.text_arrived` then skips the stall.
+- Tests: `tests/doc_chat/{test_stream,test_agent_client,test_fillers}.py`, `pipeline/tests/test_say.py`.
+
 ## Not yet done
-- The four fixes above (small, in `__main__.py`, `agent_client.py`, `agent.py`, `fillers.py`; direct or a fourth agy ticket: the owner's choice), then repeat the same spoken script.
+- Repeat the same spoken script with `--fillers`; the `say` dry-run cost is still to re-measure.
 - R4 (the owner's call), R6 (warm-up), R5.

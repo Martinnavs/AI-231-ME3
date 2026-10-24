@@ -295,3 +295,13 @@ def test_stream_flag_end_to_end_with_streaming_endpoint(
     out = capsys.readouterr().out
     assert "bot:  Paris is the capital." in out and "bot:  Enjoy." in out
     assert "answer starts" in out
+
+
+def test_a_flushed_sentence_is_released_without_waiting_for_the_next() -> None:
+    from doc_chat.chain import FLUSH
+
+    llm = ScriptedLLM(["Checking the weather in Baguio. " + FLUSH])
+    it = iter(_stream(llm))
+    assert next(it) == "Checking the weather in Baguio."  # same chunk, nothing after it yet
+    llm = ScriptedLLM(["Checking it. " + FLUSH, "It is 20. ", "Sunny."])
+    assert list(_stream(llm)) == ["Checking it.", "It is 20.", "Sunny."]

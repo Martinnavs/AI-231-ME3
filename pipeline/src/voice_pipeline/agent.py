@@ -35,6 +35,7 @@ from pipecat.workers.runner import WorkerRunner
 MODEL = "gemini-3.1-flash-lite"
 TURN_TIMEOUT_S = 20.0
 OnText = Callable[[str], Awaitable[None]]
+OnTool = Callable[[str, bool], Awaitable[None]]  # tool name, whether its `say` was spoken
 
 
 def read_key(secret_dir: str) -> str:
@@ -60,12 +61,20 @@ class TurnTap(FrameProcessor):
         super().__init__()
         self.done = asyncio.Event()
         self.on_text: OnText | None = None
+        self.on_say: OnText | None = None
+        self.on_tool: OnTool | None = None
         self.begin(None)
 
-    def begin(self, on_text: OnText | None, on_tool: OnText | None = None) -> None:
+    def begin(
+        self,
+        on_text: OnText | None,
+        on_tool: OnTool | None = None,
+        on_say: OnText | None = None,
+    ) -> None:
         self.done.clear()
         self.on_text = on_text
         self.on_tool = on_tool
+        self.on_say = on_say
         self.announced = False  # the first tool call of a turn is announced once
         self.text: list[str] = []
         self.started = time.perf_counter()
@@ -99,16 +108,18 @@ class TurnTap(FrameProcessor):
         await self.push_frame(frame, direction)
 
     async def _announce(self, frame: FunctionCallsStartedFrame) -> None:
-        """Say the model's `say` sentence for the call, or tell the client which tool runs."""
+        """Speak the model's `say` sentence for the call (as its own event, `on_say`, when the
+        client has one) and always tell the client which tool runs, and whether it was said."""
         calls = list(frame.function_calls)
         say = next((str(c.arguments.get("say") or "").strip() for c in calls), "")
-        if say and self.on_text is not None:
+        speak = self.on_say or self.on_text
+        if say and speak is not None:
             self.text.append(say + " ")
             if self.first_text is None:
                 self.first_text = time.perf_counter() - self.started
-            await self.on_text(say + " ")
-        elif calls and self.on_tool is not None:
-            await self.on_tool(calls[0].function_name)
+            await speak(say + " ")
+        if calls and self.on_tool is not None:
+            await self.on_tool(calls[0].function_name, bool(say and speak is not None))
 
 
 class Agent:
@@ -139,11 +150,13 @@ class Agent:
         *,
         reset: bool,
         on_text: OnText | None = None,
-        on_tool: OnText | None = None,
+        on_tool: OnTool | None = None,
+        on_say: OnText | None = None,
     ) -> dict[str, Any]:
         """One turn. reset=True replaces the conversation with `messages`, else appends them.
-        `on_tool` gets the tool's name when a call starts and the model gave no `say`."""
-        self.tap.begin(on_text, on_tool)
+        `on_tool` gets the tool's name and whether the model's `say` was spoken, whenever a call
+        starts; `on_say` (else `on_text`) gets the `say` sentence."""
+        self.tap.begin(on_text, on_tool, on_say)
         frame_type = LLMMessagesUpdateFrame if reset else LLMMessagesAppendFrame
         await self.worker.queue_frame(frame_type(messages=messages, run_llm=True))
         try:

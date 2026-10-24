@@ -14,6 +14,7 @@ synthesised once at session start, so playing one costs nothing.
 from __future__ import annotations
 
 import json
+import re
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -100,9 +101,23 @@ class TurnFillers:
         self.answered = True  # nothing more after giving up
         return "giveup"
 
-    def tool(self, name: str) -> str | None:
-        """The kind to play when a tool call arrives, or None (something was said already)."""
+    def tool(self, name: str, said: bool = False) -> str | None:
+        """The kind to play when a tool call arrives, or None (something was said already, or the
+        model's own sentence for the call is on its way: `said`)."""
         if self.answered or self.filled:
             return None
         self.filled = True
-        return f"tool:{name}"
+        return None if said else f"tool:{name}"
+
+    def text_arrived(self) -> None:
+        """The agent's answer text has started: its audio is imminent, so no stall line."""
+        self.filled = True
+
+
+def strip_fillers(text: str, lines: list[str]) -> str:
+    """`text` without any filler line in it: a pause let one play, the recogniser then heard it
+    as part of the user's next words ("...Nobel Prizes? Almost there. Got it.")."""
+    for line in sorted(lines, key=len, reverse=True):
+        pattern = r"\s*".join(re.escape(w) for w in line.split())
+        text = re.sub(rf"(?i)(?<!\w){pattern}", " ", text)
+    return " ".join(text.split())
