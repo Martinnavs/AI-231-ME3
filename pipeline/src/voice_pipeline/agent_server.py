@@ -1,6 +1,7 @@
 """Agent server: the agent behind a local WebSocket, for `doc_chat --llm agent`.
 
-    uv run python -m voice_pipeline.agent_server [--port 8781] [--live URL]
+    LAN_SPEECH_TOKEN=... uv run python -m voice_pipeline.agent_server [--port 8781]
+        [--live URL] [--pi-url URL]
 
 Protocol (the client is src/doc_chat/agent_client.py in the root project), one request per
 connection: {"messages": [...]} in; {"text": ...} pieces, then {"done": true} or {"error": ...}
@@ -23,7 +24,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from voice_pipeline.agent import Agent, build_llm
-from voice_pipeline.agent_tools import build_tools, docs_server
+from voice_pipeline.agent_tools import PI_URL, build_tools, standard_servers
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -72,9 +73,10 @@ class AgentServer:
                 sink.write(json.dumps(row) + "\n")
 
 
-async def run(port: int, live: str | None, system_file: Path) -> int:
+async def run(port: int, live: str | None, system_file: Path, pi_url: str | None) -> int:
     record: list[dict[str, Any]] = []
-    tools = await build_tools(record, live=live, docs=docs_server())
+    servers, optional = standard_servers(pi_url)
+    tools = await build_tools(record, live=live, servers=servers, optional=optional)
     agent = Agent(build_llm(system_file.read_text()), tools)
     await agent.start()
     await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
@@ -92,9 +94,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8781)
     parser.add_argument("--live", default=None, help="ME2 dashboard URL; default records only")
     parser.add_argument("--system", type=Path, default=ROOT / "config/eval/system_agent.txt")
+    parser.add_argument("--pi-url", default=PI_URL, help="the Pi's device tools; '' for none")
     args = parser.parse_args(argv)
     try:
-        return asyncio.run(run(args.port, args.live, args.system))
+        return asyncio.run(run(args.port, args.live, args.system, args.pi_url or None))
     except KeyboardInterrupt:
         return 0
 

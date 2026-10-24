@@ -1,6 +1,6 @@
 # Guardrails for every mcp-set ticket
 
-These tickets add two new MCP servers (new files only): a weather + Wikipedia server for the agent, and a device server that will run on the Raspberry Pi. The code is already written in each ticket: transcribe it, do not extend it. Smaller and exactly as written beats more robust.
+These tickets give the voice agent real MCP tools: a weather + Wikipedia server, a device server for the Raspberry Pi, the agent wiring in `pipeline/` (Pipecat project; run its commands from `pipeline/`), and a speed fix for the weather server. The code is already written in each ticket: transcribe it, do not extend it. Smaller and exactly as written beats more robust.
 
 Every ticket ships a code skeleton, and the skeleton is the implementation: transcribe it, and adapt only what is needed to make it run. Log each adaptation as a minor deviation in the ticket. If a skeleton looks wrong, stop and log a material deviation; do not redesign it.
 

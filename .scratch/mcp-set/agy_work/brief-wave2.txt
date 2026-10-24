@@ -1,0 +1,38 @@
+Done by you alone: do not launch subagents or background tasks. Put your final report in your reply.
+
+Implement the second mcp-set wave: tickets 03-agent-wiring.md and 05-web-info-speed.md. Tickets 01 and 02 are already done and reviewed in this work copy: do not touch them or their files beyond what tickets 03 and 05 list.
+These tickets change code whose full text is already in each ticket. Your job is to copy it into place exactly and prove it is green, not to improve it.
+
+The three rules that matter most:
+1. The code in each ticket's "Edits", "Append" and "Whole files, verbatim" sections IS the implementation. Copy it byte-for-byte, blank lines included. Apply the edits in the order given; each OLD block occurs exactly once in the file as it is at that moment.
+2. Blocked (missing module, failing command, a Proof result different from the expected one): write the exact error in that ticket's Execution Log and stop that ticket. Install nothing; no network.
+3. Exactly the listed files, each at its line cap. Never compress lines to fit; anything beyond the ticket is a material deviation: log "Material - needs human" and stop that ticket.
+
+Your working directory is /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/mcp-set/agy_work/work. It is a copy of the repository; work only inside it. Both Python environments are installed: the root project (run uv with --offline --group laptop from the repository root) and the Pipecat project in pipeline/ (run uv with --offline from pipeline/, exactly as ticket 03's Proof commands do).
+
+Run ticket 03, then ticket 05. They are independent (disjoint files).
+
+Read first, fully, in this order:
+1. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/mcp-set/agy_work/work/.scratch/mcp-set/tickets/GUARDRAILS.md (binding on every ticket)
+2. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/mcp-set/agy_work/work/.scratch/mcp-set/developer-role.md: your role, including its "At level 3" section. The design gate is already approved.
+3. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/mcp-set/agy_work/work/.scratch/mcp-set/PLAN.md (background only; the tickets are what you implement)
+4. The tickets, in /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/mcp-set/agy_work/work/.scratch/mcp-set/tickets/: 03-agent-wiring.md, 05-web-info-speed.md
+
+Hard rules for this run:
+- Change only the files in each ticket's file table, plus the ticket file itself (Status, Deviations, Execution Log). Never touch pyproject.toml or uv.lock in either project.
+- Git is not available to you for writing: no commits.
+- No network. Never start the device server, the speech server, the agent server or any live session, and never run the dry run (it calls the paid Gemini API). Never contact the Raspberry Pi.
+- Run only each ticket's Proof commands.
+
+Before you finish each ticket: wc -l every file you own against its cap, then re-read your changes against the forbidden list in GUARDRAILS.md and remove anything it names.
+
+Append to each ticket's "## Execution Log" (never rewrite earlier entries):
+### 2026-10-24 agy: DONE | BLOCKED | PARTIAL
+- Proof: 1 ✅/❌ 2 ✅/❌ ... (each command and its last output line)
+- Files: path (lines / cap), one per file
+- Deviations: none | one line each
+- Notes for reviewer: only what is not obvious from the files
+
+Final reply, terse: one block per ticket (status, line counts vs caps, Proof checkmarks, open issues), then every file you changed or created.
+
+Again, the three rules: copy the ticket's code byte-for-byte; when blocked, report and stop; nothing beyond the listed edits, files and caps, and never compress lines.

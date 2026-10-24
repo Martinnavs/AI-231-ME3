@@ -1,0 +1,36 @@
+typesafe/jev-router            Turn on the lights.              first 4.21s total 25.03s tool smart_home served anthropic/claude-opus-5.5 $0.00514
+google/gemini-3.1-flash-lite   Turn on the lights.              first 0.89s total 0.90s tool smart_home served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Set a timer for ten minutes.     first 2.89s total 3.04s tool smart_home served openai/gpt-6.1-sol $0.00069
+google/gemini-3.1-flash-lite   Set a timer for ten minutes.     first 1.41s total 1.87s tool smart_home served google/gemini-3.1-flash-lite $0.00009
+typesafe/jev-router            What time is it in London?       first 1.31s total 1.33s tool get_current_time served anthropic/claude-haiku-5.5 $0.00004
+google/gemini-3.1-flash-lite   What time is it in London?       first 1.61s total 1.62s tool get_current_time served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Will it rain tomorrow?           first 3.32s total 3.35s tool None served openai/gpt-6.1-sol $0.00057
+google/gemini-3.1-flash-lite   Will it rain tomorrow?           first 0.88s total 0.97s tool weather served google/gemini-3.1-flash-lite $0.00007
+typesafe/jev-router            Tell me about Blood Meridian.    first 3.12s total 3.18s tool wiki_summary served x-ai/grok-4.7 $0.00172
+google/gemini-3.1-flash-lite   Tell me about Blood Meridian.    first 0.85s total 0.91s tool wiki_summary served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Who wrote The Road?              first 2.35s total 2.50s tool wiki_summary served openai/gpt-6-luna $0.00003
+google/gemini-3.1-flash-lite   Who wrote The Road?              first 0.89s total 1.71s tool wiki_summary served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            How are you today?               first 2.26s total 2.27s tool None served anthropic/claude-haiku-5.5 $0.00011
+google/gemini-3.1-flash-lite   How are you today?               first 1.43s total 1.60s tool None served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Thanks, that's all.              first 0.97s total 1.00s tool None served deepseek/deepseek-v4.1-flash-1017 $0.00018
+google/gemini-3.1-flash-lite   Thanks, that's all.              first 0.97s total 1.31s tool None served google/gemini-3.1-flash-lite $0.00007
+typesafe/jev-router            Turn on the lights.              first 2.98s total 4.10s tool smart_home served anthropic/claude-opus-5.5 $0.00130
+google/gemini-3.1-flash-lite   Turn on the lights.              first 0.73s total 0.76s tool smart_home served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Set a timer for ten minutes.     first 3.56s total 3.61s tool smart_home served openai/gpt-6.1-sol $0.00069
+google/gemini-3.1-flash-lite   Set a timer for ten minutes.     first 1.04s total 1.04s tool smart_home served google/gemini-3.1-flash-lite $0.00009
+typesafe/jev-router            What time is it in London?       first 1.98s total 2.01s tool get_current_time served anthropic/claude-haiku-5.5 $0.00004
+google/gemini-3.1-flash-lite   What time is it in London?       first 3.99s total 3.99s tool get_current_time served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Will it rain tomorrow?           first 3.70s total 3.73s tool None served openai/gpt-6.1-sol $0.00060
+google/gemini-3.1-flash-lite   Will it rain tomorrow?           first 0.94s total 1.00s tool weather served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Tell me about Blood Meridian.    first 2.82s total 2.86s tool wiki_summary served x-ai/grok-4.7 $0.00179
+google/gemini-3.1-flash-lite   Tell me about Blood Meridian.    first 1.05s total 1.38s tool wiki_summary served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Who wrote The Road?              first 2.31s total 2.42s tool wiki_summary served openai/gpt-6-luna $0.00003
+google/gemini-3.1-flash-lite   Who wrote The Road?              first 1.03s total 1.99s tool wiki_summary served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            How are you today?               first 3.39s total 3.39s tool None served anthropic/claude-haiku-5.5 $0.00002
+google/gemini-3.1-flash-lite   How are you today?               first 0.99s total 1.29s tool None served google/gemini-3.1-flash-lite $0.00008
+typesafe/jev-router            Thanks, that's all.              first 3.52s total 4.09s tool None served deepseek/deepseek-v4.1-flash-1017 $0.00003
+google/gemini-3.1-flash-lite   Thanks, that's all.              first 0.93s total 0.94s tool None served google/gemini-3.1-flash-lite $0.00007
+
+total spent: $0.0142
+typesafe/jev-router: n=16 first-token p50 2.94s max 4.21s; right tool 14/16; served by ['anthropic/claude-haiku-5.5', 'anthropic/claude-opus-5.5', 'deepseek/deepseek-v4.1-flash-1017', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'x-ai/grok-4.7']; cost $0.0130
+google/gemini-3.1-flash-lite: n=16 first-token p50 0.98s max 3.99s; right tool 16/16; served by ['google/gemini-3.1-flash-lite']; cost $0.0013

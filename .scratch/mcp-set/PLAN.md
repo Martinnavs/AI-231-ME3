@@ -1,6 +1,6 @@
 # Plan: a real MCP tool set for the harness (then latency)
 
-**Status:** draft for the owner's confirmation (2026-10-24). **Branch:** `agy/interrupts`. **Code:** agy from level-3 tickets (owner's choice); the assistant writes and tests the reference code first, dry-runs the tickets, builds the fence; the owner launches it.
+**Status:** confirmed; tickets 01, 02, 03, 05 done and integrated (2026-10-24); 04 (Pi deploy + checks) next, Pi actions need the owner's go. **Branch:** `agy/interrupts`. **Code:** agy from level-3 tickets (owner's choice); the assistant writes and tests the reference code first, dry-runs the tickets, builds the fence; the owner launches it.
 
 ## Why
 
@@ -39,3 +39,10 @@
 1. Filler at every tool call: a rotating set of about 7 natural phrases per tool (a default set for unknown tools), no immediate repeats, sent as the first spoken sentence when the tool call arrives (`on_function_calls_started`). The result still comes from the LLM.
 2. Model comparison (cents): `gemini-3.1-flash-lite` against `gemini-2.5-flash` (thinking off) and `gemini-2.5-flash-lite`, first-token time and tool accuracy on the dry run.
 3. Early decode with tail padding (offline), then the TTS first-chunk ladder (ticket 25).
+
+## Results (2026-10-24)
+
+- Waves 1 (01, 02) and 2 (03, 05) by agy: byte-identical to the reference, no deviations.
+- Dry run on the reference (Gemini, 87 turns, Pi tools absent so the 5 device prompts were skipped): **85/87 exact**; time 3/3, weather 3/3, knowledge 3/3, mixed 4/4, all older kinds unchanged except the known "I'm cold" guess (a01) and one extra wiki_summary next to a correct search_docs answer (d08). No leaks.
+- Weather was slow (tool call at 0.6-1.0 s, first text 3.7-5.2 s): Open-Meteo is in Germany (~270 ms RTT) and each request opened a new TLS connection. Ticket 05: repeat question 5 ms, new place on a warm connection 0.55 s; the first weather question of a session is still cold (~3 s): warming at start-up is a possible later change.
+- Ticket 05 added after the plan was confirmed (a measured problem in its own scope); recorded here.

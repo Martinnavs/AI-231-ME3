@@ -1,4 +1,7 @@
-"""One LLM tool for the 19 ME2 home commands, sent to the ME2 dashboard's POST /api/command.
+"""One LLM tool for 17 ME2 home commands, sent to the ME2 dashboard's POST /api/command.
+
+Time and weather are not home commands any more: the agent answers them with the real
+time and weather MCP tools (owner, 2026-10-24).
 
 Slot values are open (any time, duration, temperature, colour, brightness, reminder text), except
 CALL and MESSAGE, whose slot must be a contact in the JSON phonebook.
@@ -29,8 +32,6 @@ INTENTS: tuple[str, ...] = (
     "BRIGHTNESS",
     "COLOR",
     "TEMPERATURE",
-    "WEATHER",
-    "TIME",
     "TIMER",
     "ALARM",
     "CALL",
@@ -75,7 +76,7 @@ def make_schema(contacts: list[dict[str, str]]) -> FunctionSchema:
         name="smart_home",
         description=(
             "Control or check the home: lights, colour, brightness, music, volume, thermostat, "
-            "timer, alarm, reminders, phone call, message, time, weather. One call per command. "
+            "timer, alarm, reminders, phone call, message. One call per command. "
             "Intents that need a slot, and its form: "
             + "; ".join(f"{intent}: {hint}" for intent, hint in SLOT_HINTS.items())
             + f". Phonebook: {phonebook}. Every other intent takes no slot."
