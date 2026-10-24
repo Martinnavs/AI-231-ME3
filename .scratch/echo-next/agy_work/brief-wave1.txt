@@ -1,0 +1,38 @@
+Done by you alone: do not launch subagents or background tasks. Put your final report in your reply.
+
+Implement the echo-next work: tickets 01-stop-pause.md, 02-strip-echo-prefix.md, 03-aec-lead-zero.md and 04-guard-warmup.md.
+These tickets change code whose full text is already in each ticket. Your job is to copy it into place exactly and prove it is green, not to improve it.
+
+The three rules that matter most:
+1. The code in each ticket's "Edits" and "New test file(s), verbatim" sections IS the implementation. Copy it byte-for-byte, blank lines included. Apply exactly the listed replacements, in the order given, and nothing else; each OLD block occurs exactly once in the file as it is at that moment.
+2. Blocked (missing module, failing command, an OLD block not found, a Proof result different from the expected one): write the exact error in that ticket's Execution Log and stop that ticket. Install nothing; no network.
+3. Exactly the listed edits and tests, every file at its line cap. Never compress lines to fit; anything beyond the ticket is a material deviation: log "Material - needs human" and stop that ticket.
+
+Your working directory is /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/echo-next/agy_work/work. It is a copy of the repository; work only inside it. The Python environment is already installed there; run every uv command with --offline and --group laptop, from the repository root.
+
+Run the tickets in order: 01, 02, 03, 04. Tickets 02, 03 and 04 edit src/doc_chat/__main__.py after the ones before them; if a ticket is blocked, stop the whole wave.
+
+Read first, fully, in this order:
+1. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/echo-next/agy_work/work/.scratch/echo-next/tickets/GUARDRAILS.md (binding on every ticket)
+2. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/echo-next/agy_work/work/.scratch/echo-next/developer-role.md: your role, including its "At level 3" section. The design gate is already approved.
+3. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/echo-next/agy_work/work/.scratch/echo-next/PLAN.md (background only; the tickets are what you implement)
+4. The tickets, in /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/echo-next/agy_work/work/.scratch/echo-next/tickets/: 01-stop-pause.md, 02-strip-echo-prefix.md, 03-aec-lead-zero.md, 04-guard-warmup.md
+
+Hard rules for this run:
+- Edit only the files in each ticket's file table, plus the ticket file itself (Status, Deviations, Execution Log).
+- Git is not available to you for writing: no commits.
+- No network. Never start the speech server, the agent server or a live doc_chat session.
+- Run only each ticket's Proof commands. Ticket 04's last Proof command runs the whole suite (about 90 s) and must end with exactly one known failure.
+
+Before you finish each ticket: wc -l every file you own against its cap, then re-read your diff against the forbidden list in GUARDRAILS.md and remove anything it names.
+
+Append to each ticket's "## Execution Log" (never rewrite earlier entries):
+### 2026-10-24 agy: DONE | BLOCKED | PARTIAL
+- Proof: 1 ✅/❌ 2 ✅/❌ ... (each command and its last output line)
+- Files: path (lines / cap), one per file
+- Deviations: none | one line each
+- Notes for reviewer: only what is not obvious from the diff
+
+Final reply, terse: one block per ticket (status, line counts vs caps, Proof checkmarks, open issues), then every file you changed.
+
+Again, the three rules: copy the ticket's code byte-for-byte; when blocked, report and stop; nothing beyond the listed edits, tests and caps, and never compress lines.

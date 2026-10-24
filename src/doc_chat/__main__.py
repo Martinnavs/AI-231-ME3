@@ -24,7 +24,9 @@ from doc_chat.bargein import (
     EchoModel,
     PreRoll,
     SileroOnset,
+    is_all_echo,
     looks_like_echo,
+    strip_echo_prefix,
 )
 from doc_chat.chain import (
     SentenceStream,
@@ -56,7 +58,7 @@ _STOP_FILLER = {"on", "it", "okay", "ok", "please", "now", "just", "never"}
 
 
 _STOP_PREFIX = re.compile(
-    r"^\W*(?:(?:wait|stop|hold on|hang on|pause|okay|ok|please|sorry|actually|hey|um|uh|so)\b\W*)+",
+    r"^\W*(?:(?:wait|stop|hold on|hang on|okay|ok|please|sorry|actually|hey|um|uh|so)\b\W*)+",
     re.IGNORECASE,
 )
 _QUESTION_OPENERS = frozenset(
@@ -70,13 +72,14 @@ def _strip_stop_prefix(text: str) -> str:
     A pivot: the user talked over the assistant with an order to stop and a new question. The
     order has done its work (the reply was cut off when the voice was heard); keeping it in the
     question would search the documents and prompt the model with "wait stop" as well. Only a
-    prefix that contains a real stop word is removed, and only if a question remains."""
+    prefix that contains a real stop word is removed, and only if a question remains. "Pause" is
+    not one here: "Stop. Pause the music." is an order to pause the music."""
     m = _STOP_PREFIX.match(text)
     if not m:
         return text
     prefix = m.group(0)
-    has_stop = re.search(r"\b(wait|stop|hold on|hang on|pause)\b", prefix, re.IGNORECASE)
-    punctuated = re.search(r"\b(wait|stop|pause|on)\b\s*[,.!?;:-]", prefix, re.IGNORECASE)
+    has_stop = re.search(r"\b(wait|stop|hold on|hang on)\b", prefix, re.IGNORECASE)
+    punctuated = re.search(r"\b(wait|stop|on)\b\s*[,.!?;:-]", prefix, re.IGNORECASE)
     if not has_stop or not (punctuated or len(re.findall(r"[a-z']+", prefix.lower())) >= 2):
         return text  # "Wait times at the library?": that "wait" is part of the question
     rest = text[m.end() :].strip()
@@ -617,10 +620,16 @@ class Session:
             spoken = " ".join(self._spoken)
             heard = await self.follow_up(heard, interruption)
             after_interrupt = interruption.kind == "barge_in"
+            strip = interruption.kind == "barge_in" and getattr(
+                self.args, "strip_echo_prefix", False
+            )
             if (
                 interruption.kind == "barge_in"
                 and getattr(self.args, "echo_text_guard", True)
-                and looks_like_echo(heard.text, spoken)
+                and (
+                    looks_like_echo(heard.text, spoken)
+                    or (strip and is_all_echo(heard.text, spoken))
+                )
             ):
                 print(f"  [ignored: that was my own voice ({heard.text!r})]", flush=True)
                 self.log(
@@ -635,6 +644,9 @@ class Session:
                 heard = None
                 idx -= 1
                 continue
+            if strip and (cleaned := strip_echo_prefix(heard.text, spoken)) != heard.text:
+                print(f"      (my own words dropped: {cleaned!r})", flush=True)
+                heard = dc_replace(heard, text=cleaned)
             if interruption.kind == "resumed":
                 idx -= 1  # the cut-off turn and what followed are one turn
 
@@ -764,6 +776,7 @@ class Session:
             silero=silero,
             echo=echo,
             level_kofn=_kofn(getattr(self.args, "level_kofn", None)),
+            warmup_blocks=round(float(getattr(self.args, "barge_warmup_s", 0.0)) * 10),
         )
 
         trace = self._guard_trace
@@ -1055,9 +1068,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--aec-lead-ms",
         type=int,
-        default=50,
-        help="with --aec: ms of reference fed ahead of the microphone (default: 50; more is worse "
-        "as the path delay grows)",
+        default=0,
+        help="with --aec: ms of reference fed ahead of the microphone (default: 0; any lead uses "
+        "up the canceller's ~0.5 s delay range)",
     )
     parser.add_argument(
         "--duck-db",
@@ -1206,6 +1219,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "through the microphone)",
     )
     parser.add_argument(
+        "--strip-echo-prefix",
+        action="store_true",
+        help="after a barge-in, drop the assistant's own words heard before your 'stop' and treat "
+        "a transcript made only of its words (misheard ones too) as its echo "
+        "(.scratch/echo-next/PLAN.md, E3)",
+    )
+    parser.add_argument(
         "--barge-echo-margin",
         type=float,
         default=1.8,
@@ -1224,6 +1244,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         default=15,
         help="how many recent 100 ms blocks of echo the allowance is learned from (default: 15)",
+    )
+    parser.add_argument(
+        "--barge-warmup-s",
+        type=float,
+        default=0.0,
+        help="for this many seconds at the start of each reply, expect the echo of the prior "
+        "coupling (--barge-echo-prior) even if less was learned: the canceller leaks while it "
+        "settles (try 1.0 with --aec; .scratch/echo-next/PLAN.md, E2)",
     )
     parser.add_argument(
         "--barge-echo-prior",

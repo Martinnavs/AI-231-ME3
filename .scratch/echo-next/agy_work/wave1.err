@@ -1,0 +1,2 @@
+error: There was a network issue connecting to the server, please try again.
+AGY_ERROR: {"short_error":"agent executor error: generating and executing: proto: unexpected EOF","status":"UNKNOWN","error_code":2,"code_kind":"grpc","retryable":true,"error_id":"4212254a-5a80-45b7-96b6-7314301a8a4e-133"}
