@@ -1,6 +1,6 @@
 # Plan: latency that holds up in the demo
 
-**Status:** draft for the owner's confirmation (2026-10-24). **Branch:** `agy/interrupts`. **Code:** agy from level-3 tickets (the owner's default; the assistant writes and tests the reference first). Background: `.scratch/latency-research/SUMMARY.md`.
+**Status:** confirmed by the owner (2026-10-24); R1 running. **Branch:** `agy/interrupts`. **Code:** agy from level-3 tickets (the owner's default; the assistant writes and tests the reference first). Background: `.scratch/latency-research/SUMMARY.md`.
 
 **Goal (owner, 2026-10-24):** the LLM's response time spikes (0.7-7.7 s within three minutes in the spoken check), and the demo will see the same. Build workarounds so a slow turn sounds deliberate and the worst cases never reach the audience, not only lower averages.
 
@@ -42,7 +42,14 @@ Spoken check (`.scratch/mcp-set/PLAN.md`, one session): end of speech to first s
 - Optional, cheap: Vapi's `bot_say` idea, a `say` argument in our tools so the model writes a context-aware first sentence ("Turning on the kitchen lights") inside the same tool call; spoken the moment the call arrives, with the canned clips as the fallback.
 - Give-up: products stop at about 8 s (Alexa's limit) and apologise with an offer to retry: R2(c) at 8 s matches.
 
-## Decisions needed at confirmation
+## Decisions (owner, 2026-10-24)
+
+1. Fillers stay out of the LLM history. Timings: `stall` at **500 ms** after the end of the turn with no answer text, `notice` at 2.5 s, polite give-up at 8 s.
+2. Add the `bot_say`-style context-aware first sentence to the tools; the canned clips stay as the fallback.
+3. Fast path (no LLM) for: lights on/off, play/pause/stop/next music, volume up/down, timers and alarms with a clear value, the speaker volume with a number.
+4. The assistant writes the filler phrases (about 7 per kind or tool) and the fast-path phrasings for review before ticketing; R1 starts now.
+
+## Decisions needed at confirmation (as asked)
 
 1. R2: fillers kept out of the LLM history (recommended)? Delays about 3 s for "still working" and about 8 s for the polite timeout?
 2. R2 and R3: the assistant writes the phrase sets and the fast-path phrase list for your review before ticketing?
