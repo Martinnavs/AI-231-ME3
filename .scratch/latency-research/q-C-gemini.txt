@@ -1,0 +1,6 @@
+Topic C: time to first token for Gemini in a voice agent.
+C1. Published time-to-first-token for `gemini-3.1-flash-lite` (and current flash-lite / flash models) via the Gemini API, with and without thinking, from independent sources (Artificial Analysis, OpenRouter provider stats). Which current Gemini model has the lowest TTFT with reliable function calling?
+C2. `thinking_level` for gemini-3.x flash-lite: allowed values, default, whether "minimal" truly disables thinking, and the measured effect on TTFT and on tool-calling accuracy.
+C3. How do prompt length, number of tool declarations, and conversation history length affect Gemini TTFT? Any measurements. Does implicit caching reduce latency (not only cost), and what is the minimum cacheable prefix for flash-lite models?
+C4. Endpoint and region: Gemini API (AI Studio) versus Vertex AI global and regional endpoints (e.g. asia-southeast1): documented latency differences, how to choose a region, whether a Philippine user would benefit.
+C5. Gemini Live API (native audio or half-cascade) with function calling as an alternative to STT -> LLM -> TTS: current model names, documented first-audio latency, whether it supports our tools and an external speech recogniser/TTS, and its constraints (echo, interruption handling, cost).

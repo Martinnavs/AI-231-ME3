@@ -1,0 +1,6 @@
+Topic B: starting the LLM before the end of the user's turn is final.
+B1. LiveKit Agents "preemptive generation": exact option name, version, how it works (which transcript it uses, what happens when the final transcript differs), documented latency saving, cost.
+B2. Deepgram Flux EagerEndOfTurn / TurnResumed (and similar in AssemblyAI Universal-Streaming, OpenAI Realtime semantic VAD): how they are meant to be used with an LLM, reported savings, how often eager turns are cancelled.
+B3. Pipecat 1.x: is there an equivalent (speculative LLM start on interim transcripts, user turn strategies with early triggering)? Exact class and parameter names in Pipecat 1.x.
+B4. With our setup (interim transcripts exist; the final is a re-decode by a stronger model about 0.5 s after the pause; the early re-decode at 200 ms of silence changed the text in about 11% of turns, 25% for short commands), what is the expected saving and the cancellation cost of starting the LLM on the early text and discarding it if the final differs? Cite anything comparable.
+B5. End-of-turn hold: what silence holds do production voice agents use by default (Pipecat VADParams stop_secs, LiveKit min_endpointing_delay / max_endpointing_delay, OpenAI silence_duration_ms, Vapi), and how do turn-detection models (LiveKit turn detector, Pipecat Smart Turn v3) change them? Reported cut-off rates.
