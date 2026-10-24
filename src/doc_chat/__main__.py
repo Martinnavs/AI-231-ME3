@@ -741,7 +741,7 @@ class Session:
         noise = self.client.noise_floor or 0.015
         ratio = float(getattr(self.args, "barge_ratio", 4.0))
         min_s = float(getattr(self.args, "barge_ms", 300)) / 1000.0
-        roll = PreRoll()
+        roll = PreRoll(seconds=float(getattr(self.args, "preroll_s", 0.8)))
         step = 3200  # 100 ms of 16-bit samples
         blocks = [tail[i : i + step] for i in range(0, len(tail), step)]
 
@@ -1244,6 +1244,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=int,
         default=15,
         help="how many recent 100 ms blocks of echo the allowance is learned from (default: 15)",
+    )
+    parser.add_argument(
+        "--preroll-s",
+        type=float,
+        default=0.8,
+        help="seconds of microphone audio before a barge-in that go to the recogniser with it "
+        "(default: 0.8; 1.2 put about a second of the assistant's own voice in front of yours: "
+        ".scratch/echo-next/PLAN.md, E4)",
     )
     parser.add_argument(
         "--barge-warmup-s",
