@@ -36,6 +36,7 @@ from doc_chat.chain import (
 )
 from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
+from doc_chat.fillers import Fillers, TurnFillers
 from doc_chat.speech import (
     STITCH_GAP_S,
     DocChatSpeechClient,
@@ -268,6 +269,12 @@ class Session:
     _cue_s: float | None = None  # seconds into this reply a cue beep sounds, if it has one
     _spoken: list[str] = field(default_factory=list)  # sentences begun so far
     _prompt_count: int = 0
+    fillers: Fillers | None = None  # --fillers: pre-recorded lines while a slow answer waits
+    _turn_fillers: TurnFillers | None = None
+    _filler_push: Callable[[bytes], None] | None = None  # into the answer's player
+    _filler_started: float | None = None  # perf_counter of the first filler audio
+    _filler_lines: list[str] = field(default_factory=list)
+    _loop: asyncio.AbstractEventLoop | None = None
 
     def log(self, rec: dict[str, Any]) -> None:
         self.log_file.write(json.dumps(rec) + "\n")
@@ -338,6 +345,70 @@ class Session:
             player.push(pcm)
         finally:
             await asyncio.to_thread(player.close)
+
+    def _play_filler(self, kind: str) -> None:
+        """Queue one filler line on the answer's player (before any answer audio)."""
+        picked = self.fillers.pick(kind) if self.fillers is not None else None
+        if picked is None or self._filler_push is None or self._answer_started is not None:
+            return
+        text, pcm = picked
+        if self._filler_started is None:
+            self._filler_started = time.perf_counter()
+        self._filler_lines.append(text)
+        print(f"bot:  ({text})", flush=True)
+        self._filler_push(pcm)
+
+    async def _filler_timer(self, t_final: float) -> str:
+        """Play this turn's timed fillers; returns "giveup" when no answer came in time."""
+        turn = self._turn_fillers
+        while turn is not None and (at := turn.next_at()) is not None:
+            await asyncio.sleep(max(0.0, t_final + at - time.perf_counter()))
+            if self._answer_started is not None:
+                break
+            kind = turn.due(time.perf_counter() - t_final)
+            if kind == "giveup":
+                return kind
+            if kind is not None:
+                self._play_filler(kind)
+        await asyncio.Future()  # nothing more to play; cancelled when the turn ends
+        return ""
+
+    def on_agent_event(self, event: dict[str, Any]) -> None:
+        """A message from the agent server (any thread): a tool call may play its filler."""
+        if self._loop is not None and event.get("event") == "tool":
+            self._loop.call_soon_threadsafe(self._tool_filler, str(event.get("name", "")))
+
+    def _tool_filler(self, name: str) -> None:
+        turn = self._turn_fillers
+        if turn is not None and self._answer_started is None:
+            kind = turn.tool(name)
+            if kind is not None:
+                self._play_filler(kind)
+
+    async def _give_up(self, idx: int, heard: HeardTurn, work: asyncio.Task[None]) -> None:
+        """No answer in time: drop the turn and apologise (the user asks again)."""
+        if self._stream is not None:
+            self._stream.cancel()
+        if self._player is not None:
+            self._player.abort()
+        await self.client.send_tts_cancel()
+        work.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await asyncio.wait_for(work, timeout=2.0)
+        print("  [gave up: no answer in time]", flush=True)
+        picked = self.fillers.pick("giveup") if self.fillers is not None else None
+        if picked is not None:
+            await self.play_pcm(*picked)
+        self.log(
+            {
+                "turn": idx,
+                "question": heard.text,
+                "answer_words": 0,
+                "gave_up": True,
+                "fillers": list(self._filler_lines) or None,
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+        )
 
     async def complete_turn(self, heard: HeardTurn) -> HeardTurn:
         """If the words end like an unfinished sentence, ask whether there is more and join it.
@@ -457,6 +528,7 @@ class Session:
             else None
         )
         self._player = player
+        self._filler_push = player.push if player is not None else None
         on_chunk = self._chunk(player)
 
         def on_sentence(sentence: str) -> None:
@@ -516,6 +588,12 @@ class Session:
             "audio_underruns": underruns,
             "source": source,
             "cue_s": self._cue_s,
+            "fillers": list(self._filler_lines) or None,
+            "filler_after_final_ms": (
+                None
+                if self._filler_started is None or heard is None
+                else round((self._filler_started - heard.t_final) * 1000.0, 1)
+            ),
         }
         if heard is not None:
             rec["pause_ms"] = (
@@ -617,7 +695,7 @@ class Session:
             if interruption is None:
                 heard = None
                 continue
-            spoken = " ".join(self._spoken)
+            spoken = " ".join(self._filler_lines + self._spoken)
             heard = await self.follow_up(heard, interruption)
             after_interrupt = interruption.kind == "barge_in"
             strip = interruption.kind == "barge_in" and getattr(
@@ -678,15 +756,27 @@ class Session:
         self._spoken = []
         self._stream = None
         self._player = None
+        self._filler_started = None
+        self._filler_lines = []
+        self._filler_push = None
+        self._loop = asyncio.get_running_loop()
+        self._turn_fillers = TurnFillers(self.fillers) if self.fillers is not None else None
         t_final = heard.t_final
         work = asyncio.create_task(self.handle(idx, heard))
         watch = asyncio.create_task(self._watch_for_voice(heard.tail))
+        timer = asyncio.create_task(self._filler_timer(t_final))
         try:
-            await asyncio.wait({work, watch}, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait({work, watch, timer}, return_when=asyncio.FIRST_COMPLETED)
         except asyncio.CancelledError:
             work.cancel()
             watch.cancel()
+            timer.cancel()
             raise
+        if timer.done() and not work.done() and not watch.done():  # no answer in time
+            watch.cancel()
+            await self._give_up(idx, heard, work)
+            return None
+        timer.cancel()
         if not watch.done():  # the answer finished without interruption
             watch.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -789,7 +879,8 @@ class Session:
             roll.push(block)
             level_of = getattr(self._player, "level_recent", None)
             played = float(level_of()) if level_of is not None else 0.0
-            answering = self._answer_started is not None
+            # a filler is the assistant speaking too: its echo must not count as the user
+            answering = self._answer_started is not None or self._filler_started is not None
             guard.ducked = ducker is not None and ducker.ducked
             fired = guard.feed(block, played, answering=answering)
             set_gain = getattr(self._player, "set_gain", None)
@@ -895,6 +986,7 @@ async def async_main(args: argparse.Namespace) -> int:
             return 2
 
     llm = None
+    agent_llm = None  # the agent client, for --fillers' tool events
     if args.llm == "qwen":
         from doc_chat.qwen import build_qwen_chat_model
 
@@ -921,6 +1013,7 @@ async def async_main(args: argparse.Namespace) -> int:
         from doc_chat.agent_client import AgentChatModel
 
         llm = AgentChatModel(url=args.agent_url, timeout=args.llm_timeout)
+        agent_llm = llm
     elif args.llm == "gemini":
         from doc_chat.gemini import build_gemini_chat_model
 
@@ -999,6 +1092,18 @@ async def async_main(args: argparse.Namespace) -> int:
                 for line in ADD_PROMPTS:  # recorded once, so the prompt starts without waiting
                     pcm, *_ = await client.speak_text(line, voice=args.voice)
                     session.add_prompts.append((line, pcm))
+        if getattr(args, "fillers", False):
+            fillers = Fillers.load()
+
+            async def record(line: str) -> bytes:
+                pcm, *_ = await client.speak_text(line, voice=args.voice)
+                return bytes(pcm)
+
+            print(f"recording {len(fillers.lines())} filler lines...", flush=True)
+            await fillers.synthesise(record)  # once, so a filler starts without waiting
+            session.fillers = fillers
+            if agent_llm is not None:
+                agent_llm.on_event = session.on_agent_event
         past = session.history.pairs
         if args.stream:
             assert llm is not None
@@ -1220,6 +1325,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="K",
         help="with --level-kofn and --duck-db: while the speaker is ducked, K blocks above the "
         "echo allowance are enough (try 2: a bare 'stop' gives only one or two loud blocks)",
+    )
+    parser.add_argument(
+        "--fillers",
+        action="store_true",
+        help="say a short pre-recorded line when an answer is slow: a tool's line when it is "
+        "called, a stall at 1.2 s, a notice at 2.5 s, an apology at 8 s (config/fillers.json)",
     )
     parser.add_argument(
         "--echo-text-guard",

@@ -28,6 +28,11 @@ DOCS_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.docs"]
 WEB_INFO_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
 TIME_COMMAND = [sys.executable, "-m", "mcp_server_time", "--local-timezone", "Asia/Manila"]
 PI_URL = "http://169.254.230.219:8790/mcp"
+SAY = {
+    "type": "string",
+    "description": "One short sentence said to the user the moment this call starts, saying "
+    "what you are doing (like 'Checking the weather.'); never the result.",
+}
 
 
 def stdio_server(command: list[str], env: dict[str, str] | None = None) -> MCPClient:
@@ -64,13 +69,15 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
     assert inner is not None
 
     async def handler(params: FunctionCallParams) -> None:
-        record.append({"tool": schema.name, "args": dict(params.arguments)})
+        args = {k: v for k, v in params.arguments.items() if k != "say"}
+        record.append({"tool": schema.name, "args": args})
+        params.arguments = args  # the real tool never sees `say`
         await inner(params)
 
     return FunctionSchema(
         name=schema.name,
         description=schema.description,
-        properties=schema.properties,
+        properties={**schema.properties, "say": SAY},
         required=schema.required,
         handler=handler,
     )
@@ -90,7 +97,7 @@ async def build_tools(
     home = FunctionSchema(
         name=SCHEMA.name,
         description=SCHEMA.description,
-        properties=SCHEMA.properties,
+        properties={**SCHEMA.properties, "say": SAY},
         required=SCHEMA.required,
         handler=make_handler(base_url=live, record=record),
     )

@@ -1,0 +1,124 @@
+{
+  "timing": {
+    "stall_s": 1.2,
+    "notice_s": 2.5,
+    "giveup_s": 8.0
+  },
+  "stall": [
+    "Mm, one moment.",
+    "Okay, let me see.",
+    "Hmm, okay.",
+    "Right, just a moment.",
+    "Sure, give me a moment.",
+    "Let me think.",
+    "Got it, one moment."
+  ],
+  "notice": [
+    "Sorry, this is taking a little longer than usual.",
+    "Still working on it, the connection's a bit slow.",
+    "Bear with me, it's slow on my end right now.",
+    "Almost there, sorry for the wait.",
+    "Thanks for waiting, I'm still on it.",
+    "Sorry about the delay, nearly there.",
+    "This one's taking a moment, hang on."
+  ],
+  "giveup": [
+    "Sorry, that's taking too long. Could you ask me again?",
+    "I'm having trouble getting an answer right now. Can you try again in a moment?",
+    "Sorry, I lost my connection for a second. Could you say that again?",
+    "Sorry, I couldn't get that done just now. Want to try once more?",
+    "That didn't come through, sorry. Could you ask again?"
+  ],
+  "tools": {
+    "smart_home": [
+      "On it.",
+      "Okay, doing that now.",
+      "Sure, one moment.",
+      "Alright, give me a moment.",
+      "Okay, executing your request.",
+      "Right away.",
+      "Sure thing."
+    ],
+    "get_current_time": [
+      "Currently checking the time.",
+      "Checking the clock.",
+      "Let me look up the time.",
+      "Okay, checking the time.",
+      "Sure, let me see the time.",
+      "Just a moment.",
+      "Let me work that out."
+    ],
+    "convert_time": [
+      "Currently checking the time.",
+      "Checking the clock.",
+      "Let me look up the time.",
+      "Okay, checking the time.",
+      "Sure, let me see the time.",
+      "Just a moment.",
+      "Let me work that out."
+    ],
+    "weather": [
+      "Let me check the weather.",
+      "One moment, looking at the forecast.",
+      "Let me see what the forecast says.",
+      "Checking the weather now.",
+      "Okay, pulling up the forecast.",
+      "Getting the weather now.",
+      "Sure, checking the forecast."
+    ],
+    "wiki_summary": [
+      "Let me look that up.",
+      "One moment, checking.",
+      "Let me see what I can find.",
+      "Okay, looking into it.",
+      "Good question, let me check.",
+      "Let me pull that up.",
+      "Just a second, searching."
+    ],
+    "search_docs": [
+      "Let me look that up.",
+      "One moment, checking.",
+      "Let me see what I can find.",
+      "Okay, looking into it.",
+      "Good question, let me check.",
+      "Let me pull that up.",
+      "Just a second, searching."
+    ],
+    "set_volume": [
+      "Sure, adjusting it.",
+      "Let me adjust it.",
+      "Okay, will adjust it.",
+      "One moment, changing the volume.",
+      "Sure, setting the volume.",
+      "Okay, one second.",
+      "Just a moment."
+    ],
+    "get_volume": [
+      "Let me check the speaker.",
+      "One moment, asking the Pi.",
+      "Okay, checking the speaker.",
+      "Let me check on the Pi.",
+      "One second, reading that.",
+      "Just a moment.",
+      "Okay, checking."
+    ],
+    "device_status": [
+      "Let me check the speaker.",
+      "One moment, asking the Pi.",
+      "Okay, checking the speaker.",
+      "Let me check on the Pi.",
+      "One second, reading that.",
+      "Just a moment.",
+      "Okay, checking."
+    ]
+  },
+  "default": [
+    "One moment.",
+    "Let me check.",
+    "Okay, just a second.",
+    "Let me see.",
+    "Sure, give me a moment.",
+    "Looking into it.",
+    "Okay, one sec."
+  ]
+}

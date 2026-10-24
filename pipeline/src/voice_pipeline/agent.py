@@ -62,9 +62,11 @@ class TurnTap(FrameProcessor):
         self.on_text: OnText | None = None
         self.begin(None)
 
-    def begin(self, on_text: OnText | None) -> None:
+    def begin(self, on_text: OnText | None, on_tool: OnText | None = None) -> None:
         self.done.clear()
         self.on_text = on_text
+        self.on_tool = on_tool
+        self.announced = False  # the first tool call of a turn is announced once
         self.text: list[str] = []
         self.started = time.perf_counter()
         self.first_call: float | None = None
@@ -82,6 +84,9 @@ class TurnTap(FrameProcessor):
             self.calls_in_response = True
             if self.first_call is None:
                 self.first_call = now
+            if not self.announced:
+                self.announced = True
+                await self._announce(frame)
         elif isinstance(frame, LLMTextFrame):
             if self.first_text is None and frame.text.strip():
                 self.first_text = now
@@ -92,6 +97,18 @@ class TurnTap(FrameProcessor):
             if not self.calls_in_response:
                 self.done.set()
         await self.push_frame(frame, direction)
+
+    async def _announce(self, frame: FunctionCallsStartedFrame) -> None:
+        """Say the model's `say` sentence for the call, or tell the client which tool runs."""
+        calls = list(frame.function_calls)
+        say = next((str(c.arguments.get("say") or "").strip() for c in calls), "")
+        if say and self.on_text is not None:
+            self.text.append(say + " ")
+            if self.first_text is None:
+                self.first_text = time.perf_counter() - self.started
+            await self.on_text(say + " ")
+        elif calls and self.on_tool is not None:
+            await self.on_tool(calls[0].function_name)
 
 
 class Agent:
@@ -117,10 +134,16 @@ class Agent:
             await self._running
 
     async def ask(
-        self, messages: list[Any], *, reset: bool, on_text: OnText | None = None
+        self,
+        messages: list[Any],
+        *,
+        reset: bool,
+        on_text: OnText | None = None,
+        on_tool: OnText | None = None,
     ) -> dict[str, Any]:
-        """One turn. reset=True replaces the conversation with `messages`, else appends them."""
-        self.tap.begin(on_text)
+        """One turn. reset=True replaces the conversation with `messages`, else appends them.
+        `on_tool` gets the tool's name when a call starts and the model gave no `say`."""
+        self.tap.begin(on_text, on_tool)
         frame_type = LLMMessagesUpdateFrame if reset else LLMMessagesAppendFrame
         await self.worker.queue_frame(frame_type(messages=messages, run_llm=True))
         try:
