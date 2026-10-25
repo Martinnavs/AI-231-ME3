@@ -135,3 +135,16 @@ async def test_the_say_is_speech_not_the_answer_and_timed_lines_follow_it() -> N
     s._current_is_say = False
     s._chunk(None)(b"\x00\x00")  # a real answer sentence
     assert s._answer_started is not None
+
+
+async def test_each_filler_is_logged_with_when_it_starts_and_how_long_it_is() -> None:
+    import time
+
+    s, _pushed = _with_fillers()
+    s.client.tts_sample_rate = 15  # the 15-byte stall line lasts 0.5 s
+    s._t_final = time.perf_counter() - 1.0
+    s._play_filler("stall")
+    s._play_filler("notice")  # queued behind the stall
+    first, second = s._filler_log
+    assert first["kind"] == "stall" and 0.95 < first["start_s"] < 1.1 and first["len_s"] == 0.5
+    assert second["start_s"] > first["start_s"] + 0.45
