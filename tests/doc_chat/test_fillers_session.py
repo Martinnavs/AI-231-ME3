@@ -111,3 +111,27 @@ async def test_the_notice_waits_for_the_stall_to_finish_and_a_gap() -> None:
     await asyncio.sleep(1.2)
     timer.cancel()
     assert len(times) == 2 and times[1] - times[0] >= 0.5 + 0.15 - 0.01
+
+
+async def test_the_say_is_speech_not_the_answer_and_timed_lines_follow_it() -> None:
+    import time
+
+    s, pushed = _with_fillers()
+    s.client.tts_sample_rate = 1000  # the 15-byte stall line lasts 7.5 ms
+    s._loop = asyncio.get_running_loop()
+    s.on_agent_event({"event": "tool", "name": "weather", "said": True})
+    await asyncio.sleep(0.01)
+    assert s._turn_fillers is not None and s._turn_fillers.say_pending
+    timer = asyncio.create_task(s._filler_timer(time.perf_counter()))
+    await asyncio.sleep(0.15)
+    assert pushed == []  # the stall waits for the announced say
+    s._current_is_say = True
+    s._chunk(None)(b"\x00\x00" * 10)  # the say's audio starts
+    assert s._answer_started is None and s._say_started is not None
+    assert not s._turn_fillers.say_pending
+    await asyncio.sleep(0.2)
+    assert pushed[0] == b"Mm, one moment."  # the stall, only after the say began
+    timer.cancel()
+    s._current_is_say = False
+    s._chunk(None)(b"\x00\x00")  # a real answer sentence
+    assert s._answer_started is not None

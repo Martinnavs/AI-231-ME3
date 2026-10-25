@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+SAY_WAIT_S = 3.0  # how long a timed line waits for an announced `say` to start
 CONFIG = Path(__file__).resolve().parents[2] / "config" / "fillers.json"
 
 
@@ -78,6 +80,8 @@ class TurnFillers:
     answered: bool = False  # the real answer has started
     filled: bool = False  # a stall or tool line has played
     noticed: bool = False
+    say_pending: bool = False  # the model's `say` was announced but its audio has not started
+    say_until: float = 0.0  # perf_counter after which a missing `say` is no longer waited for
     played: list[str] = field(default_factory=list)
 
     def next_at(self) -> float | None:
@@ -109,8 +113,12 @@ class TurnFillers:
         model's own sentence for the call is on its way: `said`)."""
         if self.answered or self.filled:
             return None
+        if said:  # timed lines then follow the `say`: they wait for it to finish and a gap
+            self.say_pending = True
+            self.say_until = time.perf_counter() + SAY_WAIT_S
+            return None
         self.filled = True
-        return None if said else f"tool:{name}"
+        return f"tool:{name}"
 
     def text_arrived(self) -> None:
         """The agent's answer text has started: its audio is imminent, so no stall line."""

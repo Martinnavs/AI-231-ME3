@@ -1,5 +1,6 @@
 """The tools' `say` argument: offered to the model, spoken at the call, never sent to the tool."""
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 
@@ -10,6 +11,7 @@ from pipecat.frames.frames import (
     FunctionCallResultProperties,
     FunctionCallsStartedFrame,
 )
+from pipecat.processors.frame_processor import FrameDirection
 
 from voice_pipeline.agent import TurnTap
 from voice_pipeline.agent_tools import _recorded, build_tools
@@ -60,7 +62,7 @@ async def test_the_model_s_say_is_its_own_event_and_the_tool_is_always_reported(
     async def on_tool(n: str, said: bool) -> None:
         tools.append((n, said))
 
-    tap = TurnTap()
+    tap = TurnTap(say_delay_s=0)
     tap.begin(on_text, on_tool, on_say)
     await tap._announce(_frame("weather", {"say": "Checking the weather."}))
     assert says == ["Checking the weather. "] and texts == [] and tools == [("weather", True)]
@@ -73,7 +75,7 @@ async def test_without_a_say_callback_the_sentence_goes_out_as_text() -> None:
     async def on_text(t: str) -> None:
         texts.append(t)
 
-    tap = TurnTap()
+    tap = TurnTap(say_delay_s=0)
     tap.begin(on_text)
     await tap._announce(_frame("weather", {"say": "Checking the weather."}))
     assert texts == ["Checking the weather. "]
@@ -120,8 +122,9 @@ async def test_a_sentence_result_is_spoken_and_ends_the_turn_without_a_second_re
 async def test_a_command_that_worked_ends_on_the_model_s_say() -> None:
     texts: list[str] = []
     tap = await _tap(1, True, texts)
+    tap.say_text = "Turning on the lights."  # held, not yet sent
     await tap._result(_result({"ok": True, "message": "recorded"}))
-    assert texts == [] and tap.done.is_set()
+    assert texts == ["Turning on the lights. "] and tap.done.is_set()
 
 
 async def test_without_a_say_or_with_several_calls_the_model_still_answers() -> None:
@@ -174,3 +177,39 @@ async def test_a_failure_sentence_still_goes_to_the_model() -> None:
     params = SimpleNamespace(arguments={}, result_callback=deliver)
     await _recorded(schema, []).handler(params)
     assert got == [None]
+
+
+async def _announced(delay: float, texts: list[str]) -> TurnTap:
+    async def on_text(t: str) -> None:
+        texts.append(t)
+
+    tap = TurnTap(say_delay_s=delay)
+    tap.begin(on_text)
+    await tap._announce(_frame("wiki_summary", {"say": "Looking that up."}))
+    tap.calls_started = 1
+    return tap
+
+
+async def test_the_say_is_held_and_dropped_when_the_answer_arrives_in_time() -> None:
+    texts: list[str] = []
+    tap = await _announced(0.2, texts)
+    assert texts == []  # held
+    await tap._result(_result("Steinbeck wrote The Grapes of Wrath."))
+    await asyncio.sleep(0.3)
+    assert texts == ["Steinbeck wrote The Grapes of Wrath. "]  # the say never goes out
+
+
+async def test_the_say_goes_out_when_the_tool_is_slow() -> None:
+    texts: list[str] = []
+    await _announced(0.05, texts)
+    await asyncio.sleep(0.15)
+    assert texts == ["Looking that up. "]
+
+
+async def test_the_say_goes_out_before_the_model_s_own_words() -> None:
+    from pipecat.frames.frames import LLMTextFrame
+
+    texts: list[str] = []
+    tap = await _announced(5.0, texts)
+    await tap.process_frame(LLMTextFrame(text="Sorry, "), FrameDirection.DOWNSTREAM)
+    assert texts[0] == "Looking that up. " and texts[1] == "Sorry, "

@@ -267,15 +267,13 @@ def build_answer_chain(
 FLUSH = "\x1f"  # in a reply: the sentence before it is finished, speak it now (agent `say` lines)
 
 
-def _sentences(visible: str, final: bool) -> list[str]:
-    """Sentences of the reply so far; the last, still-growing one is left out unless `final`
-    or it ends at a FLUSH mark."""
+def _sentences(visible: str, final: bool) -> list[tuple[str, bool]]:
+    """(sentence, flushed) pairs of the reply so far; the last, still-growing sentence is left
+    out unless `final` or it ends at a FLUSH mark (those are the flushed ones)."""
     parts = visible.split(FLUSH)
-    out: list[str] = []
-    for part in parts[:-1]:
-        out += split_sentences(part)
+    out = [(s, True) for part in parts[:-1] for s in split_sentences(part)]
     last = split_sentences(parts[-1])
-    return out + (last if final else last[:-1])
+    return out + [(s, False) for s in (last if final else last[:-1])]
 
 
 class SentenceStream:
@@ -311,6 +309,7 @@ class SentenceStream:
         self._max_words = max_words
         self._history = history
         self._cancelled = False
+        self.flushed: set[str] = set()  # sentences the agent marked to be spoken at once
 
     def cancel(self) -> None:
         """Stop producing sentences (the listener interrupted); the model call is dropped at its
@@ -333,12 +332,14 @@ class SentenceStream:
                     self.first_token_ms = (time.perf_counter() - t0) * 1000.0
                 raw += piece
                 ready = _sentences(_visible_so_far(raw), final=False)
-                for sentence in ready[consumed:]:
+                for sentence, flushed in ready[consumed:]:
                     consumed += 1
                     out = self._take(strip_markdown(sentence), words)
                     if out is None:
                         stopped = True
                         break
+                    if flushed:
+                        self.flushed.add(out)
                     released.append(out)
                     words += len(out.split())
                     yield out
@@ -347,7 +348,7 @@ class SentenceStream:
                 if stopped:
                     break
             if not stopped:
-                for sentence in _sentences(_visible_so_far(raw), final=True)[consumed:]:
+                for sentence, _flushed in _sentences(_visible_so_far(raw), final=True)[consumed:]:
                     out = self._take(strip_markdown(sentence), words)
                     if out is None:
                         break
