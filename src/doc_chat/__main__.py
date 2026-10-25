@@ -275,6 +275,8 @@ class Session:
     _filler_started: float | None = None  # perf_counter of the first filler audio
     _say_started: float | None = None  # perf_counter of the first audio of the agent's `say`
     _current_is_say: bool = False  # the sentence being spoken is the agent's `say`
+    _t_final: float = 0.0  # perf_counter when this turn's transcript was ready
+    _filler_log: list[dict[str, Any]] = field(default_factory=list)  # when each line played
     _filler_free_at: float = 0.0  # perf_counter when the queued filler audio has played out
     _filler_lines: list[str] = field(default_factory=list)
     _loop: asyncio.AbstractEventLoop | None = None
@@ -367,9 +369,12 @@ class Session:
         self._filler_lines.append(text)
         print(f"bot:  ({text})", flush=True)
         now = time.perf_counter()
-        self._filler_free_at = (
-            max(now, self._filler_free_at) + len(pcm) / 2 / self.client.tts_sample_rate
+        length = len(pcm) / 2 / self.client.tts_sample_rate
+        starts = max(now, self._filler_free_at)  # queued behind earlier audio
+        self._filler_log.append(
+            {"kind": kind, "start_s": round(starts - self._t_final, 2), "len_s": round(length, 2)}
         )
+        self._filler_free_at = starts + length
         self._filler_push(pcm)
 
     async def _filler_timer(self, t_final: float) -> str:
@@ -432,6 +437,7 @@ class Session:
                 "answer_words": 0,
                 "gave_up": True,
                 "fillers": list(self._filler_lines) or None,
+                "filler_log": list(self._filler_log) or None,
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
         )
@@ -620,6 +626,7 @@ class Session:
             "source": source,
             "cue_s": self._cue_s,
             "fillers": list(self._filler_lines) or None,
+            "filler_log": list(self._filler_log) or None,
             "filler_after_final_ms": (
                 None
                 if self._filler_started is None or heard is None
@@ -792,6 +799,8 @@ class Session:
         self._current_is_say = False
         self._filler_free_at = 0.0
         self._filler_lines = []
+        self._filler_log = []
+        self._t_final = heard.t_final
         self._filler_push = None
         self._loop = asyncio.get_running_loop()
         self._turn_fillers = TurnFillers(self.fillers) if self.fillers is not None else None
