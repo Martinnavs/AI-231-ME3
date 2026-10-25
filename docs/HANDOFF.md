@@ -401,6 +401,7 @@ LAN_SPEECH_TOKEN=... uv run --group laptop python -W ignore -u -m doc_chat --mic
     --barge-echo-quantile 0.95 --barge-echo-window 60 --barge-echo-margin 1.2 --barge-echo-prior 0.8 --trace-guard \
     --history 4 --max-words 90 --aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0 --record out/sessions/<name>
 uv run --group laptop python scripts/cue_report.py out/sessions/<name>          # score a cue-beep session
+uv run --group laptop python scripts/demo_warmup.py   # R6: network, Pi, speech and one request per tool; READY or the FAIL lines; --keepalive 60 to stay warm
 make agent-dryrun                                    # 87 prompts, native Gemini (costs cents); LIMIT=5 for a short one
 cd pipeline && LAN_SPEECH_TOKEN=... uv run python -m voice_pipeline.latency_probe --minutes 45 --every 60   # LLM spike probe (well under a cent)
 make pipeline-check pipeline-test                    # the Pipecat project's own gates
