@@ -322,17 +322,19 @@ Earlier (2026-10-21):
 
 ---
 
-## 7. Next actions, in order (updated 2026-10-25; items 2-4 of the 2026-10-24 list are done: filler fixes, the repeat spoken session, R4/R5/R6)
+## 7. Next actions, in order (rewritten 2026-10-25)
 
-1. **(Owner)** Decide or ask the professor: is "laptop microphone, Pi loudspeaker" acceptable (section 6, item 1)? Everything below branches on it. Choose how to land the branches (`docs/BRANCHES.md`; about 85 commits ahead of `main`).
-2. **(Assistant; direct or a fourth agy ticket, the owner's choice)** The four fixes from the fillers session (`docs/LATENCY.md`): the `say` as its own event spoken directly (and the tool event always sent), strip filler phrases anywhere in the transcript, the stall waits if answer text has already arrived. Tests first.
-3. **(Both)** Repeat the same spoken script (fast command, weather, Wikipedia, a Pi tool, a talk-over, the paused-agent give-up) with `--fillers` and the echo flags; then decide whether to keep `say`.
-4. **(Owner, then assistant)** Decide R4 (the probe supports it). Then R6, the demo warm-up (touch every server and tool, network check, keep-alive), and R5 (one LLM request for tools whose answer is already a sentence, after a Gemini history test; home forecast refreshed every 10 minutes). Plan: `.scratch/latency/PLAN.md`.
-5. **(Assistant)** Delete or keep `--level-kofn-ducked` (it did not help); a minimal system prompt whose routing lives in each tool's description (the owner asked for "minimal yet scalable to all tools").
-6. **(Both)** Ticket 26 (first words of a question), 27 (end of turn on spontaneous speech, record on the laptop mic), 25 (laddered TTS, about 0.15-0.2 s).
-7. **(Both)** Repeat the spoken sessions with a second speaker, another room, and a recorded speaker distance; try 90% volume now that the canceller exists.
+Done and not to be redone: the filler fixes, spoken sessions 3-6, R3, R4, R5, R6 (see section 0 and `docs/LATENCY.md`). Numbers to beat: `docs/INDUSTRY-COMPARISON.md` (median 2.58 s end of speech to first sound; target 1.5-2 s).
+
+1. **(Owner)** Push or not: nothing is waiting except the owner's decisions below. Decide or ask the professor whether "laptop microphone, Pi loudspeaker" is acceptable (section 6, item 1); everything below branches on it. Choose how to land the branches (`docs/BRANCHES.md`; about 100 commits ahead of `main`).
+2. **(Assistant, after the owner agrees)** **Demo names in the speech server's entity list** (`config/entities-docs.json`; built for the Harry Potter documents): Baguio, Dune, Steinbeck, Anne Carson, Herbert, Berger and the places and people of the demo script. Test on the recorded clips first (`scripts/stt_compare.py`, `bench/mic_hard/`), then run `scripts/demo_warmup.py` and a spoken session. Why: the recogniser turned "Baguio" into "Baglio", "Dune" into "June", "Anne Carson" into "Ann Carson"; the model recovers on a retry, not always.
+3. **(Assistant, direct)** **Shorten the end-of-turn hold** (0.64 s now; industry window 0.2-0.5 s; saves 0.15-0.25 s) and try the early decode (`--early-decode-ms 200`: finalise 659 -> 375 ms, but short-command WER 4.9% -> 7.4%; the tail-padding fix is untested). Measure cut-offs first (`scripts/interrupt_bench.py`, a spoken session): a shorter hold risks cutting people off, and Smart Turn was rejected for that.
+4. **(Both)** **Ticket 25**, a smaller first TTS chunk (saves 0.15-0.2 s; TTS first audio is 352 ms against the industry 250 ms). Then tickets 26 (first words of a question) and 27 (end of turn on spontaneous speech, recorded on the laptop mic).
+5. **(Assistant)** **Home forecast background refresh** (the second half of R5: fetch at start, refresh every 10 minutes; `web_info.py`): the home weather answer becomes instant. Open-Meteo drops idle connections after 3-5 s, so only a refresh helps, not a keep-alive.
+6. **(Assistant)** A minimal system prompt whose routing lives in each tool's description (the owner asked for "minimal yet scalable to all tools"), then a dry run (`make agent-dryrun`; the last runs scored 82-85 of 87, so judge by three runs). Delete or keep `--level-kofn-ducked` (it did not help).
+7. **(Both)** Repeat the spoken sessions with a second speaker, another room and a recorded speaker distance; try 90% volume now that the canceller exists. This is the biggest gap in `docs/INDUSTRY-COMPARISON.md` (one speaker, one room).
 8. **(Assistant)** Tickets 22 (lift `doc_chat/speech.py` into the `lan` backend of `audio_engine`) and 16 (Pi speaker deploy and preflight) are unblocked; then the real Pipecat pipeline (ticket 11) with the guard and the duck as processors, then 10, 28, 18, 19 (laptop-side playback), 20, 15 (shrunk), 17. Pipecat code stays in `pipeline/` (it cannot import the root packages without taking their dependency pins).
-9. Parked, in order of value: coughs and knocks recorded for real; server-side resume for early send; provisional transcripts for speculative LLM start; a Groq comparison on answer quality (it needs a larger model than the 8B).
+9. Parked, in order of value: latency figures for tool-calling voice agents (not yet looked up); coughs and knocks recorded for real; server-side resume for early send; provisional transcripts for speculative LLM start (zero gain while every answer is a tool turn); a Groq comparison on answer quality (it needs a larger model than the 8B).
 
 ---
 
