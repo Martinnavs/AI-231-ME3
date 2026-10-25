@@ -1,6 +1,6 @@
 {
   "timing": {
-    "stall_s": 1.2,
+    "stall_s": 1.8,
     "notice_s": 2.5,
     "giveup_s": 8.0,
     "gap_s": 1.5

@@ -34,6 +34,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.google.llm import GoogleLLMService
 from pipecat.workers.runner import WorkerRunner
 
+SAY_DELAY_S = 0.6  # a tool that answers within this makes the `say` sentence unnecessary
 MODEL = "gemini-3.1-flash-lite"
 TURN_TIMEOUT_S = 20.0
 OnText = Callable[[str], Awaitable[None]]
@@ -59,8 +60,10 @@ def build_llm(system: str, model: str = MODEL) -> GoogleLLMService:
 class TurnTap(FrameProcessor):
     """Times one turn (first tool call, first text, end) and forwards its text."""
 
-    def __init__(self) -> None:
+    def __init__(self, say_delay_s: float = SAY_DELAY_S) -> None:
         super().__init__()
+        self.say_delay_s = say_delay_s
+        self._say_task: asyncio.Task[None] | None = None
         self.done = asyncio.Event()
         self.on_text: OnText | None = None
         self.on_say: OnText | None = None
@@ -73,6 +76,7 @@ class TurnTap(FrameProcessor):
         on_tool: OnTool | None = None,
         on_say: OnText | None = None,
     ) -> None:
+        self._drop_say()
         self.done.clear()
         self.on_text = on_text
         self.on_tool = on_tool
@@ -84,7 +88,8 @@ class TurnTap(FrameProcessor):
         self.first_text: float | None = None
         self.calls_in_response = False
         self.calls_started = 0  # tool calls in this turn's response
-        self.said = False  # the model's own `say` sentence for the call was spoken
+        self.said = False  # the model gave a `say` sentence for the call (spoken, or still held)
+        self.say_text = ""  # ... and this is it, until spoken or dropped
         self.responding = False  # a late end frame from a cancelled turn must not end this one
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
@@ -104,6 +109,7 @@ class TurnTap(FrameProcessor):
         elif isinstance(frame, FunctionCallResultFrame):
             await self._result(frame)
         elif isinstance(frame, LLMTextFrame):
+            await self._speak_say()  # the model's own words follow the `say`, never precede it
             if self.first_text is None and frame.text.strip():
                 self.first_text = now
             self.text.append(frame.text)
@@ -115,19 +121,44 @@ class TurnTap(FrameProcessor):
         await self.push_frame(frame, direction)
 
     async def _announce(self, frame: FunctionCallsStartedFrame) -> None:
-        """Speak the model's `say` sentence for the call (as its own event, `on_say`, when the
-        client has one) and always tell the client which tool runs, and whether it was said."""
+        """Hold the model's `say` sentence for the call for `say_delay_s`: a tool that answers
+        within that makes it unnecessary (it is dropped and the answer is spoken alone), else it
+        goes out as its own event (`on_say`, else `on_text`). Always tell the client which tool
+        runs, and whether a `say` is on its way."""
         calls = list(frame.function_calls)
         say = next((str(c.arguments.get("say") or "").strip() for c in calls), "")
-        speak = self.on_say or self.on_text
-        if say and speak is not None:
-            self.text.append(say + " ")
-            if self.first_text is None:
-                self.first_text = time.perf_counter() - self.started
-            await speak(say + " ")
-        self.said = bool(say and speak is not None)
+        self.said = bool(say and (self.on_say or self.on_text) is not None)
+        if self.said:
+            self.say_text = say
+            if self.say_delay_s > 0:
+                self._say_task = asyncio.create_task(self._say_after_delay())
+            else:
+                await self._speak_say()
         if calls and self.on_tool is not None:
             await self.on_tool(calls[0].function_name, self.said)
+
+    async def _say_after_delay(self) -> None:
+        await asyncio.sleep(self.say_delay_s)
+        await self._speak_say()
+
+    async def _speak_say(self) -> None:
+        """Send the held `say` sentence now (once)."""
+        say, self.say_text = self.say_text, ""
+        self._drop_say()
+        speak = self.on_say or self.on_text
+        if not say or speak is None:
+            return
+        self.text.append(say + " ")
+        if self.first_text is None:
+            self.first_text = time.perf_counter() - self.started
+        await speak(say + " ")
+
+    def _drop_say(self) -> None:
+        """Forget a held `say` sentence and stop its timer."""
+        self.say_text = ""
+        task, self._say_task = self._say_task, None
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()
 
     async def _result(self, frame: FunctionCallResultFrame) -> None:
         """A tool asked for no second LLM request (`run_llm=False`): allow it only when the turn
@@ -141,7 +172,10 @@ class TurnTap(FrameProcessor):
         if self.calls_started != 1 or not (sentence or self.said):
             frame.properties = replace(props, run_llm=None)
             return
+        if not sentence:
+            await self._speak_say()  # the `say` is the whole reply
         if sentence:
+            self._drop_say()  # the answer is here: no need to announce that it is coming
             self.text.append(sentence + " ")
             if self.first_text is None:
                 self.first_text = time.perf_counter() - self.started
@@ -203,5 +237,6 @@ class Agent:
     async def cancel(self) -> None:
         """Interrupt the turn in progress and stop forwarding its text."""
         self.tap.on_text = None
+        self.tap._drop_say()
         await self.worker.queue_frame(InterruptionFrame())
         self.tap.done.set()

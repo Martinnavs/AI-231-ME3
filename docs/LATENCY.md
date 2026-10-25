@@ -39,12 +39,12 @@ Every answer is now a tool turn, so every answer pays for two LLM requests. The 
 |---|---|---|---|
 | R3 | **Fast path:** the 11 command kinds in the table below match exact phrasings on the last user message and run the real tool directly, then speak a fixed confirmation (or the tool's own error) without calling the LLM. Anything else goes to the LLM as before. The turn stays in the history, so follow-ups work. | `pipeline/src/voice_pipeline/fast_path.py`, `agent_server.py` (`--fast-path`, on by default) | ticket 01 |
 | R2a | **`say` argument on every tool:** a short sentence the model writes in the call ("Checking the weather in Baguio."). It is spoken when the call starts and removed before the tool runs. If it's missing, the agent server sends `{"event": "tool", "name": ...}` instead. | `agent.py` (`TurnTap._announce`), `agent_tools.py`, `agent_server.py`, `system_agent.txt` | ticket 02 |
-| R2b | **Fillers in doc_chat** (`--fillers`). Times count from when the transcript is ready: **stall at 1.2 s** (fast answers get nothing), the **tool's line** if a tool event comes first, an honest **notice at 2.5 s**, and **give-up at 8 s** (cancel, apologise, drop the turn, log `gave_up`). At most one stall-or-tool line per turn, and none once the answer has started. Lines are pre-synthesised at session start. They play through the answer's own audio path, so the echo guard counts them as the bot speaking. They stay out of the chat history. | `src/doc_chat/fillers.py`, `config/fillers.json`, `__main__.py`, `agent_client.py` | ticket 03 |
+| R2b | **Fillers in doc_chat** (`--fillers`). Times count from when the transcript is ready: **stall at 1.8 s** (fast answers get nothing; raised from 1.2 s on 2026-10-25 because the typical first LLM call is 1.0-1.4 s, so 1.2 s fired just before ordinary answers), the **tool's line** if a tool event comes first, an honest **notice at 2.5 s**, and **give-up at 8 s** (cancel, apologise, drop the turn, log `gave_up`). At most one stall-or-tool line per turn, and none once the answer has started. Lines are pre-synthesised at session start. They play through the answer's own audio path, so the echo guard counts them as the bot speaking. They stay out of the chat history. | `src/doc_chat/fillers.py`, `config/fillers.json`, `__main__.py`, `agent_client.py` | ticket 03 |
 | R5 | One LLM request instead of two: `weather`, `wiki_summary`, `get_volume`, `set_volume` speak their own result sentence; a `smart_home` command that worked ends on the model's `say`. `TurnTap._result` vetoes (the model still answers) when the response has several calls, when `smart_home` had no `say`, or when a tool failed. The Gemini history test passed (next user turn accepted with or without a model reply after the tool result; 1 trial each). Home forecast refresh in the background: not done | `agent.py`, `agent_tools.py`, `tools/smart_home.py` | landed 2026-10-25; dry run `r5-full` 85/87 exact, spoken time of tool turns 1.57 s (was 2.05 s), weather 0.85 s (was 2.09 s); one run each |
 | R6 | Demo-day warm-up: touch every server and tool, check the network, keep-alive while waiting | `scripts/demo_warmup.py` | later |
 | R4 | Two requests at once, take the first | `agent.py` / `agent_server.py` | R1 supports it (p90 2.86 -> 1.94 s); owner to decide |
 
-**Why the stall is at 1.2 s, not 500 ms:** the transcript is ready about 1.0-1.3 s after the user stops, so 500 ms "after the end of speech" has always already passed when the agent starts. The owner chose 1.2 s after the transcript.
+**Why the stall is after the transcript, not 500 ms after speech:** the transcript is ready about 1.0-1.3 s after the user stops, so 500 ms "after the end of speech" has always already passed when the agent starts. The owner chose 1.2 s after the transcript; it became 1.8 s after `fillers-3`.
 
 **Phrases** (reviewed by the owner, `.scratch/latency/fillers-draft.md`):
 - 7 stall lines ("Mm, one moment.").
@@ -100,3 +100,13 @@ Flags: `--aec --duck-db -15 --strip-echo-prefix --barge-warmup-s 1.0 --fillers`.
 ## Not yet done
 - Repeat the same spoken script with `--fillers`; the `say` dry-run cost is still to re-measure.
 - R4 (the owner's call), R6 (warm-up), R5.
+
+## Spoken session 3 and what it changed (`out/sessions/fillers-3`, 2026-10-25, 13 turns)
+
+**Worked:** one LLM request per tool turn (server `end_s` 1.3-2.3 s); the `say` flush (weather first audio 1.9 s while its tool took 5 s); one short sentence for LLM-routed commands; fast path 0.0 s on the server. **Problems found:** R5 read a Wikipedia failure aloud (fixed: failure sentences go to the model, `f210e9d`); the stall fired on 4 of 13 turns just before a normal answer; a `say` followed straight by the answer sounded artificial (Steinbeck question); weather had a silent gap after its `say`; one LLM spike of 7.5 s.
+
+**Changes (owner's direction, same day):**
+- **`say` is held 0.6 s** (`TurnTap.say_delay_s`). If the tool's sentence arrives first, the `say` is dropped and the answer is spoken alone. A `smart_home` command speaks its `say` at once as the reply, and the `say` always goes out before any text of the model's own.
+- **Canned lines follow the `say`.** The client knows which sentence is the `say` (`SentenceStream.flushed`); its audio counts as speech for the echo guard and for barge-in but not as "the answer". An announced `say` makes the stall and notice wait for it to start (up to 3 s), finish, and `gap_s`. The tool's own line is no longer used when a `say` is announced.
+- **Stall 1.2 -> 1.8 s.**
+- Not yet heard in a spoken session.

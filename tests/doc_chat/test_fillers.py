@@ -65,7 +65,7 @@ def test_nothing_plays_once_the_answer_has_started() -> None:
 
 def test_the_reviewed_phrase_file_loads() -> None:
     f = Fillers.load()
-    assert (f.stall_s, f.notice_s, f.giveup_s) == (1.2, 2.5, 8.0)
+    assert (f.stall_s, f.notice_s, f.giveup_s) == (1.8, 2.5, 8.0)
     assert len(f.sets["stall"]) == 7 and len(f.sets["giveup"]) == 5
     assert len(f.sets["tool:weather"]) == 7 and len(f.sets["default"]) == 7
     for name in ("smart_home", "get_current_time", "wiki_summary", "set_volume", "device_status"):
@@ -85,13 +85,13 @@ def test_filler_lines_are_stripped_from_anywhere_in_a_transcript() -> None:
     assert strip_fillers("Almost there.", lines) == ""
 
 
-def test_a_said_tool_or_arrived_text_skips_the_stall() -> None:
+def test_arrived_text_skips_the_stall_and_a_said_tool_defers_it() -> None:
     from doc_chat.fillers import Fillers, TurnFillers
 
     f = Fillers({"stall": ["s"], "notice": ["n"], "giveup": ["g"], "default": ["d"], "tools": {}})
     turn = TurnFillers(f)
-    assert turn.tool("weather", said=True) is None and turn.due(1.5) is None
-    assert turn.due(2.6) == "notice"
+    assert turn.tool("weather", said=True) is None and turn.say_pending  # the say comes first
+    assert turn.due(1.5) == "stall"  # ... and a canned line may still follow it
     turn = TurnFillers(f)
     turn.text_arrived()
     assert turn.due(1.5) is None

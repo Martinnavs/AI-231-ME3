@@ -10,7 +10,7 @@ Protocol, one request per WebSocket connection:
             {"event": "tool", "name": str, "said": bool} whenever a tool is called (for a
             filler; "said" = the model's own sentence for the call was already sent);
             {"text": str, "flush": true} is a sentence to speak now, not held back for the next;
-            {"event": "text"} once, when the first text of the reply arrives
+            {"event": "text"} once, when the first text other than a flush sentence arrives
 """
 
 from __future__ import annotations
@@ -73,9 +73,9 @@ class AgentChatModel(BaseChatModel):
             while True:
                 event = json.loads(ws.recv(timeout=self.timeout))
                 if "text" in event:
-                    if first and self.on_event is not None:
-                        self.on_event({"event": "text"})
-                    first = False
+                    if first and not event.get("flush") and self.on_event is not None:
+                        self.on_event({"event": "text"})  # the `say` is not the answer
+                    first = first and bool(event.get("flush"))
                     text = event["text"] + (FLUSH if event.get("flush") else "")
                     yield ChatGenerationChunk(message=AIMessageChunk(content=text))
                 elif "event" in event:

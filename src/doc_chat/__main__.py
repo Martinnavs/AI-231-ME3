@@ -273,6 +273,8 @@ class Session:
     _turn_fillers: TurnFillers | None = None
     _filler_push: Callable[[bytes], None] | None = None  # into the answer's player
     _filler_started: float | None = None  # perf_counter of the first filler audio
+    _say_started: float | None = None  # perf_counter of the first audio of the agent's `say`
+    _current_is_say: bool = False  # the sentence being spoken is the agent's `say`
     _filler_free_at: float = 0.0  # perf_counter when the queued filler audio has played out
     _filler_lines: list[str] = field(default_factory=list)
     _loop: asyncio.AbstractEventLoop | None = None
@@ -320,8 +322,15 @@ class Session:
         pushed = [0]  # samples of this reply handed on so far
 
         def push(pcm: bytes) -> None:
-            if self._answer_started is None:
-                self._answer_started = time.perf_counter()
+            now = time.perf_counter()
+            if self._current_is_say:  # the agent's `say`: speech, but not yet the answer
+                if self._say_started is None:
+                    self._say_started = now
+                self._filler_free_at = max(now, self._filler_free_at) + len(pcm) / 2 / rate
+                if self._turn_fillers is not None:
+                    self._turn_fillers.say_pending = False
+            elif self._answer_started is None:
+                self._answer_started = now
             if cue:
                 pcm = mix_beep(pcm, pushed[0], rate, beep_s)
             pushed[0] += len(pcm) // 2
@@ -368,6 +377,8 @@ class Session:
         turn = self._turn_fillers
         while turn is not None and (at := turn.next_at()) is not None:
             await asyncio.sleep(max(0.0, t_final + at - time.perf_counter()))
+            while turn.say_pending and time.perf_counter() < turn.say_until:
+                await asyncio.sleep(0.05)  # a `say` is on its way: the lines follow it
             if at < turn.fillers.giveup_s:  # the give-up is a hard cap; the rest wait their turn
                 await asyncio.sleep(
                     max(0.0, self._filler_free_at + turn.fillers.gap_s - time.perf_counter())
@@ -551,6 +562,7 @@ class Session:
         on_chunk = self._chunk(player)
 
         def on_sentence(sentence: str) -> None:
+            self._current_is_say = self._stream is not None and sentence in self._stream.flushed
             self._spoken.append(sentence)
             print(f"bot:  {sentence}", flush=True)
 
@@ -776,6 +788,8 @@ class Session:
         self._stream = None
         self._player = None
         self._filler_started = None
+        self._say_started = None
+        self._current_is_say = False
         self._filler_free_at = 0.0
         self._filler_lines = []
         self._filler_push = None
@@ -805,7 +819,7 @@ class Session:
             return None
         blocks = watch.result()
         t0 = time.perf_counter()
-        started = self._answer_started
+        started = self._answer_started if self._answer_started is not None else self._say_started
         if self._stream is not None:
             self._stream.cancel()
         if self._player is not None:
@@ -900,7 +914,11 @@ class Session:
             level_of = getattr(self._player, "level_recent", None)
             played = float(level_of()) if level_of is not None else 0.0
             # a filler is the assistant speaking too: its echo must not count as the user
-            answering = self._answer_started is not None or self._filler_started is not None
+            answering = (
+                self._answer_started is not None
+                or self._say_started is not None
+                or self._filler_started is not None
+            )
             guard.ducked = ducker is not None and ducker.ducked
             fired = guard.feed(block, played, answering=answering)
             set_gain = getattr(self._player, "set_gain", None)
