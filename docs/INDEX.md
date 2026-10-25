@@ -21,7 +21,8 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `AEC-REMOTE-SPEAKER.md` | echo cancellation across two devices (laptop mic, Pi speaker): the 137 ppm clock drift, offline results on real recordings, what is not shown |
 | `SMART-HOME-TOOL.md` | the one `smart_home` tool for the 19 ME2 commands, the separate Pipecat project `pipeline/`, and the LLM choice: native Gemini 3.1 flash-lite + router prompt 50/50, first reply 0.52 s (plain) / 1.31 s (tool) |
 | `MCP-SERVERS.md` | the MCP servers; the last section is the live agent's real tools (time, weather + Wikipedia, the Pi's device server), their security and how to start them |
-| `LATENCY.md` | where an answer's time goes, the LLM spike probe, the research on fillers, and the safeguards (fast path, the tools' `say` sentence, doc_chat fillers with a give-up at 8 s): ticketed, not yet landed |
+| `LATENCY.md` | where an answer's time goes, the LLM spike probe, the research on fillers, and the safeguards (fast path, the tools' `say` sentence, doc_chat fillers with a give-up at 8 s): landed 2026-10-24/25 (the spoken sessions, R4, R5, R6 and what each changed are in its later sections) |
+| `INDUSTRY-COMPARISON.md` | our latency, turn-end, STT, TTS and interruption numbers against the industry targets (from the owner's course notes and the cited papers), what has been looked up already, and what would move each number |
 
 ## Speech and the test client
 
