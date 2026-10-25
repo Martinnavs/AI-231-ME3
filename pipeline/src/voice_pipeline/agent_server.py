@@ -27,6 +27,7 @@ from websockets.exceptions import ConnectionClosed
 from voice_pipeline import fast_path
 from voice_pipeline.agent import Agent, build_llm
 from voice_pipeline.agent_tools import PI_URL, build_tools, standard_servers
+from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -123,14 +124,29 @@ class AgentServer:
 
 
 async def run(
-    port: int, live: str | None, system_file: Path, pi_url: str | None, fast: bool = True
+    port: int,
+    live: str | None,
+    system_file: Path,
+    pi_url: str | None,
+    fast: bool = True,
+    hedge: float | None = 0.0,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
     tools = await build_tools(record, live=live, servers=servers, optional=optional)
-    agent = Agent(build_llm(system_file.read_text()), tools)
-    await agent.start()
-    await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
+    system = system_file.read_text()
+    agent: Agent | HedgedAgent
+    if hedge is None:
+        agent = Agent(build_llm(system), tools)
+        await agent.start()
+        await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
+    else:  # R4: two requests per turn, the first to answer wins (hedge.py)
+        gate = HedgeGate()
+        agent = HedgedAgent(
+            [Agent(build_llm(system), gated_tools(tools, gate, i)) for i in range(2)], gate, hedge
+        )
+        await agent.start()
+        await agent.warm_up()
     log = ROOT / "out/agent_server" / f"{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
     server = AgentServer(agent, record, log, tools if fast else None)
@@ -152,10 +168,25 @@ def main(argv: list[str] | None = None) -> int:
         default=True,
         help="answer common home commands without the LLM (fast_path.py)",
     )
+    parser.add_argument(
+        "--hedge",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="R4: send every LLM request twice and keep the first to answer; SECONDS > 0 sends "
+        "the second only if the first has said nothing by then; -1 turns it off",
+    )
     args = parser.parse_args(argv)
     try:
         return asyncio.run(
-            run(args.port, args.live, args.system, args.pi_url or None, args.fast_path)
+            run(
+                args.port,
+                args.live,
+                args.system,
+                args.pi_url or None,
+                args.fast_path,
+                None if args.hedge < 0 else args.hedge,
+            )
         )
     except KeyboardInterrupt:
         return 0
