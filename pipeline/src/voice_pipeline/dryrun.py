@@ -23,7 +23,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from voice_pipeline.agent import Agent, build_llm, close_llm_sessions
+from voice_pipeline.agent import MODEL, Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import PI_URL, build_tools, runnable, standard_servers
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -128,7 +128,12 @@ def summarize(rows: list[dict[str, Any]]) -> str:
 
 
 async def run(
-    limit: int | None, live: str | None, run_id: str, system_file: Path, pi_url: str | None
+    limit: int | None,
+    live: str | None,
+    run_id: str,
+    system_file: Path,
+    pi_url: str | None,
+    model: str = MODEL,
 ) -> int:
     lines = (ROOT / "config/eval/agent_prompts.jsonl").read_text().splitlines()
     prompts = [json.loads(line) for line in lines if line.strip()][:limit]
@@ -140,7 +145,7 @@ async def run(
     prompts, skipped = runnable(prompts, {t.name for t in tools.standard_tools})
     if skipped:
         print(f"skipped (tool not available): {', '.join(skipped)}")
-    agent = Agent(build_llm(system_file.read_text()), tools)
+    agent = Agent(build_llm(system_file.read_text(), model=model), tools)
     await agent.start()
     await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
     rows: list[dict[str, Any]] = []
@@ -168,8 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", default=time.strftime("%Y%m%d-%H%M%S"))
     parser.add_argument("--system", type=Path, default=ROOT / "config/eval/system_agent.txt")
     parser.add_argument("--pi-url", default=PI_URL, help="the Pi's device tools; '' for none")
+    parser.add_argument("--model", default=MODEL, help="the Gemini model to test")
     args = parser.parse_args(argv)
-    return asyncio.run(run(args.limit, args.live, args.run_id, args.system, args.pi_url or None))
+    return asyncio.run(
+        run(args.limit, args.live, args.run_id, args.system, args.pi_url or None, args.model)
+    )
 
 
 if __name__ == "__main__":
