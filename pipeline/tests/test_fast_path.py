@@ -142,3 +142,13 @@ def test_what_the_clock_says() -> None:
     assert local_answer(match("what time is it"), datetime(2026, 10, 26, 0, 7)) == "It's 12:07 AM."  # type: ignore[arg-type]
     assert local_answer(match("what time is it"), datetime(2026, 10, 26, 15, 30)) == "It's 3:30 PM."  # type: ignore[arg-type]
     assert local_answer(match("what day is it"), at) == "Today is Monday, October 26."  # type: ignore[arg-type]
+
+
+def test_the_preloaded_phrase_list_matches_the_fixed_confirmations() -> None:
+    """doc_chat plays these from memory (config/fast_phrases.json): the file lists exactly them."""
+    from voice_pipeline.fast_path import FIXED
+
+    listed = json.loads((PROMPTS.parents[3] / "config" / "fast_phrases.json").read_text())[
+        "phrases"
+    ]
+    assert sorted(listed) == sorted({confirm for _intent, confirm in FIXED.values()})

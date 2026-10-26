@@ -1057,7 +1057,7 @@ async def async_main(args: argparse.Namespace) -> int:
             echo_args["passage"] = Path(args.echo_text).read_text(encoding="utf-8")
         llm = EchoChatModel(**echo_args)
     elif args.llm == "agent":
-        from doc_chat.agent_client import AgentChatModel
+        from doc_chat.agent_client import AgentChatModel, load_fast_phrases
 
         llm = AgentChatModel(url=args.agent_url, timeout=args.llm_timeout)
         agent_llm = llm
@@ -1151,6 +1151,11 @@ async def async_main(args: argparse.Namespace) -> int:
             session.fillers = fillers
             if agent_llm is not None:
                 agent_llm.on_event = session.on_agent_event
+        if agent_llm is not None and getattr(args, "preload_phrases", True):
+            phrases = load_fast_phrases()
+            if phrases:  # the fast path's fixed replies start with no TTS wait
+                print(f"recording {len(phrases)} fast-path phrases...", flush=True)
+                await client.preload_phrases(phrases, voice=args.voice)
         past = session.history.pairs
         if args.stream:
             assert llm is not None
@@ -1378,6 +1383,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="say a short pre-recorded line when an answer is slow: a tool's line when it is "
         "called, a stall at 1.2 s, a notice at 2.5 s, an apology at 8 s (config/fillers.json)",
+    )
+    parser.add_argument(
+        "--preload-phrases",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="with --llm agent: synthesise the fast path's fixed confirmations once at start "
+        "(config/fast_phrases.json) and play them from memory, saving the TTS wait (about 0.3 s)",
     )
     parser.add_argument(
         "--echo-text-guard",

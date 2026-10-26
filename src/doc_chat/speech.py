@@ -206,6 +206,28 @@ class DocChatSpeechClient:
         self.hub: MicHub | None = None  # set to listen to the microphone across turns
         self.canceller: Any = None  # an EchoCanceller, handed to every remote player
         self._active_speak_task: asyncio.Task[Any] | None = None
+        self.audio_cache: dict[tuple[str, str | None], bytes] = {}  # (text, voice) -> 16-bit audio
+
+    async def preload_phrases(self, phrases: Iterable[str], voice: str | None = "F1") -> None:
+        """Synthesise each phrase once; `speak_text` then plays it from memory, with no TTS wait."""
+        for phrase in phrases:
+            if (phrase, voice) not in self.audio_cache:
+                pcm, *_ = await self.speak_text(phrase, voice=voice)
+                self.audio_cache[(phrase, voice)] = bytes(pcm)
+
+    def _play_cached(
+        self, pcm: bytes, t_speech_end: float | None, on_chunk: Callable[[bytes], None] | None
+    ) -> tuple[bytes, float, float, float]:
+        """`speak_text` for a preloaded phrase: hand the audio on in 100 ms slices, as a stream
+        would. Returns the same tuple as `speak_text`."""
+        t0 = time.perf_counter()
+        if on_chunk is not None:
+            step = self.tts_sample_rate // 10 * 2
+            for i in range(0, len(pcm), step):
+                on_chunk(pcm[i : i + step])
+        first_ms = (time.perf_counter() - t0) * 1000.0
+        to_first = first_ms if t_speech_end is None else (t0 - t_speech_end) * 1000.0
+        return pcm, first_ms, first_ms, to_first
 
     @property
     def noise_floor(self) -> float | None:
@@ -513,6 +535,9 @@ class DocChatSpeechClient:
 
         Returns (pcm_bytes, first_audio_ms, total_ms, speech_end_to_first_audio_ms).
         """
+        cached = self.audio_cache.get((text, voice))
+        if cached is not None:
+            return self._play_cached(cached, t_speech_end, on_chunk)
         if self._tts_ws is None:
             raise RuntimeError("TTS socket not connected")
 

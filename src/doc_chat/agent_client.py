@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
@@ -28,7 +29,13 @@ from websockets.sync.client import connect
 from doc_chat.chain import FLUSH
 
 DEFAULT_URL = "ws://127.0.0.1:8781"
+FAST_PHRASES = Path(__file__).resolve().parents[2] / "config" / "fast_phrases.json"
 _ROLES = {"system": "system", "human": "user", "ai": "assistant"}
+
+
+def load_fast_phrases(path: Path = FAST_PHRASES) -> list[str]:
+    """The fast path's fixed confirmations (config/fast_phrases.json), or [] without the file."""
+    return list(json.loads(path.read_text())["phrases"]) if path.exists() else []
 
 
 def to_wire(messages: list[BaseMessage]) -> list[dict[str, str]]:
