@@ -8,7 +8,7 @@ Raw reports: `.scratch/optimization-research/` (`AGY-*.md`, `CODEX-*.md`, the br
 2. **The industry comparison needs a correction.** Real production medians are 1.3-1.7 s, not 0.6-0.9 s (verified below). Our plain turns (2.34 s) are about 1 s above them; our tool turns (2.84 s) sit in the middle of published tool-workflow means (1.27-3.08 s).
 3. **The 100 ms capture block costs about 40 ms**, found independently by five of the ten reports and confirmed in our code (the pause detector is fed once per block; the "0.6 s" hold measures 0.64 s).
 4. **Pre-rendered confirmations** (both engines) could take about 0.3 s off fast-path commands.
-5. **The laptop was on battery in the `balanced` profile (governor `powersave`) when checked.** Our own handoff says to run `scripts/power_mode.sh max` on AC before measuring. If the spoken sessions ran like that, the STT and TTS times are inflated. This needs the owner's go.
+5. **The laptop power profile does not matter on battery.** The laptop was on battery in `balanced` when checked (our handoff says to measure on AC with `scripts/power_mode.sh max`). Tested `balanced` -> `performance` -> `balanced` (battery, 2026-10-26): Parakeet decode on 20 real turns p50 322 / 316 / 356 ms; Supertonic 5-word synthesis p50 336 / 346 / 334 ms. No effect beyond the run-to-run spread, and the numbers match the session medians (finalise 372 ms, TTS 352 ms), so the sessions were not throttled. Not tested on AC power; the profile was put back to `balanced`.
 6. **Several tempting ideas failed our checks** (list below): a streaming-ASR swap, speculative LLM start from Kroko's text, a shorter hold, delayed hedging, Silero hysteresis, cloud TTS.
 
 ## How it was run
@@ -55,7 +55,7 @@ Saving figures are my judgement for our setup unless the row says measured. They
 | # | Idea | Source | Claimed | Realistic for us | Effort | Owner |
 |---|---|---|---|---|---|---|
 | 1 | **Keep the Gemini connection alive (LANDED, see bottom line)** (aiohttp session with `keepalive_timeout=300` through `HttpOptions(aiohttp_client=...)` in `build_llm`; also try a ping every few seconds if the server side closes early) | agy 3 (idea); measured here | 320 ms | **about 250-430 ms median, tail 5.9 s -> 1.1 s (measured twice, n=12 each)** | done | done |
-| 2 | **Run sessions on AC with `power_mode.sh max`** | agy 1; our handoff | 30-60 ms | unknown: STT finalise (0.37 s) and TTS (0.35 s) may shrink; measure both modes | zero | changes a laptop setting |
+| 2 | **Run sessions with `power_mode.sh max`** | agy 1; our handoff | 30-60 ms | **none on battery (measured, bottom line 5)**; AC untested | zero | plug in to test AC |
 | 3 | **Capture blocks 100 -> 20 ms** (`MicHub.block_ms`, `listen_turn`) | codex 1, codex 2, agy 1, agy 2, agy 4 | 40-80 ms | about 40 ms (the 0.64 s hold shows the quantisation) | low | no |
 | 4 | **Pre-render fixed confirmations** at startup ("The lights are on." and the other fixed fast-path lines; the 65 filler lines already work this way) | codex 4, agy 4 | 350 ms | about 0.3 s on fast-path commands (first sound 1.77 -> about 1.45 s); variable lines (timers, volume numbers) stay synthesised | low | no |
 | 5 | **More local answers with no LLM** (time and date; later the home forecast refreshed in the background, the rest of R5) | agy 3 (inject into prompt), my adaptation | 1,050 ms | the whole LLM turn on those questions (1.5-2 s) | low | no |
@@ -100,6 +100,6 @@ Tool-turn versus plain-turn latency on one production stack; acceptable-delay th
 
 1. Candidate 1 is done; rerun the LLM probe warm to re-baseline the provider tail, and consider Pipecat's `retry_on_timeout=True` with a short `retry_timeout_secs` (a second chance for a stuck first chunk inside one pipeline; untested).
 2. Candidates 3 and 4 and 5: all small, none risky, all on the command path.
-3. Candidate 2 and 7 together in one spoken session on AC power (compare against the numbers in `docs/INDUSTRY-COMPARISON.md`).
+3. Candidate 7 (early decode) in one spoken session, compared against the numbers in `docs/INDUSTRY-COMPARISON.md`; repeat the power-profile test once on AC if the laptop is plugged in.
 4. Candidate 6 once the connection is warm, so the comparison is fair.
 5. Candidate 15 in parallel, so steps 3 and 4 can be judged on more than 27 turns.
