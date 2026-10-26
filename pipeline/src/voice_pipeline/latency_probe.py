@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from voice_pipeline.agent import Agent, build_llm
+from voice_pipeline.agent import Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import PI_URL, build_tools, standard_servers
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -115,6 +115,7 @@ async def run(minutes: float, every: float, pi_url: str | None) -> int:
             i += 1
             await asyncio.sleep(max(0.0, every - (time.monotonic() - started)))
     await asyncio.gather(a.stop(), b.stop())
+    await close_llm_sessions()
     report = summarize(rows)
     out.with_suffix(".txt").write_text(report + "\n")
     print(report)
