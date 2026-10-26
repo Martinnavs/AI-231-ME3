@@ -25,7 +25,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from voice_pipeline import fast_path
-from voice_pipeline.agent import Agent, build_llm
+from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import PI_URL, build_tools, standard_servers
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
 
@@ -130,6 +130,7 @@ async def run(
     pi_url: str | None,
     fast: bool = True,
     hedge: float | None = 0.0,
+    keepalive: float = KEEPALIVE_S,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
@@ -137,22 +138,30 @@ async def run(
     system = system_file.read_text()
     agent: Agent | HedgedAgent
     if hedge is None:
-        agent = Agent(build_llm(system), tools)
+        agent = Agent(build_llm(system, keepalive_s=keepalive), tools)
         await agent.start()
         await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
     else:  # R4: two requests per turn, the first to answer wins (hedge.py)
         gate = HedgeGate()
         agent = HedgedAgent(
-            [Agent(build_llm(system), gated_tools(tools, gate, i)) for i in range(2)], gate, hedge
+            [
+                Agent(build_llm(system, keepalive_s=keepalive), gated_tools(tools, gate, i))
+                for i in range(2)
+            ],
+            gate,
+            hedge,
         )
         await agent.start()
         await agent.warm_up()
     log = ROOT / "out/agent_server" / f"{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
     server = AgentServer(agent, record, log, tools if fast else None)
-    async with serve(server.handle, "127.0.0.1", port):
-        print(f"agent server on ws://127.0.0.1:{port}, log {log}", flush=True)
-        await asyncio.Future()
+    try:
+        async with serve(server.handle, "127.0.0.1", port):
+            print(f"agent server on ws://127.0.0.1:{port}, log {log}", flush=True)
+            await asyncio.Future()
+    finally:
+        await close_llm_sessions()
     return 0
 
 
@@ -176,6 +185,14 @@ def main(argv: list[str] | None = None) -> int:
         help="R4: send every LLM request twice and keep the first to answer; SECONDS > 0 sends "
         "the second only if the first has said nothing by then; -1 turns it off",
     )
+    parser.add_argument(
+        "--keepalive",
+        type=float,
+        default=KEEPALIVE_S,
+        metavar="SECONDS",
+        help="keep idle connections to Gemini this long (0 = the SDK default of 15 s, which lets "
+        "them go cold between turns)",
+    )
     args = parser.parse_args(argv)
     try:
         return asyncio.run(
@@ -186,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.pi_url or None,
                 args.fast_path,
                 None if args.hedge < 0 else args.hedge,
+                args.keepalive,
             )
         )
     except KeyboardInterrupt:
