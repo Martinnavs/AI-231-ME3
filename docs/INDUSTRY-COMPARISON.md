@@ -4,9 +4,25 @@ One place for "how do we compare", so nobody researches it again. **The industry
 
 ## Bottom line
 
-**We are 2-3 times slower than the industry's "sluggish" line for end of speech to first sound, and the cause is the cloud LLM's first response plus the end-of-turn wait, not the speech models.** Median 2.58 s (p90 3.03 s) against "exceptional < 0.6 s, good 0.6-0.9 s, sluggish > 1.2 s". Where we beat or meet the targets: cutting the bot off when interrupted (1 ms against < 50-100 ms) and the fast path (1.65-1.81 s with no LLM). Where we are over: end-of-turn wait, LLM first token, TTS first audio.
+**Correction (2026-10-26, `docs/OPTIMIZATION-RESEARCH.md`): the earlier headline below overstated the gap.** The course notes' "good 0.6-0.9 s" is an aspiration. Published production numbers are higher: real phone calls (OpenBenchmarks, median / p95) Telnyx 1.30 / 1.86 s, ElevenLabs 1.42 / 1.77, Bland 1.52 / 2.25, Vapi 1.56 / 2.01, Retell 1.74 / 2.26; tool-workflow means (Cekura, 2026-10-22) ElevenLabs 1.27 s, GPT Realtime 1.58, Telnyx 1.82, Pipecat 1.97, Retell 2.21, PolyAI 2.46, LiveKit 2.59, Vapi 3.08; Daily's own p50 budget is 200 + 400 + 500 + 200 ms = 1.3 s, and "a tool call doubles the LLM latency". Our plain turns (2.34 s median) are about 1 s above the phone medians; our tool turns (2.84 s) sit in the middle of the tool-workflow means. The end-of-turn benchmark (LiveKit eot-bench) shows the best end-of-turn models need 0.65-1.15 s at a 5% false-cutoff budget, so our 0.64 s hold is already at the fast end.
 
-A realistic target for a tool-calling Gemini agent on this setup is **about 1.5-2 s**, not 0.9 s: the model's first response alone (1.0-1.3 s) already exceeds a 0.9 s total budget. The industry's 0.6-0.9 s figures describe pipelines whose LLM answers in text without a tool round trip.
+**The original reading, kept for the record:** end of speech to first sound is median 2.58 s (p90 3.03 s), against the course notes' "exceptional < 0.6 s, good 0.6-0.9 s, sluggish > 1.2 s"; the cause is the cloud LLM's first response plus the end-of-turn wait, not the speech models. Where we beat or meet the targets: cutting the bot off when interrupted (1 ms against < 50-100 ms) and the fast path (1.65-1.81 s with no LLM). Where we are over: end-of-turn wait, LLM first token, TTS first audio.
+
+A realistic target for a tool-calling Gemini agent on this setup is **about 2 s** (see the ablations below), not 0.9 s: the model's first response alone (0.9-1.5 s) already exceeds a 0.9 s total budget. The industry's 0.6-0.9 s figures describe a plain text answer with no tool call. **A later finding may lower the target:** the Gemini client was found to go cold between turns, costing about 0.25 s at the median and most of the tail (`docs/OPTIMIZATION-RESEARCH.md`, "Bottom line" 1).
+
+## Which turns the industry numbers describe (checked 2026-10-25)
+
+**Plain question and answer, no tool call.** The course notes define the 600 / 900 / 1200 ms bands with the formula "end-of-utterance wait + LLM first token + TTS first byte + network" and the example "What is the capital of France?" (section 7). They mention tool calls once, in a use-case list (a booking agent "spending more latency on structured tool calls"), with no number. The turn-gap figures are human-to-human conversation (Stivers et al. 2009). The end-of-turn defaults (0.2-0.5 s) and the preemptive-LLM savings come from LiveKit and Deepgram documentation, again for text-only turns. **No source in the repo gives a latency target for a turn that calls a tool**; the only tool-turn figures are our own (a text-only tool turn: call after about 0.72 s, answer text after about 1.31 s).
+
+So the fair comparison is our turns **without** a tool call. Same 27 turns, split by what the server did with them (`out/sessions/fillers-4..6` joined to the agent server log; the groups are small):
+
+| Our turn type | n | First sound, p50 / p90 | Transcript ready | LLM first token |
+|---|---|---|---|---|
+| Plain LLM answer, no tool | 8 | **2342 / 2481 ms** (1708-2714) | 1020 ms | 898 ms |
+| Tool turn through the LLM | 16 | 2843 / 3161 ms (2314-3371) | 986 ms | 1503 ms |
+| Fast path (no LLM) | 3 | 1774 / 1811 ms | 904 ms | - |
+
+On the like-for-like turn we are still **about 2.6 times the 900 ms "good" line** (2.3 s against 0.9 s), so the verdict stands. The gap is mostly the end-of-turn wait plus recogniser (1.0 s against the notes' EOU 0.2-0.5 s) and the LLM first token (0.9 s against < 0.5 s). Tool use adds about 0.5 s more at the median. All figures: one speaker, one room, 27 turns.
 
 ## Side by side
 
@@ -48,11 +64,26 @@ How the median adds up (the pieces sum to the measured median): transcript ready
 | Demo names in the speech server's entity list | WER on names | accuracy, not speed | changes what the server hears; test on clips first |
 | A faster or closer LLM | LLM | unknown | `gemini-3.1-flash-lite` is already the fast one; OpenRouter's router was 3x slower; Vertex Singapore does not serve this model |
 
+## Ablations run on 2026-10-26 (offline: recordings and the laptop speech models, no Pi, nothing loud)
+
+Scripts and raw output: `.scratch/ablations/` (`hold_sweep.py`, `names_ablation.py`, `dune.py`, `early-decode-sessions-4-6.txt`). Every number rests on the small set named in its row.
+
+| Ablation | Result | Verdict |
+|---|---|---|
+| **Shorter end-of-turn hold** (replay of the Pi-mic recording `eot-session.wav`, 14 phrases; current rule at holds 0.3-1.0 s) | A phrase is cut in two at hold 0.3 s: 9 of 14; 0.4 s: 7; 0.5 s: 3; **0.6 s (today): 2**; 0.8 s and 1.0 s: 0. Shorter holds save only the hold difference (0.1 s at 0.5 s). The laptop-mic recording gives 2 phrases and the spontaneous one 0 phrases under this scoring, so neither can be used | **Do not shorten.** Saving 0.1-0.2 s costs a second split per 14 phrases or worse. The live client rejoins a split turn ("resumed"), but each split still starts a wasted request |
+| **Early decode** (`stt_early_eval.py`; hard set 59 clips, held-out 36, and the 43 real turns of sessions 4-6) | Hard set: words changed 2.5% at a 0.2 s pause (WER 4.9% -> 7.4%); held-out 0.3% (WER unchanged 8.7%); **real turns: an early start on 42 of 43, 1.0-1.3% of 306 words changed** (WER there is not meaningful: the recognised text stood in for truth). Server finalise 659 -> 375 ms on earlier measurement | **Worth a spoken test.** On conversational turns it costs about 1% of words; the loss is on short commands, which already take the fast path. Saves about 0.3 s. Not yet run end to end with the live server (`--early-decode-ms 200`) |
+| **Demo names in the entity list** (43 real turns, Parakeet re-decoded offline with the server's list against the same list plus 14 demo names, hotword score 1.0) | Baguio wrong 4 -> 0; Steinbeck wrong 2 -> 0; Anne Carson 1 -> 0; Argon ("Organ") 1 -> 0. **Only 9 of 43 turns changed and all nine are fixes** (one is capitalisation, "Ways Of Seeing"). Dune stayed "June" in 3 of 4 | **Do it.** Dune needs the phrase "summary of Dune" (fixes one of three); a hotword score of 3.0 fixes Dune but injects Harry Potter words ("Quidditch") into unrelated turns, so keep the score at 1.0-2.0 and drop the Harry Potter list for the demo. In-sample: the names were chosen after seeing these turns |
+| **Smaller first TTS chunk** (no new run: the measurement is in `.scratch/*/tickets/25`) | TTS first audio by chunk size on the live server: 3 words 250 ms, 4 words 283 ms, 6 words 383 ms, 8+ words about 410 ms. Our median is 352 ms, so the first chunk is usually 5-6 words | **Saves about 0.07-0.1 s, not the 0.15-0.2 s quoted earlier.** A cheaper first step: ask the model for a `say` of 4 words or fewer (today 5-9 words, e.g. "Getting a summary of the book Ways of Seeing.") |
+
+**What the levers add up to.** Early decode about 0.3 s, a short `say` or the ladder about 0.1 s, names removing repeat questions (the retries of sessions 5 and 6 each cost a whole turn). Together about 0.4-0.5 s off the plain-turn median of 2.34 s, so **about 1.9-2.0 s, not the 1.5 s the lower end of the earlier target assumed**: the end-of-turn hold (0.64 s, which we should not cut) and the LLM first token (0.9-1.5 s) are most of what remains. The target in this document is therefore **about 2 s** unless the LLM or the hold changes.
+
+**Not run, needs a spoken session with the owner:** hedge on against off, the `say` hold (0.6 s), the stall time, `--early-decode-ms 200` end to end, a minimal system prompt, `--level-kofn-ducked`.
+
 ## Coverage: what has been looked up, and what has not
 
 Covered (do not repeat): the targets in the table, filler timing research (Lala 2019, Maslych 2025), Stivers 2009 turn gaps, product behaviour for slow tools (Alexa, Vapi, Retell, Siri), the LLM choice and its first-token numbers, end-of-turn defaults, and the echo problem (`docs/ECHO-RESEARCH.md`).
 
-**Not covered:** published latency figures for *tool-calling* voice agents specifically (the course notes describe text-only turns); speech-to-speech models other than Gemini Live (dropped for echo sensitivity and cost, `SUMMARY.md`); any measurement with a second speaker, another room or another loudspeaker distance.
+**Not covered (confirmed absent from every source in the repo):** published latency figures for *tool-calling* voice agents specifically (the course notes describe plain Q&A turns); speech-to-speech models other than Gemini Live (dropped for echo sensitivity and cost, `SUMMARY.md`); any measurement with a second speaker, another room or another loudspeaker distance.
 
 ## Caveats
 

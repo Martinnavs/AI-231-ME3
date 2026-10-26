@@ -37,6 +37,11 @@ from pipecat.workers.runner import WorkerRunner
 SAY_DELAY_S = 0.6  # a tool that answers within this makes the `say` sentence unnecessary
 MODEL = "gemini-3.1-flash-lite"
 TURN_TIMEOUT_S = 20.0
+# Turns are seconds to minutes apart, but the Gemini client lets an idle connection go after 15 s
+# (the SDK's aiohttp default) and the server may close sooner: every turn then paid a new TCP+TLS
+# handshake. At 15 s idle, 12 interleaved pairs: first chunk p50 1095 -> 835 ms, p90 5.9 -> 1.0 s
+# (docs/OPTIMIZATION-RESEARCH.md).
+KEEPALIVE_S = 300.0
 OnText = Callable[[str], Awaitable[None]]
 OnTool = Callable[[str, bool], Awaitable[None]]  # tool name, whether its `say` was spoken
 
@@ -50,9 +55,37 @@ def read_key(secret_dir: str) -> str:
     raise SystemExit(f"no key in ~/.secrets/{secret_dir}/")
 
 
-def build_llm(system: str, model: str = MODEL) -> GoogleLLMService:
+_sessions: list[Any] = []  # the aiohttp sessions behind the Gemini clients, closed at shutdown
+
+
+def warm_http_options(keepalive_s: float | None = KEEPALIVE_S) -> Any:
+    """HttpOptions whose aiohttp session keeps idle connections `keepalive_s` seconds, or None
+    (the SDK default) when `keepalive_s` is falsy or aiohttp is not installed. Call it inside a
+    running event loop: the session belongs to that loop."""
+    if not keepalive_s:
+        return None
+    try:
+        import aiohttp
+        from google.genai.types import HttpOptions
+    except ImportError:
+        return None
+    session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(keepalive_timeout=keepalive_s))
+    _sessions.append(session)
+    return HttpOptions(aiohttp_client=session)
+
+
+async def close_llm_sessions() -> None:
+    """Close the sessions that `warm_http_options` created."""
+    while _sessions:
+        await _sessions.pop().close()
+
+
+def build_llm(
+    system: str, model: str = MODEL, keepalive_s: float | None = KEEPALIVE_S
+) -> GoogleLLMService:
     return GoogleLLMService(
         api_key=read_key("google-ai-studio"),
+        http_options=warm_http_options(keepalive_s),
         settings=GoogleLLMService.Settings(model=model, system_instruction=system),
     )
 

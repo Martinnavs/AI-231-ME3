@@ -23,7 +23,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from voice_pipeline.agent import Agent, build_llm
+from voice_pipeline.agent import Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import PI_URL, build_tools, runnable, standard_servers
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -153,6 +153,7 @@ async def run(
                 sink.write(json.dumps(row) + "\n")
             rows.extend(prompt_rows)
     await agent.stop()
+    await close_llm_sessions()
     report = summarize(rows)
     (out / "summary.txt").write_text(report + "\n")
     print(report)
