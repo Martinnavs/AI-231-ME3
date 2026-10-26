@@ -56,7 +56,7 @@ def test_the_listed_phrasings_match(
         "Set an alarm for later.",
         "Set the volume to 150 percent.",  # out of range
         "Stop.",  # a stop word: doc_chat's job
-        "What time is it?",
+        "What time is it in Paris?",  # another city: the time tool
         "",
     ],
 )
@@ -98,9 +98,47 @@ def test_on_the_dry_run_prompts_every_match_is_the_expected_call() -> None:
         matched += 1
         expect = prompt["expect"][0]
         assert len(expect) == 1, prompt["id"]
+        if found.tool == "clock":
+            continue  # answered from the clock; the dry run still expects the time tool
         if found.tool == "smart_home":
             assert expect[0].get("intent") == found.args["intent"], prompt["id"]
             assert (expect[0].get("slot") or None) == found.args.get("slot"), prompt["id"]
         else:
             assert expect[0].get("tool") == found.tool, prompt["id"]
     assert matched >= 8  # the canonical commands are covered
+
+
+@pytest.mark.parametrize(
+    ("said", "what"),
+    [
+        ("What time is it?", "time"),
+        ("What's the time?", "time"),
+        ("Please tell me the time", "time"),
+        ("What's today's date?", "date"),
+        ("What day is it?", "date"),
+        ("what is the date today", "date"),
+    ],
+)
+def test_clock_questions_are_answered_locally(said: str, what: str) -> None:
+    found = match(said)
+    assert found is not None and found.tool == "clock" and found.args == {"what": what}
+
+
+@pytest.mark.parametrize(
+    "said",
+    ["What time is it in Tokyo?", "What time is it in London?", "What time does the shop open?"],
+)
+def test_other_cities_and_other_questions_still_go_to_the_model(said: str) -> None:
+    assert match(said) is None
+
+
+def test_what_the_clock_says() -> None:
+    from datetime import datetime
+
+    from voice_pipeline.fast_path import local_answer
+
+    at = datetime(2026, 10, 26, 9, 5)
+    assert local_answer(match("what time is it"), at) == "It's 9:05 AM."  # type: ignore[arg-type]
+    assert local_answer(match("what time is it"), datetime(2026, 10, 26, 0, 7)) == "It's 12:07 AM."  # type: ignore[arg-type]
+    assert local_answer(match("what time is it"), datetime(2026, 10, 26, 15, 30)) == "It's 3:30 PM."  # type: ignore[arg-type]
+    assert local_answer(match("what day is it"), at) == "Today is Monday, October 26."  # type: ignore[arg-type]
