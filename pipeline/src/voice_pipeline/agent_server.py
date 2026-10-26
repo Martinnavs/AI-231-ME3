@@ -17,9 +17,11 @@ import asyncio
 import contextlib
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
@@ -48,6 +50,13 @@ class AgentServer:
     async def fast(self, found: fast_path.Match, on_text: Any) -> dict[str, Any]:
         """Run the tool the LLM would have called, then say the fixed confirmation."""
         started = time.perf_counter()
+        if found.tool == "clock":  # the clock answers; no tool runs
+            self.record.append({"tool": "clock", "args": dict(found.args)})
+            text = fast_path.local_answer(found, datetime.now(ZoneInfo(fast_path.TIMEZONE)))
+            await on_text(text)
+            elapsed = time.perf_counter() - started
+            return {"status": "ok", "text": text, "first_call_s": 0.0, "first_text_s": elapsed,
+                    "end_s": elapsed, "fast_path": True}  # fmt: skip
         results: list[Any] = []
 
         async def done(result: Any, *args: Any, **kwargs: Any) -> None:
@@ -91,7 +100,7 @@ class AgentServer:
                 if last.get("role") == "user"
                 else None
             )
-            if found is not None and found.tool in self.tools:
+            if found is not None and (found.tool == "clock" or found.tool in self.tools):
                 turn = asyncio.create_task(self.fast(found, on_text))
             else:
                 turn = asyncio.create_task(

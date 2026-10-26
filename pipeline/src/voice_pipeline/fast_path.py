@@ -4,15 +4,19 @@ A turn takes the fast path only if the whole transcript matches one of a few exa
 (after lower-casing, dropping punctuation, a leading "please"/"hey"/"okay" and a trailing
 "please"/"thanks"; a leading "stop"/"wait" is already removed by doc_chat, and stripping it here
 would turn "stop the music" into "the music"). The real tool runs, then a fixed confirmation is
-spoken; on a tool error its own message is. Anything else goes to the LLM as before.
+spoken; on a tool error its own message is. Anything else goes to the LLM as before. The clock
+questions in `LOCAL` ("what time is it", "what's the date") are answered from the clock, with no
+tool either.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
+TIMEZONE = "Asia/Manila"  # the demo's time zone (the time server is told the same)
 UNITS = {"second": "seconds", "minute": "minutes", "hour": "hours"}
 ONES = {
     "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
@@ -105,6 +109,38 @@ FIXED: dict[str, tuple[str, str]] = {
         ("VOLUME_DOWN", "Turning it down."),
     ),
 }
+# Questions the clock answers with no tool and no LLM: "time" or "date" (the demo's own time zone;
+# other cities, "in Tokyo", are not listed here and go to the time tool).
+LOCAL: dict[str, str] = {
+    **dict.fromkeys(
+        [
+            "what time is it",
+            "what time is it now",
+            "what time is it right now",
+            "what is the time",
+            "what is the time now",
+            "what s the time",
+            "tell me the time",
+            "do you have the time",
+            "current time",
+        ],
+        "time",
+    ),
+    **dict.fromkeys(
+        [
+            "what is the date",
+            "what is the date today",
+            "what is today s date",
+            "what s the date",
+            "what s the date today",
+            "what s today s date",
+            "what day is it",
+            "what day is it today",
+            "what day is today",
+        ],
+        "date",
+    ),
+}  # fmt: skip
 TIMER = [
     re.compile(rf"set a timer for {NUMBER} (second|minute|hour)s?"),
     re.compile(rf"timer for {NUMBER} (second|minute|hour)s?"),
@@ -125,6 +161,8 @@ SPEAKER = [
 def match(text: str) -> Match | None:
     """The fast-path action for an utterance, or None (then the LLM handles it)."""
     said = normalize(text)
+    if said in LOCAL:
+        return Match("clock", {"what": LOCAL[said]}, None)
     if said in FIXED:
         intent, confirm = FIXED[said]
         return Match("smart_home", {"intent": intent}, confirm)
@@ -146,6 +184,13 @@ def match(text: str) -> Match | None:
         if m and (n := number(m.group(1))) is not None and 0 <= n <= 100:
             return Match("set_volume", {"percent": n}, None)
     return None
+
+
+def local_answer(found: Match, now: datetime) -> str:
+    """The reply to a `clock` match, given the current time in the demo's time zone."""
+    if found.args["what"] == "time":
+        return f"It's {now.hour % 12 or 12}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'}."
+    return f"Today is {now:%A}, {now:%B} {now.day}."
 
 
 def spoken_result(found: Match, result: Any) -> str:
