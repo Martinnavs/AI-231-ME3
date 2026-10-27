@@ -124,3 +124,31 @@ First session with the keep-alive, the pre-rendered replies and the clock answer
 - **The first turn of the session was slow** (2,497 ms for a plain reply, with a stall line): one-time costs of the first request through `doc_chat`.
 - **Names:** about 7 of 22 turns had a misrecognised name ("Balio", "Baggio", "Baglio" twice, "joining Steinberg", "East of Eben"); "Cebu", "Taguig" and "Makati" were fine. This is the demo-names item.
 - The owner's "increase the volume" set the Pi speaker to 70 percent (it was 60).
+
+## Spoken session 2026-10-27 after the per-tool hold and the warm-up (`out/sessions/speaking-2`, 38 turns)
+
+Servers restarted with the per-tool `say` hold (`weather` speaks its `say` at once) and `doc_chat --warmup`. End of speech to first sound (turns with a normal pause only; sessions 4-6 / speaking-1 / speaking-2):
+
+| Turn type | Sessions 4-6 | speaking-1 | speaking-2 |
+|---|---|---|---|
+| Fast-path command | 1,774 ms (n=3) | 1,040 (n=2) | **998 (n=2)** |
+| Clock question | - | 1,330 (n=2) | 1,413 (n=2) |
+| Plain LLM answer | 2,343 (n=7) | 2,047 (n=3) | 2,204 (n=6) |
+| Tool turn through the LLM | 2,843 (n=16) | 3,055 (n=6) | **2,482 (n=15)** |
+| Weather only | 2,750 (n=5) | 3,136 (n=3) | **2,605 (n=6)** |
+
+- **The first turn of the session: 2,497 -> 1,613 ms, with no stall line** (the warm-up connects the speaker, sends one request through the agent path, and measures the room; the server log shows its "Say OK.").
+- Server first sign of an answer: p50 0.88 s, p90 1.08 s (n=35), with one 6.2 s outlier. One notice line played in 38 turns (the 3.5 s weather lookup). The hedge winner was pipeline 0 in 25 of 35 turns, after being pipeline 1 in 17 of 19 in the earlier session on the same code: the asymmetry follows the server instance (probably which backend each connection lands on), not the code; hedging between two connections picks the faster backend.
+- Small groups, one speaker; read as direction.
+
+### The speech server was loading the wrong name list
+
+Every spoken session ran the speech server with `--entities config/entities-docs.json` (125 Harry Potter names). It has none of the Philippine places the demo asks about. `config/entities.json` (318 names: Baguio, Cebu, Taguig, Makati, Opalite and more) was never used. Offline test on 105 real turns (sessions 4-6, speaking-1 and -2), same Parakeet decode, hotword score 1.0:
+
+| Name list | Demo names right / wrong | Turns whose text changes |
+|---|---|---|
+| Harry Potter list (what the sessions used) | 21 / 14 | - |
+| `config/entities.json` | 27 / 5 | 19 |
+| `config/entities.json` + 17 demo names | **30 / 4** | 18 |
+
+Baguio goes from 6 wrong to 0; Steinbeck 3 to 0. Of the 18 changes with the combined list, 15 are clear fixes (Baguio x7, Steinbeck x3, Talisay, "Sibusi" -> "Cebu City", Anne Carson, Argon, "Boss" -> "Pause"), 1 is a harm ("Sorry, who was" -> "Tarry, who was") and 2 are neutral. "Dune" and "Mandaue" stay wrong. Scripts: `.scratch/ablations/entity_lists.py`.
