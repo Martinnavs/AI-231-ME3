@@ -215,6 +215,30 @@ class DocChatSpeechClient:
                 pcm, *_ = await self.speak_text(phrase, voice=voice)
                 self.audio_cache[(phrase, voice)] = bytes(pcm)
 
+    async def measure_room(self, seconds: float = 1.0) -> float | None:
+        """Listen to the room for `seconds` and remember its noise level (the 10th percentile of
+        the block levels, as the pause detector computes it), so the first turn does not run on
+        `DEFAULT_NOISE_HINT`. Returns the level, or None without a microphone."""
+        import numpy as np
+
+        if self.hub is None:
+            return None
+        self.hub.drain()  # what piled up since the stream opened is old
+        want = max(int(seconds * 1000 / self.hub.block_ms), 1)
+        levels: list[float] = []
+        try:
+            while len(levels) < want:
+                block = await asyncio.wait_for(self.hub.get(), timeout=1.0)
+                x = np.frombuffer(block, dtype=np.int16).astype(np.float32) / 32768.0
+                levels.append(float(np.sqrt(np.mean(x**2))) if x.size else 0.0)
+        except TimeoutError:
+            pass
+        if not levels:
+            return None
+        self._noise.value = float(np.percentile(levels, 10))
+        self.hub.drain()
+        return self._noise.value
+
     def _play_cached(
         self, pcm: bytes, t_speech_end: float | None, on_chunk: Callable[[bytes], None] | None
     ) -> tuple[bytes, float, float, float]:
