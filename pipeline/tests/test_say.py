@@ -213,3 +213,19 @@ async def test_the_say_goes_out_before_the_model_s_own_words() -> None:
     tap = await _announced(5.0, texts)
     await tap.process_frame(LLMTextFrame(text="Sorry, "), FrameDirection.DOWNSTREAM)
     assert texts[0] == "Looking that up. " and texts[1] == "Sorry, "
+
+
+async def test_a_slow_tool_s_say_is_spoken_at_once_not_held() -> None:
+    texts: list[str] = []
+
+    async def on_text(t: str) -> None:
+        texts.append(t)
+
+    tap = TurnTap(say_delay_s=5.0)  # a long hold for tools in general
+    tap.begin(on_text)
+    await tap._announce(_frame("weather", {"say": "Checking the weather."}))
+    assert texts == ["Checking the weather. "]  # weather has no hold
+    texts.clear()
+    tap.begin(on_text)
+    await tap._announce(_frame("wiki_summary", {"say": "Looking that up."}))
+    assert texts == []  # others are still held

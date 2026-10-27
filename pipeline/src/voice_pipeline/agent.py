@@ -35,6 +35,9 @@ from pipecat.services.google.llm import GoogleLLMService
 from pipecat.workers.runner import WorkerRunner
 
 SAY_DELAY_S = 0.6  # a tool that answers within this makes the `say` sentence unnecessary
+# Tools that never answer that fast: their `say` is spoken at once (weather took 1.3-4.2 s every
+# time in the 2026-10-27 session, so holding its `say` 0.6 s only delayed it).
+SAY_DELAY_BY_TOOL = {"weather": 0.0}
 MODEL = "gemini-3.1-flash-lite"
 TURN_TIMEOUT_S = 20.0
 # Turns are seconds to minutes apart, but the Gemini client lets an idle connection go after 15 s
@@ -163,15 +166,16 @@ class TurnTap(FrameProcessor):
         self.said = bool(say and (self.on_say or self.on_text) is not None)
         if self.said:
             self.say_text = say
-            if self.say_delay_s > 0:
-                self._say_task = asyncio.create_task(self._say_after_delay())
+            delay = SAY_DELAY_BY_TOOL.get(calls[0].function_name, self.say_delay_s)
+            if delay > 0 and self.say_delay_s > 0:
+                self._say_task = asyncio.create_task(self._say_after_delay(delay))
             else:
                 await self._speak_say()
         if calls and self.on_tool is not None:
             await self.on_tool(calls[0].function_name, self.said)
 
-    async def _say_after_delay(self) -> None:
-        await asyncio.sleep(self.say_delay_s)
+    async def _say_after_delay(self, delay: float) -> None:
+        await asyncio.sleep(delay)
         await self._speak_say()
 
     async def _speak_say(self) -> None:
