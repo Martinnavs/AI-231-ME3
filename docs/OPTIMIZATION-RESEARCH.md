@@ -105,3 +105,22 @@ Tool-turn versus plain-turn latency on one production stack; acceptable-delay th
 3. Candidate 7 (early decode) in one spoken session, compared against the numbers in `docs/INDUSTRY-COMPARISON.md`; repeat the power-profile test once on AC if the laptop is plugged in.
 4. Candidate 6 once the connection is warm, so the comparison is fair.
 5. Candidate 15 in parallel, so steps 3 and 4 can be judged on more than 27 turns.
+
+## Spoken session of 2026-10-27 (`out/sessions/speaking-1`, 22 turns, owner speaking, Pi at its set volume)
+
+First session with the keep-alive, the pre-rendered replies and the clock answers. End of speech to first sound by turn type (before = sessions 4-6, `docs/INDUSTRY-COMPARISON.md`):
+
+| Turn type | Before | Now |
+|---|---|---|
+| Fast-path command (pre-rendered reply) | 1,774 ms (n=3) | **1,040 ms (n=2: 1,026, 1,053)** |
+| Clock question (new) | LLM turn, about 2.3 s | **1,330 ms (n=2)** |
+| Plain LLM answer | 2,342 ms (n=8) | 2,047 ms (n=5) |
+| Tool turn through the LLM | 2,843 ms (n=16) | 2,960 ms (n=8, range 2,095-4,739) |
+
+- The server's first sign of an answer this session: p50 0.95 s, p90 1.15 s, max 2.90 s (n=19), in line with the warm probe. After 15-20 s gaps there were no cold-connection stalls.
+- **Tool turns did not get faster.** Weather takes 1.3-4.2 s from the call to the result every time, and the `say` is held 0.6 s, so on those turns the hold only delays the `say`. It pays off where the result is quick (volume 0.2 s, one Wikipedia lookup 0.3 s: the `say` was dropped and the answer spoken alone).
+- **The slow-turn test spaced the fillers correctly again:** stall at 1.8 s, notice 1.5 s after the stall ended (4.81 s and 3.92 s), apology at 8 s, both times; the loop recovered.
+- **Hedge winners: pipeline 1 won 17 of 19 turns** (earlier sessions were closer to even). Cause unknown; not harmful, but it means the hedge is mostly one pipeline.
+- **The first turn of the session was slow** (2,497 ms for a plain reply, with a stall line): one-time costs of the first request through `doc_chat`.
+- **Names:** about 7 of 22 turns had a misrecognised name ("Balio", "Baggio", "Baglio" twice, "joining Steinberg", "East of Eben"); "Cebu", "Taguig" and "Makati" were fine. This is the demo-names item.
+- The owner's "increase the volume" set the Pi speaker to 70 percent (it was 60).
