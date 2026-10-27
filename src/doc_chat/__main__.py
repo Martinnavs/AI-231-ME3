@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import contextlib
 import json
+import math
 import platform
 import re
 import subprocess
@@ -681,7 +682,52 @@ class Session:
             except Exception as exc:
                 self.log(_failed_record(idx, str(wav_file), exc))
 
+    async def warm_up(self) -> None:
+        """Pay the first turn's one-time costs now, where nobody hears them: the room's noise level
+        (the pause detector otherwise starts from a guess), the connection to the speaker (a
+        websocket plus a cold scipy import) with 0.1 s of silence, and one request through the
+        whole agent path. A step that fails is reported and skipped."""
+        from doc_chat.playback import make_player
+
+        t0 = time.perf_counter()
+        steps: list[str] = []
+        try:
+            level = await self.client.measure_room(1.0)
+            if level is not None:
+                steps.append(f"room {20 * math.log10(max(level, 1e-6)):.0f} dBFS")
+        except Exception as exc:
+            print(f"  [warm-up: room not measured ({type(exc).__name__})]", flush=True)
+        if self.args.play:
+            try:
+
+                def silence() -> None:
+                    player = make_player(
+                        self.client.tts_sample_rate,
+                        getattr(self.args, "play_remote", None),
+                        self.client.canceller,
+                    )
+                    player.push(b"\x00\x00" * (self.client.tts_sample_rate // 10))
+                    player.close()
+
+                await asyncio.to_thread(silence)
+                steps.append("speaker")
+            except Exception as exc:
+                print(f"  [warm-up: speaker not reached ({type(exc).__name__})]", flush=True)
+        if self.streamer is not None and getattr(self.args, "llm", None) == "agent":
+            try:
+                stream = self.streamer("Say OK.")
+                await asyncio.to_thread(lambda: list(stream))
+                steps.append("agent")
+            except Exception as exc:
+                print(f"  [warm-up: agent not reached ({type(exc).__name__})]", flush=True)
+        print(
+            f"warm-up done in {time.perf_counter() - t0:.1f} s ({', '.join(steps) or 'nothing'})",
+            flush=True,
+        )
+
     async def run_mic(self) -> None:
+        if getattr(self.args, "warmup", True):
+            await self.warm_up()
         hold = self.args.vad_hold
         how = f"a pause of {hold:g} s ends your turn" if hold > 0 else "pause to end your turn"
         interrupts = " You can talk over it." if self.client.hub is not None else ""
@@ -1383,6 +1429,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="say a short pre-recorded line when an answer is slow: a tool's line when it is "
         "called, a stall at 1.2 s, a notice at 2.5 s, an apology at 8 s (config/fillers.json)",
+    )
+    parser.add_argument(
+        "--warmup",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="before listening, silently pay the first turn's one-time costs: measure the room, "
+        "connect to the speaker (0.1 s of silence) and send one request through the agent path",
     )
     parser.add_argument(
         "--preload-phrases",
