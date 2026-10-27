@@ -91,3 +91,18 @@ Covered (do not repeat): the targets in the table, filler timing research (Lala 
 - "Industry" here means the course notes plus the cited papers; the notes quote ranges without naming the products they came from.
 - Our turn-around figure starts at the real end of speech from the session record (`speech_end_to_first_audio_ms`) and includes the Pi playback path, which the industry figures usually do not.
 - The server-side hedge comparison mixes warm-ups, scripted test requests and live turns; read it as a direction.
+
+## Update 2026-10-27: where we stand after the keep-alive, pre-rendered replies, clock answers and warm-up
+
+Pooled from the two spoken sessions of 2026-10-27 (`out/sessions/speaking-1`, `speaking-2`; normal-pause turns only; one speaker, one room; n=38). End of speech to first sound:
+
+| Turn type | n | Median | p90 |
+|---|---|---|---|
+| All turns | 38 | **2.29 s** | 2.98 s (p95 3.14 s, max 4.74 s) |
+| Commands and clock questions (no LLM) | 8 | **1.17 s** | 1.39 s |
+| Plain LLM answers | 9 | 2.16 s | 2.58 s |
+| Tool turns through the LLM | 21 | 2.63 s | 3.14 s |
+
+Against the sources verified on 2026-10-26: real phone-call medians 1.30-1.74 s, p95 1.77-2.26 s (OpenBenchmarks); tool-workflow mean response 1.27 s (ElevenLabs), 1.58 (GPT Realtime), 1.82 (Telnyx), **1.97 (Pipecat)**, 2.21 (Retell), 2.46 (PolyAI), 2.59 (LiveKit), 3.08 (Vapi) (Cekura). So: **mid-pack for a tool-calling agent, about 0.6-1.0 s slower than the best phone medians, with a tail about 1 s worse (our p95 3.14 s against 1.8-2.3 s); our no-LLM commands (1.17 s) are at the best level.** The sources do not measure the same thing (carrier path, mean against median, unknown clock definition in Cekura, our one speaker and room), so this is direction.
+
+**Why the hosted platforms are faster, and how much is infrastructure** (my estimate from the numbers above, not a measurement). Daily's budget for the best hosted stack is network 200 + turn detection and transcription 400 + LLM 500 + TTS 200 ms = 1.3 s. Ours: turn end plus transcript about 1.0 s (0.64 s hold + 0.37 s offline finalise), LLM first call about 0.9 s, TTS 0.35-0.5 s. Roughly a third to a half of the gap to the best phone medians is infrastructure we cannot change (LLM distance and capacity from Manila, GPU TTS and STT); the rest is our choices (the hold and offline finalise, a large tool prompt, the slow weather tool, the Pi playback path, and cold connections, now fixed). Two things cut the other way: their numbers include network that our local STT and TTS legs do not pay, and the hosted **Pipecat** figure (1.97 s), the same framework we use, is only about 0.3-0.6 s below ours. **Honest floor for this architecture (local STT and TTS on a laptop, cloud LLM): about 1.8-2.0 s**, against 1.3-1.5 s for the best hosted stacks. The levers that get there are the early decode (about 0.3 s on every turn), caching the weather lookups (1-3 s on weather turns) and a wider fast path.
