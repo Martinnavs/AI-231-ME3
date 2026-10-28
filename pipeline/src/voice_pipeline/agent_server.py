@@ -140,6 +140,7 @@ async def run(
     fast: bool = True,
     hedge: float | None = 0.0,
     keepalive: float = KEEPALIVE_S,
+    ipv4_only: bool = False,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
@@ -147,14 +148,17 @@ async def run(
     system = system_file.read_text()
     agent: Agent | HedgedAgent
     if hedge is None:
-        agent = Agent(build_llm(system, keepalive_s=keepalive), tools)
+        agent = Agent(build_llm(system, keepalive_s=keepalive, ipv4_only=ipv4_only), tools)
         await agent.start()
         await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
     else:  # R4: two requests per turn, the first to answer wins (hedge.py)
         gate = HedgeGate()
         agent = HedgedAgent(
             [
-                Agent(build_llm(system, keepalive_s=keepalive), gated_tools(tools, gate, i))
+                Agent(
+                    build_llm(system, keepalive_s=keepalive, ipv4_only=ipv4_only),
+                    gated_tools(tools, gate, i),
+                )
                 for i in range(2)
             ],
             gate,
@@ -202,6 +206,13 @@ def main(argv: list[str] | None = None) -> int:
         help="keep idle connections to Gemini this long (0 = the SDK default of 15 s, which lets "
         "them go cold between turns)",
     )
+    parser.add_argument(
+        "--ipv4",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="connect to Gemini over IPv4 only (the IPv6 path to Google resets connections on this "
+        "network; docs/OPTIMIZATION-RESEARCH.md)",
+    )
     args = parser.parse_args(argv)
     try:
         return asyncio.run(
@@ -213,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.fast_path,
                 None if args.hedge < 0 else args.hedge,
                 args.keepalive,
+                args.ipv4,
             )
         )
     except KeyboardInterrupt:

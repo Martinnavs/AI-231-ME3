@@ -162,3 +162,18 @@ The owner's goal: faster function calling at the same quality as `gemini-3.1-fla
 - **Real traffic** (69 agent turns in the two spoken sessions of 2026-10-27): other tools 51%, plain answers 25%, fast path 14%, **home commands through the LLM 10% (7 turns, six of them music or volume)**. A router that saved 0.4-0.5 s (a guess) on those turns would save about 0.04 s per turn on average, and it cannot replace Gemini on the other 90% without losing answer quality.
 - **Where the time is instead:** on tool turns the tool dominates (the weather lookup took 1.3-4.2 s after the model's call; the model's first call is about 0.9 s). A zero-latency LLM would save at most 0.9 s on the turns that need one.
 - **Decision:** do not run the llama.cpp test. Better returns first: cache weather and place lookups (and the home forecast in the background), widen the regex fast path, early decode. A hosted fast model (a 70B-class model on Groq or Cerebras in the router role) is the only way to gain speed on all turns without losing quality; it needs a key and sends data outside Google, so it is the owner's call.
+
+## IPv4-only Gemini connection (tested 2026-10-28, no gain, left off)
+
+Why: agy and codex runs kept dying of "connection reset"; on the laptop's Wi-Fi, 240 interleaved `curl` requests to `generativelanguage.googleapis.com` failed 9/120 over IPv6 (codes 35 TLS handshake, 56 reset) and 1/120 over IPv4. A repeat of the same test an hour later failed 0/40 on both: the fault comes in bursts.
+
+What was built: `agent.warm_http_options(..., ipv4_only)` / `build_llm(..., ipv4_only)` (aiohttp `TCPConnector(family=AF_INET)`) and the agent server flag `--ipv4` (default off); a test in `tests/test_keepalive.py`. Gates: ruff, mypy, 89 tests pass.
+
+A/B (`.scratch/ablations/ipv4_ab.py`, same prompt, a ~120-token streamed answer, arm order random per pair; the script counts a failure to start and a connection lost mid-response separately):
+
+| Test | dual-stack | IPv4 only |
+| --- | --- | --- |
+| fresh connection per request, 60 pairs | 60 ok, 0 failed, 0 broken; first chunk p50 782, p90 1045 ms | 60 ok, 0 failed, 0 broken; p50 801, p90 1075 ms |
+| warm session, 15 s idle, 14 pairs | 14 ok; p50 670, p90 957 ms | 14 ok; p50 729, p90 964 ms |
+
+Paired difference (dual minus IPv4) median -32 ms and -23 ms: no difference, and no failures in either arm. So through Python/aiohttp (which tries IPv6 and IPv4 together and falls back) the resets were not reproduced, and the IPv6 burst did not occur during the test window. The claim that IPv6 resets explain the old 7-12 s spikes is **not supported**; it is not refuted either, because no bad period was captured. Decision: leave `--ipv4` off; turn it on (`--ipv4`) if resets show up in `filler_log` or the agent logs. agy/codex runs are protected by `.scratch/optimization-research/retry.sh`, and the agy fence prefers IPv4 (`.scratch/local-llm/once.sh`).
