@@ -91,7 +91,10 @@ def defer_expect(kind, original):
     """The deferral expectation of the split design: every request for a summarising tool, code or a workflow
     must produce an escalate call; other kinds keep their expectation."""
     if kind.startswith("pack-"):
-        return _swap_docs(original)
+        swapped = _swap_docs(original)
+        if [] in swapped:  # "no tool expected": a spoken reply (`none|text`) is no tool call either
+            swapped.append([("none", [None])])
+        return swapped
     if kind in DEFER_KINDS:
         return [[("escalate", [None])]]
     if kind == "multi":

@@ -6,16 +6,16 @@ Written 2026-10-28 for the HPC session that will generate more training data. Mo
 
 | | OnIt set (77 turns; target at least 90%) | Pack (92 turns; target at least 85%) | Latency p50 / p95, OnIt | Latency p50 / p95, pack |
 | --- | --- | --- | --- | --- |
-| Q4_K_M (901 MB) | 69/77 (89.6%) | 68/92 (73.9%) | 0.51 s / 0.59 s | 0.57 s / 0.86 s |
-| Q8_0 (1.56 GB) | 66/77 (85.7%) | 68/92 (73.9%) | 0.73 s / 0.87 s | 0.71 s / 1.12 s |
+| Q4_K_M (901 MB) | 69/77 (89.6%) | 73/92 (79.3%) | 0.51 s / 0.59 s | 0.57 s / 0.86 s |
+| Q8_0 (1.56 GB) | 66/77 (85.7%) | 72/92 (78.3%) | 0.73 s / 0.87 s | 0.71 s / 1.12 s |
 
-Q8_0 is slower and no better: ship Q4_K_M. Latency target (p95 at most 0.8 s) holds on the OnIt set, misses on the pack (0.86 s; the pack has longer multi-turn prompts). Not measured: false-tool-call rate (target at most 3%), defer recall and precision.
+Pack scores use the corrected scorer (section 1); the first run reported 68/92 for both. Q8_0 is slower and no better: ship Q4_K_M. Latency target (p95 at most 0.8 s) holds on the OnIt set, misses on the pack (0.86 s; the pack has longer multi-turn prompts). Not measured: false-tool-call rate (target at most 3%), defer recall and precision.
 
 ## Failure analysis (Q4_K_M)
 
-### 1. Scorer artifact on the pack (5 turns, not model errors)
+### 1. Scorer artifact on the pack (5 turns, fixed)
 
-`none|<reply>` is scored as a call named `none`, but the pack's "no tool expected" is the empty list, so a spoken reply is marked wrong. Affected: `c17`, `a02`, `n01`, `n04`, `t03` turn 0. Counting them correct the pack would be about **73/92 (79.3%)**. The fix is in `eval/onit_eval.py` (`pack_prompts` / `defer_expect`: accept `none` where the pack expects `[]`). Not changed yet; apply it before comparing runs, and re-score old runs, not just new ones.
+`none|<reply>` is scored as a call named `none`, but the pack's "no tool expected" is the empty list, so a spoken reply is marked wrong. Affected: `c17`, `a02`, `n01`, `n04`, `t03` turn 0. Fixed in `eval/onit_eval.py` (`defer_expect` accepts `none` wherever a pack turn expects no tool): Q4_K_M goes from 68 to **73/92 (79.3%)**, Q8_0 from 68 to 72/92. Pack numbers from before the fix are not comparable; re-score them (the fix is in the scorer only, so `rows.jsonl` calls are unchanged).
 
 ### 2. Document questions answered with Wikipedia (13 turns, the main real gap)
 
@@ -48,7 +48,7 @@ Keep the contract in `finetune/spec/tools.py`; examples are `prompt -> exact lin
 5. **Negative deferral targets**: chat that merely mentions code, files or reasoning without asking for work must not be `escalate|code|other|tools` (`n03`, `n05`, `r03` on the OnIt set). Pair each with a real defer example.
 6. **Hosted-domain wording that sits near a home intent** (serve, shell and status wording: "is the server running", "stop the job", "list what is scheduled") -> `escalate`, with the home-intent twin for contrast (`STOP`, `LIST_REMINDERS`, `device_status` stay for the real home commands).
 
-After training, report, per `finetune/README.md`: exact match on a held-out set **not drawn from these templates**, the OnIt set, the pack (with the scorer fix above, and also the old number so runs stay comparable), false-call rate, defer recall and precision, and p50 / p95 on CPU with Q4_K_M. State runs and seeds.
+After training, report, per `finetune/README.md`: exact match on a held-out set **not drawn from these templates**, the OnIt set, the pack (the scorer is fixed; the 68/92 first-run figure is the pre-fix number), false-call rate, defer recall and precision, and p50 / p95 on CPU with Q4_K_M. State runs and seeds.
 
 ## Converting the adapter to GGUF: what actually worked
 
