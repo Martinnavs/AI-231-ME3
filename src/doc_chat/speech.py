@@ -60,6 +60,9 @@ async def connect_ws(url: str, token: str | None = None) -> Any:
         return await ws_client.connect(
             url,
             additional_headers=headers,
+            max_size=16
+            * 1024
+            * 1024,  # one comma-free clause of TTS audio can exceed the 1 MiB default
             reconnect_delays=None,  # type: ignore[arg-type]
         )
     except wexc.InvalidStatus as exc:
