@@ -26,6 +26,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `ONIT-PARITY.md` | the professor's added criterion (the voice agent must do all that OnIt can do): OnIt and baby-onit inventoried, the minimum MCP servers and tools to replicate the fundamentals, voice-specific issues, open questions (analysis only, 2026-10-27) |
 | `LOCAL-LLM-BRIEF.md` | standalone context sent to the agent that proposed a local LLM, and its reply (`LOCAL-LLM-BRIEF-RESPONSE.md`): it withdrew its speed, cache and flag claims; local model not pursued |
 | `LOCAL-LLM-FINETUNE-PLAN.md` | the plan to fine-tune Granite 4.0 H-1B on the cluster for the agent's 36-name tool language (one line per call): targets, data, training, export, evaluation, offline staging, open decisions; the contract is built in `.scratch/local-llm/finetune/` (2026-10-28) |
+| `LOCAL-LLM-BASELINE-FEEDBACK.md` | the baseline router's GGUF evaluation (OnIt 89.6%, pack 73.9% on Q4_K_M, latency), a failure analysis with a scorer artifact, the data to generate next, and the GGUF conversion pitfalls (2026-10-28) |
 | `LOCAL-LLM-RESULTS.md` | what the local-LLM experiments measured (five models, Granite optimisations, smaller Granite 4.0, the H-1B ladder, the OnIt set and the split of work) and the pitfalls found (2026-10-28) |
 | `../finetune/README.md` | start here on the cluster: the router fine-tuning project (contract, evaluation sets, baselines, tasks, rules); code in `finetune/` |
 
