@@ -1,0 +1,7 @@
+# produced on the cluster or by the generator; keep small samples only by hand
+runs/
+data/generated/
+eval/results/
+*.gguf
+*.safetensors
+__pycache__/
