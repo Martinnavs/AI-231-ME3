@@ -1,6 +1,6 @@
 # Fine-tuning the local model (Granite 4.0 H-1B) for the voice agent's tools
 
-Added 2026-10-28. Status: **contract built and tested (17 tests); evaluation sets and baselines built (section 8); owner's decisions of 2026-10-28 recorded in section 7; data, training and export not started.** Training runs on the owner's HPC cluster, so everything it needs is prepared here first and staged offline.
+Added 2026-10-28. Status: **contract, data generator, training and export scripts, preflight and evaluation built and tested where no GPU is needed (30 tests; `finetune/README.md` is the start-here file for the cluster); the training script has not run on a GPU; owner's decisions of 2026-10-28 recorded in section 7; data, training and export not started.** Training runs on the owner's HPC cluster, so everything it needs is prepared here first and staged offline.
 
 ## Why this and what it must reach
 

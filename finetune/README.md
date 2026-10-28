@@ -15,10 +15,17 @@ The voice agent (laptop mic, Pi loudspeaker, hosted Gemini `gemini-3.1-flash-lit
 
 So the router is trained on **28 names** (the 17 home intents, 8 information tools, `none`, `escalate`) and must defer the rest. The contract also lists the 9 OnIt tools because Gemini's schemas and some evaluation arms use them; the router never emits them.
 
-## State (2026-10-28)
+## State (2026-10-28, end of the laptop session)
 
-Done: the contract and its tests (`spec/tools.py`, 17 tests pass); the evaluation sets and runner (`eval/`); baselines (below); the plan and results documents.
-Not done, in this order (each is a task for you): preflight script, data generator, dataset checks and split, training script, export and evaluation on the cluster. Check `git log -- finetune` for what has landed since this was written.
+Built and tested on the laptop (30 tests, ruff clean, **nothing has run on a GPU yet**):
+- the contract (`spec/tools.py`), the OnIt evaluation set and runner (`eval/`), the baselines;
+- the **data generator** (`data/generate.py`): seeds give exact target lines; noise, multi-turn follow-ups, two-call turns, deferrals, pleasantries and missing-value questions; an optional teacher (`--teacher gemini`) rewrites a share of the wording; a near-duplicate filter keeps the 87-prompt pack and the OnIt set out of training; the split is by seed key;
+- the **training script** (`train/train.py`: LoRA or full, loss on the target only, generation exact match on dev), `train/export.py` (merge, then the llama.cpp conversion steps), `train/run.sh` (background launcher; refuses GPU 6), `scripts/preflight.py`;
+- the evaluation hook `router-ft` in `eval/onit_eval.py` for the fine-tuned model (it uses the short system message of `data/format.py`).
+
+**Not tested** (needs the cluster): `train/train.py` and `train/export.py` have only been parsed, and their pure helpers (`train/utils.py`: label masking, batching) are tested with a stub tokenizer. Expect small API fixes (transformers or peft version differences) on the first smoke run; the 20-step `--smoke` run exists for that.
+
+What the generator gives: with plain templates only, 25,000 draws yield about 10,000 distinct examples (the rest are duplicates and are dropped), so **use the teacher** (`--teacher gemini`, key read from `~/.secrets/google-ai-studio/` at run time, never printed) to reach the size and the variety consumers need. Plain-template wording was written by one author, so the generator's own dev/test splits are optimistic; **the 87-prompt pack and the OnIt set are the independent tests**. Exact matches of the eval sentences are dropped from training (for example "turn on the lights"), which costs some common wordings; for the model that ships, regenerate with `--include-eval` after the evaluation is done.
 
 ## The output language (the contract: `spec/tools.py`)
 
@@ -34,6 +41,10 @@ One call per line, `NAME|arg1|arg2`, the last argument may contain `|`, no newli
 | `eval/onit_eval.py` | the runner: `gemini`, `router-split`, `router-full` backends; `--set pack` runs the 87-prompt regression pack (`pipeline/config/eval/agent_prompts.jsonl`) |
 | `eval/system_*.txt` | prompts used for the untrained baselines |
 | `data/agent_tools_snapshot.json` | the agent's current 9 tool schemas (OpenAI format) |
+| `data/generate.py`, `data/banks.py`, `data/format.py` | the generator, its word banks, and the chat format shared by training and evaluation |
+| `train/train.py`, `train/utils.py`, `train/export.py`, `train/run.sh` | training, label masking and batching (tested), merge and GGUF steps, the launcher |
+| `scripts/preflight.py` | what the machine can do (GPUs, CUDA, nvcc, disk, internet, libraries, Mamba kernels) |
+| `tests/` | 30 tests: contract, generator, training helpers |
 | `pyproject.toml` | dependency groups `data`, `train`, `dev` (not locked; pin on the cluster) |
 
 ## Verify the checkout (no GPU, no network)
@@ -58,13 +69,23 @@ Targets (proposals the owner accepted): at least 90% exact on a new held-out set
 
 UPD CoE HPC, node `ai-n002.hpc.coe.upd.edu.ph`, one A100 per run, the GPU chosen by index with `CUDA_VISIBLE_DEVICES` (**never GPU 6**), jobs started with `uv run`, shared home `/mnt/jfs_hpc/home/anthony.martin.navarez/`. ME2 pins `torch==2.3.1` (cu121); do **not** reuse that environment (Granite 4.0 hybrid needs a recent `transformers`). No SLURM was seen anywhere; internet on the node is assumed. Unknown until you run `scripts/preflight.py`: GPU count and who else is using them, `nvcc`, disk quota, time limits.
 
-## Tasks for the cluster session
+## Tasks for the cluster session (in order)
 
-1. **Preflight** (`scripts/preflight.py`): print GPUs, driver and CUDA, `nvcc`, disk, Python, internet reachability, and whether `mamba-ssm` and `causal-conv1d` import. If the Mamba kernels will not build, train the plain `ibm-granite/granite-4.0-1b` instead (it scored 62/92 untrained against 53/92 for the hybrid, but is 1.7x slower: decide by measurement).
-2. **Data** (`data/generate.py`): seeds give exact target lines; a teacher model (any model not hosted on the Pi) only writes the user's wording. Mix, sizes and leakage rules: plan section 2. Hold out the 87 pack prompts and `eval/onit_eval.jsonl`; remove near-duplicates.
-3. **Train** (`train/train.py`): LoRA first (rank 32, loss on the target line only), full fine-tuning as a comparison; checkpoints, resume, fixed seeds, three seeds for the final configuration. Smoke test with 20 steps before anything long.
-4. **Export**: merge the adapter, convert with llama.cpp `convert_hf_to_gguf.py`, quantise to Q4_K_M (compare Q8_0), run through `eval/onit_eval.py router-split` (OnIt set and `--set pack`) with the grammar from `spec/tools.py`.
-5. Bring the GGUF and the result tables back; update `docs/LOCAL-LLM-RESULTS.md` and this file.
+```
+cd finetune
+python scripts/preflight.py                      # 1. read the verdict: hybrid H-1B or the plain 1B
+uv sync --group train                            #    (or the cluster's own environment; torch must match the CUDA build)
+python data/generate.py --out data/generated --n 25000 --seed 0 --teacher gemini     # 2. data (needs the Gemini key; omit --teacher for a template-only set)
+python -m pytest tests -q                        #    all green before training
+GPU=5 bash train/run.sh start smoke --model ibm-granite/granite-4.0-h-1b --data data/generated --out runs/smoke --smoke   # 3. 20 steps
+GPU=5 bash train/run.sh start h1b-lora-s0 --model ibm-granite/granite-4.0-h-1b --data data/generated --out runs/h1b-lora-s0 --seed 0
+bash train/run.sh status h1b-lora-s0
+python train/export.py --base ibm-granite/granite-4.0-h-1b --adapter runs/h1b-lora-s0/final --out runs/h1b-lora-s0/merged   # 4. merge, then the printed llama.cpp steps
+```
+
+Then evaluate the GGUF with llama.cpp (`llama-server --jinja`, grammar from `spec/tools.py`): `python eval/onit_eval.py router-ft --url http://127.0.0.1:8089` and again with `--set pack`; compare with the table above. Choose on dev, look at the test and pack results once, state seeds and repetitions (three seeds for the final configuration). If the hybrid's kernels will not build, train `ibm-granite/granite-4.0-1b` instead (62/92 untrained against 53/92 for the hybrid, but 1.7x slower at inference): decide by measurement. Bring the GGUF and the tables back; update `docs/LOCAL-LLM-RESULTS.md` and this file.
+
+Open questions for the owner, to ask when they are online: which GPU indexes are free on `ai-n002` and whether another user competes; whether the node has internet (the preflight says); whether a second hosted request for the spoken answer is acceptable on turns the router defers (assumed yes: the router defers, Gemini does request 1 and request 2).
 
 ## Rules that apply here (the owner's standing agreements)
 

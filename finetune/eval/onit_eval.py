@@ -8,6 +8,7 @@ gemini        hosted Gemini (the model the agent uses) with the 18 tool schemas,
               the second request (the spoken answer from a canned tool result) for the turns that need one.
 router-split  the small model as a ROUTER: it answers home/info calls itself and must `escalate` everything else.
               Scored against the DEFERRAL expectation (docs/files/shell/serve/web/workflow/code -> any escalate).
+router-ft     the fine-tuned router (its own short system message from data/format.py); scored like router-split.
 router-full   the small model asked to make the OnIt tool calls itself (all tools in its prompt). Scored against the
               ORIGINAL call expectation: would its own call have been right?
 Scoring (onit_prompts.py): a turn is exact when its calls match one acceptable alternative (names and argument
@@ -252,7 +253,7 @@ def pct(xs, q):
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("backend", choices=("gemini", "router-split", "router-full"))
+    ap.add_argument("backend", choices=("gemini", "router-split", "router-full", "router-ft"))
     ap.add_argument("--url", default="http://127.0.0.1:8089")
     ap.add_argument("--name", default=None)
     ap.add_argument("--repeat", type=int, default=1)
@@ -325,7 +326,7 @@ def main() -> None:
 
     for r in rows:
         exp = r["expect"]
-        if a.backend == "router-split":
+        if a.backend in ("router-split", "router-ft"):
             exp = defer_expect(r["kind"], exp)
         r["scored"] = not (a.backend == "gemini" and r["kind"] in ("workflow", "code"))
         r["exact"] = any(match_alt(r["calls"], alt) for alt in exp)
