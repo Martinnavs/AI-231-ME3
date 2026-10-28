@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
@@ -61,18 +62,21 @@ def read_key(secret_dir: str) -> str:
 _sessions: list[Any] = []  # the aiohttp sessions behind the Gemini clients, closed at shutdown
 
 
-def warm_http_options(keepalive_s: float | None = KEEPALIVE_S) -> Any:
-    """HttpOptions whose aiohttp session keeps idle connections `keepalive_s` seconds, or None
-    (the SDK default) when `keepalive_s` is falsy or aiohttp is not installed. Call it inside a
-    running event loop: the session belongs to that loop."""
-    if not keepalive_s:
+def warm_http_options(keepalive_s: float | None = KEEPALIVE_S, ipv4_only: bool = False) -> Any:
+    """HttpOptions whose aiohttp session keeps idle connections `keepalive_s` seconds and, with
+    `ipv4_only`, connects over IPv4 only; None (the SDK defaults) when neither is asked for or
+    aiohttp is not installed. Call it inside a running event loop: the session belongs to it."""
+    if not keepalive_s and not ipv4_only:
         return None
     try:
         import aiohttp
         from google.genai.types import HttpOptions
     except ImportError:
         return None
-    session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(keepalive_timeout=keepalive_s))
+    options: dict[str, Any] = {"keepalive_timeout": keepalive_s or 15.0}  # 15 s: aiohttp's default
+    if ipv4_only:
+        options["family"] = socket.AF_INET
+    session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(**options))
     _sessions.append(session)
     return HttpOptions(aiohttp_client=session)
 
@@ -84,11 +88,14 @@ async def close_llm_sessions() -> None:
 
 
 def build_llm(
-    system: str, model: str = MODEL, keepalive_s: float | None = KEEPALIVE_S
+    system: str,
+    model: str = MODEL,
+    keepalive_s: float | None = KEEPALIVE_S,
+    ipv4_only: bool = False,
 ) -> GoogleLLMService:
     return GoogleLLMService(
         api_key=read_key("google-ai-studio"),
-        http_options=warm_http_options(keepalive_s),
+        http_options=warm_http_options(keepalive_s, ipv4_only),
         settings=GoogleLLMService.Settings(model=model, system_instruction=system),
     )
 
