@@ -106,3 +106,50 @@ Pooled from the two spoken sessions of 2026-10-27 (`out/sessions/speaking-1`, `s
 Against the sources verified on 2026-10-26: real phone-call medians 1.30-1.74 s, p95 1.77-2.26 s (OpenBenchmarks); tool-workflow mean response 1.27 s (ElevenLabs), 1.58 (GPT Realtime), 1.82 (Telnyx), **1.97 (Pipecat)**, 2.21 (Retell), 2.46 (PolyAI), 2.59 (LiveKit), 3.08 (Vapi) (Cekura). So: **mid-pack for a tool-calling agent, about 0.6-1.0 s slower than the best phone medians, with a tail about 1 s worse (our p95 3.14 s against 1.8-2.3 s); our no-LLM commands (1.17 s) are at the best level.** The sources do not measure the same thing (carrier path, mean against median, unknown clock definition in Cekura, our one speaker and room), so this is direction.
 
 **Why the hosted platforms are faster, and how much is infrastructure** (my estimate from the numbers above, not a measurement). Daily's budget for the best hosted stack is network 200 + turn detection and transcription 400 + LLM 500 + TTS 200 ms = 1.3 s. Ours: turn end plus transcript about 1.0 s (0.64 s hold + 0.37 s offline finalise), LLM first call about 0.9 s, TTS 0.35-0.5 s. Roughly a third to a half of the gap to the best phone medians is infrastructure we cannot change (LLM distance and capacity from Manila, GPU TTS and STT); the rest is our choices (the hold and offline finalise, a large tool prompt, the slow weather tool, the Pi playback path, and cold connections, now fixed). Two things cut the other way: their numbers include network that our local STT and TTS legs do not pay, and the hosted **Pipecat** figure (1.97 s), the same framework we use, is only about 0.3-0.6 s below ours. **Honest floor for this architecture (local STT and TTS on a laptop, cloud LLM): about 1.8-2.0 s**, against 1.3-1.5 s for the best hosted stacks. The levers that get there are the early decode (about 0.3 s on every turn), caching the weather lookups (1-3 s on weather turns) and a wider fast path.
+
+## Update 2026-10-29: the local router (fine-tuned Granite 4.0 H-1B) next to Gemini only
+
+**Bottom line.** The router does not change where we stand: still mid-pack for a tool-calling agent, about 0.6-1.0 s behind the best phone medians and 2-3x the "good" 600-900 ms target. The median is the same with it as without it (2.3-2.4 s, within the noise of 14-15 turns per run). Its value is resilience when the network is slow or down, and fewer Gemini requests on the turns it answers; the offline-network case has only been tested with a fake model, not live.
+
+What it is: a LoRA fine-tune of `ibm-granite/granite-4.0-h-1b` (v1, template data, one seed), served as a Q4_K_M GGUF by llama-server on the laptop CPU, writing one grammar-constrained line per call (`finetune/`, `pipeline/src/voice_pipeline/router.py`). It runs home commands, the clock, weather, Wikipedia and the Pi volume itself and defers the rest to Gemini; it races Gemini and the first to answer wins (`--router-url`, off by default).
+
+Spoken sessions of 2026-10-29 (the same 15 phrases each time, one speaker, one room, Pi loudspeaker at 80%, Gemini on IPv4; interrupted turns excluded). End of speech to first sound:
+
+| Configuration | Session | n | Median | p90 | Max |
+|---|---|---|---|---|---|
+| Gemini only (router off) | `router-1029-0648` | 15 | **2.32 s** | 2.94 s | 3.30 s |
+| Router + Gemini, plain race | `router-1029-0700` | 14 | **2.40 s** | 3.14 s | 3.16 s |
+| Router + Gemini, Gemini held 1 s | `router-1029-0640` | 15 | 2.33 s | 3.12 s | 3.40 s |
+| Reference, 2026-10-27 (Gemini only, free speech) | `speaking-1`, `-2` | 38 | 2.29 s | 2.98 s | 4.74 s |
+
+The final transcript arrives 0.05-1.3 s after the end of speech, a spread that has nothing to do with the router, so the comparison below uses the part the router can change, final transcript to first sound, phrase by phrase (11 phrases heard in all three runs):
+
+| Phrase | Gemini only | Hold 1 s | Plain race |
+|---|---|---|---|
+| "What time is it?" (fast path) | 400 ms | 400 | 374 |
+| Brightness to forty percent | 1258 | 1217 (router) | 1201 (router) |
+| Timer for ten minutes and lights off | 2063 | 1122 (router) | 1121 (router) |
+| "Call my sister." | 1258 | 987 (router) | 988 (router) |
+| "Call Gary." | 1355 | 1209 (router) | 1254 (router) |
+| "And tomorrow?" (weather follow-up) | 1260 | 1346 (router) | 2142 (Gemini) |
+| Speaker volume | 1587 | 1232 (router) | 1345 (Gemini) |
+| "Who is Cormac McCarthy?" (garbled in two runs) | 1860 | 2027 (Gemini) | 1968 (Gemini) |
+| "Thanks, that's all." | 1137 | 1140 (router) | 1084 (Gemini) |
+| "Why do you think the sky is blue?" | 1139 | 1437 (Gemini) | 1322 (Gemini) |
+| Document question | 1910 | 2246 (Gemini) | 2122 (Gemini) |
+| **Median / mean** | **1260 / 1384** | **1217 / 1306** | **1254 / 1356** |
+
+- **Where it helps:** turns that would cost Gemini a second request (timer plus lights, -0.94 s; Tokyo time and speaker volume earlier, -0.4 s) and some single commands (-0.3 s); single-call commands gain almost nothing, because Gemini's own short spoken filler ("I'm setting the brightness...") already arrives at about 0.8 s, when the router answers.
+- **Where it costs:** turns the router defers pay for the hold (about +0.3 s with a 1 s hold: sky, document). The plain race has no hold, but Gemini's filler then often wins the turn and the router's complete answer is dropped (the router answered 4 turns instead of 8 with the hold), and a slow Gemini second half is not rescued ("And tomorrow?" 2142 ms).
+- **Router call time:** 0.39 s p50 / 0.66 s p95 offline on the laptop CPU, but 0.6-1.0 s (median about 0.7) live, because the speech server shares the 4 cores.
+
+Router quality (one run, one seed, greedy decoding; `docs/LOCAL-LLM-BASELINE-FEEDBACK.md`):
+
+| | OnIt set | 92-turn pack | Defer recall / precision | False tool calls |
+|---|---|---|---|---|
+| Gemini (18 tools) | 57/63 (90.5%) | 77/92 (83.7%) | n/a (cannot defer) | 8 of 25 no-tool turns (3 are reasoning turns where only a deferral is accepted) |
+| Router v1, Q4_K_M | 69/77 (89.6%); 58/63 on Gemini's subset | **80/92 (87.0%)** | 85.5% (OnIt 96.8%, pack 35.7%) / 100% | 2 of 25 |
+
+Reading it against the industry rows above: the 2.3-2.4 s median sits between Retell (2.21 s) and PolyAI (2.46 s) in the tool-workflow means; only the fast-path turns (about 1.1 s) are inside the phone-call range of 1.30-1.74 s. About 1.0 s of every turn is the end-of-turn hold plus recogniser, which the router does not touch, so it cannot move the headline number; a faster first LLM call or a shorter hold could.
+
+Caveats: 14-15 timed turns per run, one speaker, so differences under about 0.3 s are noise; the Gemini-only run and the router runs were separate sessions on the same script; turns the recogniser garbled differ between runs; the router has not been tested on a throttled or offline connection; the old-benchmark figures quoted from other days are from this document and `docs/LIVE-AGENT.md`, not recomputed.
