@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,8 +29,18 @@ from websockets.exceptions import ConnectionClosed
 
 from voice_pipeline import fast_path
 from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
-from voice_pipeline.agent_tools import PI_URL, build_tools, standard_servers
+from voice_pipeline.agent_tools import FAILURE, PI_URL, build_tools, standard_servers
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
+from voice_pipeline.router import (
+    HISTORY_PAIRS,
+    NO_SLOT_SAY,
+    SLOT_SAY,
+    TIMEOUT_S,
+    LocalRouter,
+    Routed,
+    spec,
+)
+from voice_pipeline.tools.smart_home import load_phonebook
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -38,8 +49,15 @@ class AgentServer:
     """Serves `agent` turns over WebSocket and logs each one."""
 
     def __init__(
-        self, agent: Any, record: list[dict[str, Any]], log: Path, tools: Any = None
+        self,
+        agent: Any,
+        record: list[dict[str, Any]],
+        log: Path,
+        tools: Any = None,
+        router: LocalRouter | None = None,
     ) -> None:
+        self.router = router
+        self.router_lines: dict[str, str] = {}  # reply we spoke -> the router lines behind it
         self.agent = agent
         self.record = record
         self.log = log
@@ -75,6 +93,150 @@ class AgentServer:
         return {"status": "ok", "text": text, "first_call_s": 0.0, "first_text_s": elapsed,
                 "end_s": elapsed, "fast_path": True}  # fmt: skip
 
+    def history(self, messages: list[dict[str, Any]]) -> list[tuple[str, str]]:
+        """The last earlier (user, router lines) pair(s); a reply the router did not write
+        (Gemini's) stands in as a plain `none|` line."""
+        pairs: list[tuple[str, str]] = []
+        said: str | None = None
+        for m in messages[:-1]:
+            if m.get("role") == "user":
+                said = str(m.get("content", ""))
+            elif m.get("role") == "assistant" and said is not None:
+                reply = str(m.get("content", ""))
+                pairs.append(
+                    (said, self.router_lines.get(reply) or "none|" + " ".join(reply.split())[:100])
+                )
+                said = None
+        return pairs[-HISTORY_PAIRS:]
+
+    async def call_tool(self, name: str, args: dict[str, Any]) -> Any:
+        """Run one of the agent's tools directly and return its result."""
+        results: list[Any] = []
+
+        async def done(result: Any, *rest: Any, **kwargs: Any) -> None:
+            results.append(result)
+
+        params = SimpleNamespace(
+            function_name=name, tool_call_id="router", arguments=args, result_callback=done
+        )
+        await self.tools[name].handler(params)
+        return results[0] if results else {"ok": False}
+
+    async def run_routed(
+        self,
+        routed: Routed,
+        started: float,
+        on_text: Any,
+        claim: Callable[[], bool] = lambda: True,
+    ) -> dict[str, Any] | None:
+        """Run the router's calls with the agent's own tools and say the result. `claim` is asked
+        before the first home command and before speaking: False means Gemini already answered
+        (nothing is run or said). None: Gemini should take the turn, because the claim failed or a
+        lookup failed before anything changed (it retries with another topic, as it does without
+        the router)."""
+        spoken: list[str] = []
+        claimed = False
+
+        def take() -> bool:
+            nonlocal claimed
+            claimed = claimed or claim()
+            return claimed
+
+        for call in routed.calls:
+            name = call.name
+            if name == "none":
+                spoken.append(call.args[0].strip())
+            elif name == "get_current_time":
+                zone = spec.to_tool_args(call).get("timezone", fast_path.TIMEZONE)
+                now = datetime.now(ZoneInfo(zone))
+                text = fast_path.local_answer(fast_path.Match("clock", {"what": "time"}, None), now)
+                spoken.append(
+                    text
+                    if zone == fast_path.TIMEZONE
+                    else f"{text[:-1]} in {zone.split('/')[-1].replace('_', ' ')}."
+                )
+            else:
+                home = name in spec.HOME_INTENTS
+                tool = "smart_home" if home else name
+                args = (
+                    {"intent": name, **({"slot": call.args[0]} if call.args else {})}
+                    if home
+                    else spec.to_tool_args(call)
+                )
+                if home and not take():
+                    return None
+                result = await self.call_tool(tool, args)
+                if not home and FAILURE.search(str(result)) and not claimed:
+                    return None
+                if home:
+                    ok = isinstance(result, dict) and result.get("ok") is not False
+                    if ok:
+                        spoken.append(
+                            NO_SLOT_SAY.get(name)
+                            or SLOT_SAY[name].format(call.args[0] if call.args else "")
+                        )
+                    else:
+                        spoken.append(
+                            fast_path.spoken_result(fast_path.Match(tool, args, None), result)
+                        )
+                        break
+                else:
+                    spoken.append(str(result))
+        if not take():
+            return None
+        text = " ".join(spoken)
+        await on_text(text)
+        self.router_lines[text] = routed.lines
+        while len(self.router_lines) > 64:
+            self.router_lines.pop(next(iter(self.router_lines)))
+        elapsed = time.perf_counter() - started
+        return {
+            "status": "ok",
+            "text": text,
+            "first_call_s": routed.seconds,
+            "first_text_s": elapsed,
+            "end_s": elapsed,
+            "routed": True,
+            "router_s": routed.seconds,
+            "router_lines": routed.lines,
+        }
+
+    async def routed_turn(
+        self, messages: list[dict[str, Any]], on_text: Any, on_tool: Any, on_say: Any
+    ) -> dict[str, Any]:
+        """The local router and Gemini answer the turn at the same time when the agent is hedged
+        (the first to answer wins, hedge.py); otherwise the router goes first and Gemini only
+        takes what it cannot run."""
+        assert self.router is not None
+        router = self.router
+        started = time.perf_counter()
+        user = str(messages[-1].get("content", ""))
+        info: dict[str, Any] = {}
+
+        async def local(claim: Callable[[], bool]) -> dict[str, Any] | None:
+            routed = await router.route(self.history(messages), user, set(self.tools))
+            info.update(router_s=routed.seconds, router_lines=routed.lines)
+            if routed.reason is None:
+                done = await self.run_routed(routed, started, on_text, claim)
+                if done is not None:
+                    return done
+                routed.reason = "lookup failed or Gemini first"
+            info["router_reason"] = routed.reason
+            return None
+
+        if isinstance(self.agent, HedgedAgent):
+            result = await self.agent.ask(
+                messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say, local=local
+            )
+            return result if result.get("routed") else {**result, **info}
+        done = await local(lambda: True)
+        if done is not None:
+            return done
+        result = await self.agent.ask(
+            messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say
+        )
+        return {**result, **info}
+
     async def handle(self, ws: ServerConnection) -> None:
         request = json.loads(await ws.recv())
         messages = [m for m in request["messages"] if m.get("role") != "system"]
@@ -102,6 +264,8 @@ class AgentServer:
             )
             if found is not None and (found.tool == "clock" or found.tool in self.tools):
                 turn = asyncio.create_task(self.fast(found, on_text))
+            elif self.router is not None and last.get("role") == "user":
+                turn = asyncio.create_task(self.routed_turn(messages, on_text, on_tool, on_say))
             else:
                 turn = asyncio.create_task(
                     self.agent.ask(
@@ -141,6 +305,9 @@ async def run(
     hedge: float | None = 0.0,
     keepalive: float = KEEPALIVE_S,
     ipv4_only: bool = False,
+    router_url: str | None = None,
+    router_timeout: float = TIMEOUT_S,
+    router_hold: float = 0.0,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
@@ -163,12 +330,18 @@ async def run(
             ],
             gate,
             hedge,
+            hold_s=router_hold,
         )
         await agent.start()
         await agent.warm_up()
     log = ROOT / "out/agent_server" / f"{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
-    server = AgentServer(agent, record, log, tools if fast else None)
+    router = None
+    if router_url:
+        book = {c["name"]: c["relation"] for c in load_phonebook()}
+        router = LocalRouter(router_url, book, router_timeout)
+        await router.warm_up()
+    server = AgentServer(agent, record, log, tools if fast or router else None, router)
     try:
         async with serve(server.handle, "127.0.0.1", port):
             print(f"agent server on ws://127.0.0.1:{port}, log {log}", flush=True)
@@ -213,6 +386,23 @@ def main(argv: list[str] | None = None) -> int:
         help="connect to Gemini over IPv4 only (the IPv6 path to Google resets connections on this "
         "network; docs/OPTIMIZATION-RESEARCH.md)",
     )
+    parser.add_argument(
+        "--router-url",
+        default=None,
+        help="llama-server of the fine-tuned router (router.py): it answers simple turns itself "
+        "and hands the rest to Gemini; off by default",
+    )
+    parser.add_argument("--router-timeout", type=float, default=TIMEOUT_S, metavar="SECONDS")
+    parser.add_argument(
+        "--router-hold",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="0: a plain race, whichever of the router and Gemini answers first wins (Gemini when "
+        "the network is good, the router when it is slow or down); SECONDS > 0 keeps Gemini from "
+        "claiming the turn that long so the router's complete answer is not beaten by Gemini's "
+        "short filler sentence (about +0.3 s on turns the router defers)",
+    )
     args = parser.parse_args(argv)
     try:
         return asyncio.run(
@@ -225,6 +415,9 @@ def main(argv: list[str] | None = None) -> int:
                 None if args.hedge < 0 else args.hedge,
                 args.keepalive,
                 args.ipv4,
+                args.router_url,
+                args.router_timeout,
+                args.router_hold,
             )
         )
     except KeyboardInterrupt:
