@@ -25,6 +25,44 @@ Built and tested on the laptop (30 tests, ruff clean, **nothing has run on a GPU
 
 **Not tested** (needs the cluster): `train/train.py` and `train/export.py` have only been parsed, and their pure helpers (`train/utils.py`: label masking, batching) are tested with a stub tokenizer. Expect small API fixes (transformers or peft version differences) on the first smoke run; the 20-step `--smoke` run exists for that.
 
+## Cluster session 2026-10-28: baseline trained, conversion left to do
+
+**Result (one run, seed 0, template-only data, so a baseline):** LoRA (rank 32) on `ibm-granite/granite-4.0-h-1b`, 8,386 training examples, 3 epochs, 3,395 s on one shared A100 (GPU 5). Dev exact match **96.7% (290/300)**, eval loss 0.037 after epoch 1 and 0.023 after epoch 3. The dev set comes from the same template generator as the training data, so this is optimistic: **the OnIt set and the 87-prompt pack have not been run yet** and are the real test. Not done: teacher-reworded data (`--teacher gemini`), three seeds, GGUF export, latency.
+
+**What the first GPU run needed** (so the next person does not repeat it):
+- `train/run.sh` calls plain `python`: put the project environment first, `PATH=$PWD/.venv/bin:$PATH GPU=5 bash train/run.sh start ...`, after `uv sync --group train --group dev --group data` in `finetune/` (resolved to torch 2.14.1 with a CUDA 13.0 build, transformers 5.21, peft 0.21; `uv.lock` pins it).
+- `transformers` 5 renamed `warmup_ratio`; `train.py` now passes `warmup_steps=0.03` (a float below 1 is a ratio). That was the only API fix.
+- `mamba_ssm` and `causal_conv1d` are not installed (the node has nvcc 12.8, the torch build is CUDA 13.0), so the hybrid layers use the slow PyTorch fallback. It works, but uses much more memory and about 8 s per step: the default `--batch 16` ran out of memory next to another user's job, **`--batch 4 --accum 16` fits** (same effective batch of 64). Set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+- The node's GPUs are shared and were at 97-100% utilisation from other users throughout; GPU 6 stays off limits.
+- `train.py` prints its loss and eval lines to a block-buffered stdout, so they reach `runs/<name>.log` in chunks; the progress bar (stderr) is live.
+- The adapter is in `runs/h1b-lora-s0/final`; `python train/export.py --base ibm-granite/granite-4.0-h-1b --adapter runs/h1b-lora-s0/final --out runs/h1b-lora-s0/merged` produced a 2.8 GB bf16 model (tested, CPU only, about a minute).
+
+**Convert and evaluate on another machine.** The adapter is on the Hugging Face Hub (private): `martinnavs/granite-4.0-h-1b-router-baseline-s0` (adapter and config only, about 143 MB). It cannot be converted to GGUF as is: merge it into the base first.
+
+```python
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+base = "ibm-granite/granite-4.0-h-1b"
+m = AutoModelForCausalLM.from_pretrained(base, dtype=torch.bfloat16)
+m = PeftModel.from_pretrained(m, "martinnavs/granite-4.0-h-1b-router-baseline-s0").merge_and_unload()
+m.save_pretrained("merged")
+AutoTokenizer.from_pretrained(base).save_pretrained("merged")
+```
+
+Use the versions in `uv.lock` (transformers 5.x, peft 0.21); `train/export.py` does the same merge from a local adapter. Then, with llama.cpp:
+
+```
+python llama.cpp/convert_hf_to_gguf.py merged --outfile router-f16.gguf --outtype f16
+llama.cpp/build/bin/llama-quantize router-f16.gguf router-Q4_K_M.gguf Q4_K_M     # also try Q8_0
+llama-server --jinja -m router-Q4_K_M.gguf --port 8089                     # the eval runner sends the grammar (spec/tools.py) with each request
+python eval/onit_eval.py router-ft --url http://127.0.0.1:8089                    # the OnIt set
+python eval/onit_eval.py router-ft --url http://127.0.0.1:8089 --set pack         # the 87-prompt pack
+```
+
+Compare with the table below, and measure p50/p95 model-call latency on the laptop CPU with Q4_K_M (target at most 0.8 s p95). The cluster session did not build llama.cpp.
+
 What the generator gives: with plain templates only, 25,000 draws yield about 10,000 distinct examples (the rest are duplicates and are dropped), so **use the teacher** (`--teacher gemini`, key read from `~/.secrets/google-ai-studio/` at run time, never printed) to reach the size and the variety consumers need. Plain-template wording was written by one author, so the generator's own dev/test splits are optimistic; **the 87-prompt pack and the OnIt set are the independent tests**. Exact matches of the eval sentences are dropped from training (for example "turn on the lights"), which costs some common wordings; for the model that ships, regenerate with `--include-eval` after the evaluation is done.
 
 ## The output language (the contract: `spec/tools.py`)

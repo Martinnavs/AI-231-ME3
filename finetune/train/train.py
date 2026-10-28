@@ -102,7 +102,7 @@ def main() -> None:
         gradient_accumulation_steps=a.accum,
         learning_rate=a.lr if not a.full else min(a.lr, 2e-5),
         lr_scheduler_type="cosine",
-        warmup_ratio=0.03,
+        warmup_steps=0.03,  # float in [0, 1) = ratio of total steps (transformers>=5)
         bf16=True,
         logging_steps=10,
         eval_strategy="no" if a.smoke else "epoch",
