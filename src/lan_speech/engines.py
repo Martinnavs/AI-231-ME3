@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
@@ -204,6 +205,106 @@ class SupertonicTTSEngine:
             clipped = clipped[max(voiced[0] - margin, 0) : voiced[-1] + margin]
         pcm_bytes = (clipped * 32767.0).astype(np.int16).tobytes()
         return bytes(pcm_bytes)
+
+
+_KITTEN_YEAR = re.compile(
+    r"(?<![\d$,.])(1[1-9]\d\d|20\d\d)(?![\d,]|\.\d|\s?(?:%|percent|degrees|km|kilometers|meters|minutes|kg))"
+)
+_KITTEN_AMPM = re.compile(r"\b([AP])\.?M\b")
+
+
+def kitten_text(text: str, cleaner: Any, year_words: Callable[[int], str]) -> str:
+    """Prepare reply text for Kitten.
+
+    Its default cleaner lowercases everything, drops commas and periods, and turns "person's"
+    into "person s" (read "person ess"). Keep case, apostrophes and punctuation instead; say years
+    as years ("nineteen thirty-three") and AM/PM as letters (its time expander turns them into the
+    word "am").
+    """
+    text = _KITTEN_YEAR.sub(lambda m: year_words(int(m[1])), text)
+    text = _KITTEN_AMPM.sub(lambda m: "ay em" if m[1] == "A" else "pee em", text)
+    out = str(cleaner(text))
+    return re.sub(
+        r"(\w)(ay em|pee em)\b", r"\1 \2", out
+    )  # the time expander eats the space before it
+
+
+class KittenTTSEngine:
+    """Kitten TTS 0.8 (StyleTTS2-derived, ONNX, 24 kHz).
+
+    ``kittentts`` is not a project dependency: set ``KITTEN_SITE`` to a site-packages directory that
+    holds it (the isolated bake-off environment), which is appended to ``sys.path``.
+    """
+
+    def __init__(
+        self,
+        repo: str = "KittenML/kitten-tts-micro-0.8",
+        intra_op_threads: int = 2,
+        default_voice: str = "Jasper",
+    ) -> None:
+        import os
+        import sys
+
+        import onnxruntime as ort
+
+        site = os.environ.get("KITTEN_SITE")
+        if site and site not in sys.path:
+            sys.path.append(site)
+        from kittentts import KittenTTS  # type: ignore[import-not-found,unused-ignore]
+        from kittentts.preprocess import TextPreprocessor  # type: ignore[import-not-found,unused-ignore]
+        from num2words import num2words  # type: ignore[import-not-found,unused-ignore]
+
+        original = ort.InferenceSession
+
+        class _Limited(original):  # type: ignore[misc, valid-type]
+            def __init__(self, path: Any, sess_options: Any = None, *a: Any, **k: Any) -> None:
+                options = sess_options or ort.SessionOptions()
+                options.intra_op_num_threads = intra_op_threads
+                options.inter_op_num_threads = 1
+                super().__init__(path, sess_options=options, *a, **k)  # noqa: B026
+
+        ort.InferenceSession = _Limited  # kittentts builds its own session: cap its threads
+        try:
+            self._model = KittenTTS(repo)
+        finally:
+            ort.InferenceSession = original
+        self._repo = repo
+        self._default_voice = default_voice
+        self._cleaner = TextPreprocessor(
+            lowercase=False, expand_contractions=False, remove_punctuation=False
+        )
+        self._year_words: Callable[[int], str] = lambda n: str(num2words(n, to="year"))
+
+    @property
+    def name(self) -> str:
+        return self._repo.rsplit("/", 1)[-1]
+
+    @property
+    def sample_rate(self) -> int:
+        return 24000
+
+    def _voices(self) -> list[str]:
+        inner = self._model.model
+        return list(inner.voice_aliases) or list(inner.available_voices)
+
+    def list_voices(self) -> list[VoiceItem]:
+        return [VoiceItem(id=v, name=v, language="en") for v in self._voices()]
+
+    def synthesize_chunk(self, text: str, voice: str | None = None) -> bytes:
+        import numpy as np
+
+        # clients send their configured voice (Supertonic's "F1"): use ours when it is unknown
+        inner = self._model.model
+        known = {*inner.voice_aliases, *inner.available_voices}
+        name = voice if voice in known else self._default_voice
+        spoken = kitten_text(text, self._cleaner, self._year_words)
+        wav = np.asarray(inner.generate(spoken, voice=name, clean_text=False))
+        clipped = np.clip(wav.squeeze(), -1.0, 1.0)
+        voiced = np.flatnonzero(np.abs(clipped) > _TRIM_THRESHOLD)
+        if voiced.size:
+            margin = round(_TRIM_MARGIN_S * self.sample_rate)
+            clipped = clipped[max(voiced[0] - margin, 0) : voiced[-1] + margin]
+        return bytes((clipped * 32767.0).astype(np.int16).tobytes())
 
 
 class FakeSTTStream:

@@ -11,7 +11,13 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from lan_speech.engines import SherpaSTTEngine, STTEngine, SupertonicTTSEngine
+from lan_speech.engines import (
+    KittenTTSEngine,
+    SherpaSTTEngine,
+    STTEngine,
+    SupertonicTTSEngine,
+    TTSEngine,
+)
 from lan_speech.hotwords import load_entities
 from lan_speech.hybrid_stt import ParakeetHybridSTTEngine
 from lan_speech.models import required_dirs, verify_all
@@ -35,6 +41,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument(
         "--tts-threads", type=int, default=2, help="Supertonic intra-op threads (default: 2)"
     )
+    ap.add_argument(
+        "--tts-engine",
+        choices=["supertonic", "kitten"],
+        default="supertonic",
+        help="TTS engine (default: supertonic; kitten needs KITTEN_SITE, see engines.py)",
+    )
+    ap.add_argument("--kitten-voice", default="Jasper", help="Kitten voice (default: Jasper)")
     ap.add_argument(
         "--stt-model",
         choices=["kroko", "zipformer", "parakeet"],
@@ -144,11 +157,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 model=args.stt_model,
                 rule2_trailing_silence=args.endpoint_silence,
             )
-        tts = SupertonicTTSEngine(
-            model_dir=args.models / "supertonic-3",
-            total_steps=args.tts_steps,
-            intra_op_threads=args.tts_threads,
-        )
+        tts: TTSEngine
+        if args.tts_engine == "kitten":
+            tts = KittenTTSEngine(
+                intra_op_threads=args.tts_threads, default_voice=args.kitten_voice
+            )
+        else:
+            tts = SupertonicTTSEngine(
+                model_dir=args.models / "supertonic-3",
+                total_steps=args.tts_steps,
+                intra_op_threads=args.tts_threads,
+            )
     except Exception:
         logger.exception("Failed to initialize speech engines")
         return 1
