@@ -305,3 +305,69 @@ async def test_plain_race_lets_a_fast_model_win_without_waiting(tmp_path: Path) 
     server.router.route = late  # type: ignore[union-attr,method-assign]
     result, spoken = await turn(server, "turn on the lights")
     assert spoken == ["From Gemini."] and record == []
+
+
+async def test_transient_lookup_failure_is_retried_once(tmp_path: Path) -> None:
+    server, agent = server_for("weather|Cebu|today", tmp_path)
+    answers = [
+        "The weather service did not answer, so I can't say right now.",
+        "Today in Cebu: rain.",
+    ]
+    calls: list[str] = []
+
+    async def flaky(params: Any) -> None:
+        calls.append("weather")
+        await params.result_callback(answers[len(calls) - 1])
+
+    server.tools["weather"] = SimpleNamespace(name="weather", handler=flaky)
+    _, spoken = await turn(server, "weather in Cebu")
+    assert calls == ["weather", "weather"] and spoken == ["Today in Cebu: rain."]
+    assert agent.asked == []
+
+
+async def test_lookup_that_keeps_failing_goes_to_gemini_after_one_retry(tmp_path: Path) -> None:
+    server, agent = server_for("weather|Cebu|today", tmp_path)
+    calls: list[str] = []
+
+    async def down(params: Any) -> None:
+        calls.append("weather")
+        await params.result_callback(
+            "The weather service did not answer, so I can't say right now."
+        )
+
+    server.tools["weather"] = SimpleNamespace(name="weather", handler=down)
+    result, spoken = await turn(server, "weather in Cebu")
+    assert len(calls) == 2 and spoken == ["From Gemini."]
+    assert result["router_reason"].startswith("lookup failed")
+
+
+async def test_a_missing_article_is_not_retried(tmp_path: Path) -> None:
+    server, _ = server_for("wiki_summary|Atlantis", tmp_path)
+    calls: list[str] = []
+
+    async def missing(params: Any) -> None:
+        calls.append("wiki")
+        await params.result_callback("I couldn't find a Wikipedia article about Atlantis.")
+
+    server.tools["wiki_summary"] = SimpleNamespace(name="wiki_summary", handler=missing)
+    await turn(server, "who is Atlantis")
+    assert calls == ["wiki"]
+
+
+async def test_extra_field_on_a_home_command_is_folded_into_its_slot(tmp_path: Path) -> None:
+    server, _ = server_for("ALARM|6:30 AM|tomorrow", tmp_path)
+    _, spoken = await turn(server, "set an alarm for 6:30 tomorrow")
+    assert spoken == ["Alarm set for 6:30 AM tomorrow."]
+    assert server.calls[0] == {"intent": "ALARM", "slot": "6:30 AM tomorrow"}  # type: ignore[attr-defined]
+
+
+async def test_a_reply_that_parrots_a_garbled_turn_goes_to_gemini(tmp_path: Path) -> None:
+    server, agent = server_for("none|Bucket on Mu.", tmp_path)
+    result, spoken = await turn(server, "Bucket on Mu.")
+    assert spoken == ["From Gemini."] and result["router_reason"] == "echo"
+
+
+async def test_a_short_pleasantry_that_matches_the_turn_stays_local(tmp_path: Path) -> None:
+    server, agent = server_for("none|Hello!", tmp_path)
+    _, spoken = await turn(server, "Hello.")
+    assert spoken == ["Hello!"] and agent.asked == []

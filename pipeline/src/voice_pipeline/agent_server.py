@@ -29,7 +29,7 @@ from websockets.exceptions import ConnectionClosed
 
 from voice_pipeline import fast_path
 from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
-from voice_pipeline.agent_tools import FAILURE, PI_URL, build_tools, standard_servers
+from voice_pipeline.agent_tools import FAILURE, PI_URL, TRANSIENT, build_tools, standard_servers
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
 from voice_pipeline.router import (
     HISTORY_PAIRS,
@@ -166,6 +166,10 @@ class AgentServer:
                 if home and not take():
                     return None
                 result = await self.call_tool(tool, args)
+                if not home and TRANSIENT.search(str(result)) and not claimed:
+                    result = await self.call_tool(
+                        tool, args
+                    )  # lookups are read-only: retry a blip once
                 if not home and FAILURE.search(str(result)) and not claimed:
                     return None
                 if home:

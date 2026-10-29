@@ -14,6 +14,7 @@ a turn faster, never lose it.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -32,6 +33,24 @@ HISTORY_PAIRS = 1  # earlier turns shown to the router: the prompt is re-read fr
 CHAT_MAX_WORDS = 5  # a `none|` reply is a pleasantry ("thanks" -> "You're welcome."); a 1B model
 # answers anything longer with an invention, so longer chat turns go to Gemini
 CHAT_REPLY_MAX_WORDS = 8  # likewise a long reply: "Middle aspiration." got an invented definition
+
+
+ECHO_MIN_WORDS = (
+    3  # "Hello." -> "Hello!" is a pleasantry; a longer verbatim repeat is a garbled turn
+)
+
+
+def _words(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
+
+
+def _echoes(user: str, reply: str) -> bool:
+    """The reply just repeats what the user said: the recogniser garbled the turn ("Bucket on Mu.")
+    and the model parroted it, which is no answer."""
+    said, back = _words(user), _words(reply)
+    if len(said.split()) >= ECHO_MIN_WORDS and said in back:
+        return True
+    return len(back.split()) >= ECHO_MIN_WORDS and back in said
 
 
 def _load(name: str, path: Path) -> Any:
@@ -103,6 +122,8 @@ class LocalRouter:
                     return "chat too long"
                 if len(call.args[0].split()) > CHAT_REPLY_MAX_WORDS:
                     return "chat reply too long"
+                if _echoes(user, call.args[0]):
+                    return "echo"
             elif name in spec.HOME_INTENTS:
                 if name == "LIST_REMINDERS" or "smart_home" not in available:
                     return f"unsupported: {name}"
@@ -140,5 +161,10 @@ class LocalRouter:
             calls = spec.parse_output(lines)
         except spec.LineError as exc:
             return Routed(lines=lines, seconds=seconds, reason=f"parse: {exc}")
+        for (
+            call
+        ) in calls:  # a home command has one slot: "ALARM|6:30 AM|tomorrow" -> "6:30 AM tomorrow"
+            if call.name in spec.HOME_INTENTS and call.args:
+                call.args = [" ".join(p.strip() for p in call.args[0].split("|") if p.strip())]
         reason = None if available is None else self.reason_unusable(calls, available, user)
         return Routed(calls, lines, seconds, reason)
