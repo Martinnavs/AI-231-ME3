@@ -40,13 +40,13 @@ async def _ask(
     tavily: httpx.Response | None, key: str | None = "test-key"
 ) -> tuple[str, list[httpx.Request]]:
     seen: list[httpx.Request] = []
-    async with Client(build_server(_transport(tavily, seen), key)) as client:
+    async with Client(build_server(_transport(tavily, seen), key, None)) as client:
         result = await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
     return str(result.structured_content["result"]), seen
 
 
 async def test_lists_one_tool() -> None:
-    async with Client(build_server(_transport(None, []), "k")) as client:
+    async with Client(build_server(_transport(None, []), "k", None)) as client:
         assert [t.name for t in await client.list_tools()] == ["web_answer"]
 
 
@@ -129,6 +129,55 @@ async def test_a_slow_tavily_call_falls_back_to_wikipedia(monkeypatch: pytest.Mo
             return httpx.Response(200, json=WIKI_SEARCH)
         return httpx.Response(200, json=WIKI_SUMMARY)
 
-    async with Client(build_server(httpx.MockTransport(handle), "test-key")) as client:
+    async with Client(build_server(httpx.MockTransport(handle), "test-key", None)) as client:
         result = await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
     assert str(result.structured_content["result"]).startswith("Blood Meridian is a 1985 novel")
+
+
+async def test_a_repeated_question_is_answered_from_memory() -> None:
+    seen: list[httpx.Request] = []
+    async with Client(
+        build_server(_transport(httpx.Response(200, json=ANSWER), seen), "test-key", None)
+    ) as client:
+        first = await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
+        again = await client.call_tool("web_answer", {"query": "who wrote  blood meridian"})
+    assert first.structured_content == again.structured_content
+    assert len([r for r in seen if str(r.url).startswith(tavily_search.TAVILY_URL)]) == 1
+
+
+async def test_the_cache_expires() -> None:
+    now = [0.0]
+    seen: list[httpx.Request] = []
+    server = build_server(
+        _transport(httpx.Response(200, json=ANSWER), seen), "test-key", None, clock=lambda: now[0]
+    )
+    async with Client(server) as client:
+        await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
+        now[0] = tavily_search.CACHE_TTL_S + 1
+        await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
+    assert len([r for r in seen if str(r.url).startswith(tavily_search.TAVILY_URL)]) == 2
+
+
+async def test_a_fallback_answer_is_not_cached() -> None:
+    seen: list[httpx.Request] = []
+    async with Client(
+        build_server(_transport(httpx.Response(500), seen), "test-key", None)
+    ) as client:
+        await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
+        await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
+    assert len([r for r in seen if str(r.url).startswith(tavily_search.TAVILY_URL)]) == 2
+
+
+async def test_the_connection_is_kept_open_and_pinged_while_in_use() -> None:
+    seen: list[httpx.Request] = []
+    server = build_server(_transport(httpx.Response(200, json=ANSWER), seen), "test-key", 0.05)
+    async with Client(server) as client:
+        await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
+        await asyncio.sleep(0.3)
+    pings = [r for r in seen if str(r.url) == tavily_search.PING_URL]
+    assert len(pings) >= 2  # opened at start, then kept warm
+    assert all(r.method == "GET" and "Authorization" not in r.headers for r in pings)
+
+
+def test_the_cache_key_ignores_case_and_punctuation() -> None:
+    assert tavily_search.cache_key("Who won?!") == tavily_search.cache_key("  who   WON ")
