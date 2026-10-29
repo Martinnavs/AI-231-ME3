@@ -87,6 +87,7 @@ class Routed:
     lines: str = ""
     seconds: float = 0.0
     reason: str | None = None  # None: usable; else why this turn goes to Gemini
+    user: str = ""  # what the user said (a lookup is better asked with the whole question)
 
 
 class LocalRouter:
@@ -167,4 +168,4 @@ class LocalRouter:
             if call.name in spec.HOME_INTENTS and call.args:
                 call.args = [" ".join(p.strip() for p in call.args[0].split("|") if p.strip())]
         reason = None if available is None else self.reason_unusable(calls, available, user)
-        return Routed(calls, lines, seconds, reason)
+        return Routed(calls, lines, seconds, reason, user)

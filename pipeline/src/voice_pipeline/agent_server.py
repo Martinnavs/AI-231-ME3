@@ -163,6 +163,14 @@ class AgentServer:
                     if home
                     else spec.to_tool_args(call)
                 )
+                if tool == "wiki_summary" and "web_answer" in self.tools:
+                    # the router was trained on wiki_summary; the web answer replaces it (Wikipedia
+                    # is its fallback), so the trained name keeps working without retraining
+                    asked = routed.user.strip()  # the whole question, unless this turn did more
+                    tool, args = (
+                        "web_answer",
+                        {"query": asked if len(routed.calls) == 1 and asked else args["topic"]},
+                    )
                 if home and not take():
                     return None
                 result = await self.call_tool(tool, args)

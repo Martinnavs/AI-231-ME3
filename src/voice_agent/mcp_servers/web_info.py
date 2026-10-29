@@ -52,6 +52,22 @@ def first_sentences(text: str, n: int = MAX_SENTENCES, limit: int = MAX_CHARS) -
     return out if len(out) <= limit else out[: limit - 3].rsplit(" ", 1)[0] + "..."
 
 
+async def wiki_text(http: httpx.AsyncClient, topic: str) -> str:
+    """The first sentences of the Wikipedia article on `topic`, or a sentence saying why not."""
+    try:
+        hits = await http.get(WIKI_SEARCH_URL, params={"q": topic, "limit": 1})
+        pages = hits.json().get("pages") or []
+        if not pages:
+            return f"I couldn't find a Wikipedia article about {topic}."
+        page = await http.get(WIKI_SUMMARY_URL + pages[0]["key"])
+        extract = page.json().get("extract", "")
+    except (httpx.HTTPError, KeyError, ValueError):
+        return "Wikipedia did not answer, so I can't look that up right now."
+    if not extract:
+        return f"I couldn't find a Wikipedia article about {topic}."
+    return first_sentences(extract)
+
+
 def build_server(
     home: str = HOME_PLACE,
     transport: httpx.AsyncBaseTransport | None = None,
@@ -125,19 +141,7 @@ def build_server(
         )
     )
     async def wiki_summary(topic: str) -> str:
-        http = client()
-        try:
-            hits = await http.get(WIKI_SEARCH_URL, params={"q": topic, "limit": 1})
-            pages = hits.json().get("pages") or []
-            if not pages:
-                return f"I couldn't find a Wikipedia article about {topic}."
-            page = await http.get(WIKI_SUMMARY_URL + pages[0]["key"])
-            extract = page.json().get("extract", "")
-        except (httpx.HTTPError, KeyError, ValueError):
-            return "Wikipedia did not answer, so I can't look that up right now."
-        if not extract:
-            return f"I couldn't find a Wikipedia article about {topic}."
-        return first_sentences(extract)
+        return await wiki_text(client(), topic)
 
     return server
 

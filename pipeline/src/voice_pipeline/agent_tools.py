@@ -28,10 +28,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 ROOT_MODULE = ["uv", "run", "--group", "laptop", "python", "-m"]
 DOCS_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.docs"]
 WEB_INFO_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
+TAVILY_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.tavily_search"]
 TIME_COMMAND = [sys.executable, "-m", "mcp_server_time", "--local-timezone", "Asia/Manila"]
 PI_URL = "http://169.254.230.219:8790/mcp"
 # Tools whose result is already a sentence to say: no second LLM request (R5; TurnTap decides).
-SPOKEN_RESULT_TOOLS = {"weather", "wiki_summary", "get_volume", "set_volume"}
+SPOKEN_RESULT_TOOLS = {"weather", "wiki_summary", "web_answer", "get_volume", "set_volume"}
 # a failure sentence is not an answer: the model gets it and recovers (another topic, its own
 # knowledge), as before R5
 FAILURE = re.compile(r"couldn't find|did not answer|not connected|can't say|error", re.IGNORECASE)
@@ -68,9 +69,14 @@ def pi_device_server(url: str | None = PI_URL, token: str | None = None) -> MCPC
 
 
 def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list[MCPClient]]:
-    """(required, optional) servers: docs, time and web_info; the Pi's when it can be reached."""
+    """(required, optional) servers: docs, time, web_info, tavily_search; the Pi's if reachable."""
     pi = pi_device_server(pi_url)
-    required = [docs_server(), stdio_server(TIME_COMMAND), stdio_server(WEB_INFO_COMMAND)]
+    required = [
+        docs_server(),
+        stdio_server(TIME_COMMAND),
+        stdio_server(WEB_INFO_COMMAND),
+        stdio_server(TAVILY_COMMAND),
+    ]
     return required, [pi] if pi is not None else []
 
 
