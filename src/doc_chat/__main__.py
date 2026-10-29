@@ -957,6 +957,7 @@ class Session:
             level_kofn=_kofn(getattr(self.args, "level_kofn", None)),
             warmup_blocks=round(float(getattr(self.args, "barge_warmup_s", 0.0)) * 10),
             ducked_k=getattr(self.args, "level_kofn_ducked", None),
+            min_bar=float(getattr(self.args, "barge_min_bar", 0.0)),
         )
 
         trace = self._guard_trace
@@ -1485,6 +1486,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="seconds of microphone audio before a barge-in that go to the recogniser with it "
         "(default: 0.8; 1.2 put about a second of the assistant's own voice in front of yours: "
         ".scratch/echo-next/PLAN.md, E4)",
+    )
+    parser.add_argument(
+        "--barge-min-bar",
+        type=float,
+        default=0.0,
+        help="an absolute floor for the barge-in bar while the assistant plays (block RMS, 0-1; "
+        "0.06 is -24 dBFS): in a quiet room 4 x room noise falls onto the echo's own peaks",
     )
     parser.add_argument(
         "--barge-warmup-s",

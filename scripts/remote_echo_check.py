@@ -117,6 +117,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         silero=SileroOnset(args.vad_model, confidence=0.5, kofn=(7, 10)),
         echo=EchoModel(),  # prior 0.5, margin 1.8
         level_kofn=(3, 8),
+        min_bar=args.min_bar,
     )
     pushes: list[tuple[str, float, float]] = []  # (name, t_push, duration)
     beeps: dict[str, float] = {}
@@ -241,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--talk-over", type=int, default=0, help="interrupt the first N clips")
     ap.add_argument("--repeat", type=int, default=1, help="play the clip set this many times")
     ap.add_argument("--vad-model", default="assets/silero_vad.onnx")
+    ap.add_argument("--min-bar", type=float, default=0.0, help="absolute floor for the guard's bar")
     ap.add_argument("--floor-s", type=float, default=8.0)
     ap.add_argument("--gap-s", type=float, default=1.5)
     args = ap.parse_args(argv)

@@ -45,6 +45,7 @@ def replay(
     model: str,
     silero_kofn: tuple[int, int] | None = None,
     level_kofn: tuple[int, int] | None = None,
+    min_bar: float = 0.0,
 ) -> np.ndarray:
     silero = (
         SileroOnset(model, confidence=confidence, min_s=min_s, kofn=silero_kofn)
@@ -59,6 +60,7 @@ def replay(
         silero=silero,
         echo=EchoModel(prior=prior, margin=margin),
         level_kofn=level_kofn,
+        min_bar=min_bar,
     )
     fired = np.zeros(len(blocks), dtype=bool)
     starts = [float(p) for p in tr["pushes"][:, 0]]  # the live harness resets once per reply
