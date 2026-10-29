@@ -238,3 +238,12 @@ These are the MCP servers the live agent (`make agent-server`) loads, wired in `
 ssh -i ~/.ssh/id_ed25519_pi rpi-anavarez@169.254.230.219 'cd ~/Documents/AI-231-ME3 && LAN_SPEECH_TOKEN=$(cat ~/.config/lan_speech_token) timeout 7200 .venv/bin/python -u scripts/pi_device_mcp.py --port 8790'
 ```
 The agent server needs the same token in its environment (`LAN_SPEECH_TOKEN=... make agent-server`).
+
+## tavily_search (web answers, prototype)
+
+`src/voice_agent/mcp_servers/tavily_search.py`, started by the agent server over stdio (`agent_tools.TAVILY_COMMAND`). One tool, `web_answer(query)`: Tavily's search API (`POST https://api.tavily.com/search`, `include_answer: basic`, 3 results) returns a short answer written from live web results; the server says the first two sentences (at most 400 characters) and drops a lead-in such as "According to the provided source,". It replaces the Wikipedia lookup for general-knowledge questions; Wikipedia (`web_info.wiki_text`) is the fallback when there is no key, Tavily errors, times out (3.5 s in all) or returns nothing, so a lookup is never worse than before.
+
+- **Key:** `$TAVILY_API_KEY`, else `~/.secrets/tavily/api-key.txt` (`$TAVILY_KEY_FILE` overrides). Read at run time, sent only as the `Authorization` header, never logged or returned. The question text is sent to Tavily.
+- **Depth:** `fast` by default (`$TAVILY_DEPTH`). Fresh queries from Manila, 4 each on 2026-10-29: `basic` 2.35 s median, `fast` 1.21 s, `ultra-fast` 1.24 s; a repeated query is cached by Tavily (about 0.25 s). Wikipedia alone: 0.63 s.
+- **Router:** it still writes `wiki_summary|topic` (trained that way); the agent server runs it as `web_answer` with the user's whole question (the topic alone when the turn had other calls), so no retraining is needed. Gemini sees `web_answer` and the system prompt prefers it; `wiki_summary` stays registered.
+- **Tests:** `tests/mcp_servers/test_tavily_search.py` (mocked HTTP, fake key); `pipeline/tests/test_router.py` for the router path.

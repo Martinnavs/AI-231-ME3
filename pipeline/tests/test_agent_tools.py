@@ -84,7 +84,7 @@ def test_the_pi_server_needs_a_url_and_a_token() -> None:
 def test_standard_servers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LAN_SPEECH_TOKEN", raising=False)
     required, optional = standard_servers()
-    assert len(required) == 3 and optional == []  # no token: no Pi
+    assert len(required) == 4 and optional == []  # no token: no Pi
     monkeypatch.setenv("LAN_SPEECH_TOKEN", "secret")
     assert len(standard_servers()[1]) == 1
     assert len(standard_servers(None)[1]) == 0

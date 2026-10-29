@@ -371,3 +371,28 @@ async def test_a_short_pleasantry_that_matches_the_turn_stays_local(tmp_path: Pa
     server, agent = server_for("none|Hello!", tmp_path)
     _, spoken = await turn(server, "Hello.")
     assert spoken == ["Hello!"] and agent.asked == []
+
+
+async def test_wiki_summary_lookups_use_the_web_answer_tool_when_it_exists(tmp_path: Path) -> None:
+    server, _ = server_for("wiki_summary|Cormac McCarthy", tmp_path)
+    seen: list[dict[str, Any]] = []
+
+    async def web_answer(params: Any) -> None:
+        seen.append(dict(params.arguments))
+        await params.result_callback("Cormac McCarthy was an American novelist.")
+
+    async def wiki(params: Any) -> None:  # registered too, as on the real server
+        raise AssertionError("the encyclopedia tool must not be called directly")
+
+    server.tools["wiki_summary"] = SimpleNamespace(name="wiki_summary", handler=wiki)
+    server.tools["web_answer"] = SimpleNamespace(name="web_answer", handler=web_answer)
+    _, spoken = await turn(server, "who is Cormac McCarthy")
+    assert seen == [{"query": "who is Cormac McCarthy"}]  # the whole question, not just the topic
+    assert spoken == ["Cormac McCarthy was an American novelist."]
+
+    server, _ = server_for("LIGHT_OFF\nwiki_summary|The Road", tmp_path)
+    server.tools["wiki_summary"] = SimpleNamespace(name="wiki_summary", handler=wiki)
+    server.tools["web_answer"] = SimpleNamespace(name="web_answer", handler=web_answer)
+    seen.clear()
+    await turn(server, "turn off the lights and tell me about The Road")
+    assert seen == [{"query": "The Road"}]  # a compound turn: only the topic
