@@ -153,3 +153,34 @@ Router quality (one run, one seed, greedy decoding; `docs/LOCAL-LLM-BASELINE-FEE
 Reading it against the industry rows above: the 2.3-2.4 s median sits between Retell (2.21 s) and PolyAI (2.46 s) in the tool-workflow means; only the fast-path turns (about 1.1 s) are inside the phone-call range of 1.30-1.74 s. About 1.0 s of every turn is the end-of-turn hold plus recogniser, which the router does not touch, so it cannot move the headline number; a faster first LLM call or a shorter hold could.
 
 Caveats: 14-15 timed turns per run, one speaker, so differences under about 0.3 s are noise; the Gemini-only run and the router runs were separate sessions on the same script; turns the recogniser garbled differ between runs; the router has not been tested on a throttled or offline connection; the old-benchmark figures quoted from other days are from this document and `docs/LIVE-AGENT.md`, not recomputed.
+
+## Update 2026-10-29 (later): the 350M router (granite-4.0-h-350m, KD) next to the H-1B router
+
+**Bottom line.** Swapping the local router from the fine-tuned H-1B to the fine-tuned **granite-4.0-h-350m (`router-kd-s0`)** cuts the median end of speech to first sound from 2.3-2.4 s to **1.44 s** (one spoken session, 15 turns). That is inside the real phone-call range (medians 1.30-1.74 s) and below every tool-workflow mean in the Cekura list except ElevenLabs (1.27 s). The tail is unchanged on turns Gemini answers; the 1.44 s is bought by the router answering 9 of 15 turns.
+
+Offline evaluation (Q4_K_M, llama.cpp CPU, 8 threads, one server at a time, greedy decoding, one run each; scorer and sets as in `docs/LOCAL-LLM-BASELINE-FEEDBACK.md`). Adapters `martinnavs/granite-4.0-h-350m-router-{v1,kd}-s0`, merged into `ibm-granite/granite-4.0-h-350m` and converted with the steps in that document (223 MB each). The only test sets in the repo are the OnIt set and the pack; there is no generated dev/test split in this checkout. False-call rate and defer recall/precision were not computed.
+
+| Router | OnIt (77 turns) | Pack (92 turns) | Call p50 / p95, OnIt | Call p50 / p95, pack |
+|---|---|---|---|---|
+| H-1B v1 (was hosted) | 69/77 (89.6%) | 80/92 (87.0%) | 0.34 / 0.59 s | 0.40 / 0.63 s |
+| 350M v1-s0 | 74/77 (96.1%) | 75/92 (81.5%) | 0.11 / 0.14 s | 0.12 / 0.17 s |
+| **350M kd-s0 (now hosted)** | **76/77 (98.7%)** | 79/92 (85.9%) | 0.11 / 0.15 s | 0.12 / 0.17 s |
+
+The H-1B rows reproduce the earlier run exactly (69/77, 80/92). The 350M kd-s0 pack score is 1 turn below H-1B and just above the 85% target.
+
+Spoken session `router-1029-0939` (350M kd-s0, plain race, same 15 phrases, one speaker, one room, Pi loudspeaker; the interrupted phrase 15 excluded, so n=15 with an added "what model are you?" turn). End of speech to first sound, p90 computed the same way for all rows:
+
+| Configuration | Session | n | Median | p90 | Max |
+|---|---|---|---|---|---|
+| Gemini only | `router-1029-0648` | 15 | 2.32 s | 2.70 s | 3.30 s |
+| H-1B router + Gemini, plain race | `router-1029-0700` | 14 | 2.40 s | 2.89 s | 3.16 s |
+| **350M kd-s0 + Gemini, plain race** | `router-1029-0939` | 15 | **1.44 s** | 1.94 s | 3.05 s |
+
+- **Router call live:** 0.16-0.26 s (median 0.21 s), against 0.6-1.0 s for the H-1B live, which shared the 4 cores with the speech server.
+- **Who answered:** the router won 9 of 15 turns (H-1B plain race: 4). Final transcript to first sound, median: 0.57 s against 1.26-1.29 s.
+- **Per phrase, final transcript to first sound** (Gemini only / H-1B plain race / 350M): brightness 1258 / 1201 / 567 ms; timer plus lights 2063 / 1121 / 498; "Call my sister" 1258 / 988 / 421; "Call Gary" 1355 / 1254 / 415; "And tomorrow?" 1260 / 2142 / 540; sky 1139 / 1322 / 1471; document question 1910 / 2122 / 2061 (Gemini answered the last two, so they did not move).
+- **Lines checked:** all 9 router answers were correct (`BRIGHTNESS|40 percent`, `TIMER|10 minutes` + `LIGHT_OFF`, `CALL|Anna` via the phonebook, `CALL|Gary`, `weather|Baguio|tomorrow`, `get_current_time|Asia/Tokyo`, `get_volume`, `wiki_summary|Cormac McCarthy`, `none|You're welcome.`). The document and notes questions were deferred. One doubtful deferral: "Sorry, what model are you?" gave `escalate|tools` where chat was right (costs about 1.1 s).
+
+Against the industry rows above: median 1.44 s sits between the best phone medians (Telnyx 1.30, ElevenLabs 1.42) and Vapi (1.56); p90 1.94 s is inside the phone-call p95 range (1.77-2.26 s); still above the course notes' 0.6-0.9 s band, which describes plain answers with no tool. About 0.9 s of each turn is the end-of-turn hold plus recogniser, untouched by the router.
+
+Caveats: 15 timed turns, one run, one speaker; differences under about 0.3 s are noise (the gain on router-answered turns, about 0.7 s, is well above that); the Gemini-only and router runs were separate sessions; not tested on a throttled or offline network; the hold variant (`--router-hold`) was not run with this model. The owner decided to keep the 350M kd-s0 as the default router for now (2026-10-29).
