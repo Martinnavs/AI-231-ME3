@@ -207,6 +207,28 @@ class SupertonicTTSEngine:
         return bytes(pcm_bytes)
 
 
+# Supertonic F1 at 4 steps, the voice the echo gate and ducking were tuned on, speaks at -21.3 dBFS
+# active RMS (mean of 39 real sentences, sd 1.1 dB). Kitten Micro is 4.4 dB louder (-16.9 dBFS) with
+# peaks near 0 dBFS, so its echo sat above that tuning: bring every Kitten chunk to the same level.
+KITTEN_TARGET_RMS_DBFS = -21.3
+KITTEN_GAIN_LIMITS_DB = (-9.0, 3.0)
+_ACTIVE_THRESHOLD = 0.01
+
+
+def match_level(wav: Any, target_db: float = KITTEN_TARGET_RMS_DBFS) -> Any:
+    """Scale a float waveform so its active speech (samples above 0.01) has RMS `target_db` dBFS."""
+    import numpy as np
+
+    active = wav[np.abs(wav) > _ACTIVE_THRESHOLD]
+    if active.size < 100:
+        return wav
+    level_db = 20.0 * np.log10(float(np.sqrt(np.mean(active**2))) + 1e-9)
+    low, high = KITTEN_GAIN_LIMITS_DB
+    scaled = wav * 10.0 ** (float(np.clip(target_db - level_db, low, high)) / 20.0)
+    peak = float(np.max(np.abs(scaled)))
+    return scaled * (0.95 / peak) if peak > 0.95 else scaled
+
+
 _KITTEN_YEAR = re.compile(
     r"(?<![\d$,.])(1[1-9]\d\d|20\d\d)(?![\d,]|\.\d|\s?(?:%|percent|degrees|km|kilometers|meters|minutes|kg))"
 )
@@ -299,7 +321,7 @@ class KittenTTSEngine:
         name = voice if voice in known else self._default_voice
         spoken = kitten_text(text, self._cleaner, self._year_words)
         wav = np.asarray(inner.generate(spoken, voice=name, clean_text=False))
-        clipped = np.clip(wav.squeeze(), -1.0, 1.0)
+        clipped = match_level(np.clip(wav.squeeze(), -1.0, 1.0))
         voiced = np.flatnonzero(np.abs(clipped) > _TRIM_THRESHOLD)
         if voiced.size:
             margin = round(_TRIM_MARGIN_S * self.sample_rate)
