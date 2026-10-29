@@ -16,9 +16,12 @@ logged or put in a result. The question text is sent to Tavily.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
-from collections.abc import Sequence
+import time
+from collections import OrderedDict
+from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +37,17 @@ TOTAL_TIMEOUT_S = 3.5  # the whole Tavily call; slower than this and Wikipedia a
 # basic took 2.35 s median on fresh queries from Manila, fast 1.21 s, ultra-fast 1.24 s (2026-10-29,
 # 4 queries each; a repeated query is cached by Tavily at about 0.25 s)
 SEARCH_DEPTH = os.environ.get("TAVILY_DEPTH", "fast")  # basic | fast | ultra-fast | advanced
+# Connection reuse (2026-10-29, Manila -> a US-East address, 0.25 s round trip): TCP + TLS + first
+# byte cost 0.5-0.9 s on a fresh connection. httpx drops idle connections after 5 s by default, so
+# every lookup paid it (a call after a 15 s pause: 1.93 s median; kept alive: 1.32 s). Tavily's
+# server drops an idle connection somewhere between 15 and 45 s (a kept-alive call after 45 s idle
+# took 3.5 s), so a cheap ping of the API root (no search is run) goes out while the server is used.
+KEEPALIVE_S = 120.0
+PING_URL = "https://api.tavily.com/"
+PING_EVERY_S = 20.0
+PING_WHILE_ACTIVE_S = 600.0  # stop pinging after this long without a lookup
+CACHE_TTL_S = 600.0  # a repeated or rephrased-the-same question is answered from memory
+CACHE_MAX = 64
 LEAD_IN = re.compile(
     r"^(?:according to|based on)\s+(?:the\s+)?(?:provided\s+|given\s+|available\s+)?"
     r"(?:sources?|search results?|information|text|context)[^,]*,\s*",
@@ -68,22 +82,55 @@ def spoken(data: dict[str, Any]) -> str | None:
     return None
 
 
+def cache_key(query: str) -> str:
+    """The question without case, punctuation or extra spaces: 'Who won?' and 'who won' match."""
+    return " ".join(re.findall(r"[a-z0-9']+", query.lower()))
+
+
 def build_server(
     transport: httpx.AsyncBaseTransport | None = None,
     key: str | None = None,
+    ping_every_s: float | None = PING_EVERY_S,
+    clock: Callable[[], float] = time.monotonic,
 ) -> FastMCP:
-    """A FastMCP server with web_answer; `transport` and `key` are for tests (key None: load it)."""
-    server = FastMCP("tavily_search")
+    """A FastMCP server with web_answer; `transport`, `key`, `ping_every_s` (None: no pings) and
+    `clock` are for tests (key None: load it)."""
     clients: list[httpx.AsyncClient] = []  # made on first use, inside the server's event loop
+    cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
+    last_use = [clock()]
 
     def client() -> httpx.AsyncClient:
         if not clients:
             clients.append(
                 httpx.AsyncClient(
-                    transport=transport, timeout=TIMEOUT_S, headers={"User-Agent": USER_AGENT}
+                    transport=transport,
+                    timeout=TIMEOUT_S,
+                    headers={"User-Agent": USER_AGENT},
+                    limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S),
                 )
             )
         return clients[0]
+
+    async def keep_warm(every: float) -> None:
+        """Open the connection now, then touch it while lookups are happening."""
+        while True:
+            if clock() - last_use[0] < PING_WHILE_ACTIVE_S:
+                with contextlib.suppress(httpx.HTTPError):
+                    await client().get(PING_URL, timeout=5.0)
+            await asyncio.sleep(every)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastMCP) -> AsyncIterator[None]:
+        task = asyncio.create_task(keep_warm(ping_every_s)) if ping_every_s else None
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+            for c in clients:
+                await c.aclose()
+
+    server = FastMCP("tavily_search", lifespan=lifespan)
 
     @server.tool(
         description=(
@@ -95,6 +142,12 @@ def build_server(
     async def web_answer(query: str) -> str:
         api_key = key or load_key()
         http = client()
+        last_use[0] = clock()
+        wanted = cache_key(query)
+        hit = cache.get(wanted)
+        if hit is not None and clock() - hit[0] < CACHE_TTL_S:
+            cache.move_to_end(wanted)
+            return hit[1]
         if api_key:
             body = {
                 "query": query,
@@ -110,6 +163,9 @@ def build_server(
                 response.raise_for_status()
                 answer = spoken(response.json())
                 if answer:
+                    cache[wanted] = (clock(), answer)
+                    while len(cache) > CACHE_MAX:
+                        cache.popitem(last=False)
                     return answer
             except (httpx.HTTPError, ValueError, TimeoutError):
                 pass  # fall through to Wikipedia

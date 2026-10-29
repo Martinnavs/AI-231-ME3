@@ -31,6 +31,7 @@ HOME_PLACE = os.environ.get("VOICE_AGENT_HOME_PLACE", "Quezon City")
 # Wikimedia refuses requests whose user agent has no contact (403, "robot policy")
 USER_AGENT = "me3-voice-agent/0.1 (https://github.com/Martinnavs/AI-231-ME3; course project)"
 TIMEOUT_S = 4.0
+KEEPALIVE_S = 120.0  # keep the connection open between turns (httpx closes it after 5 s)
 FORECAST_TTL_S = 600.0
 MAX_SENTENCES = 3
 MAX_CHARS = 600
@@ -83,7 +84,10 @@ def build_server(
         if not clients:
             clients.append(
                 httpx.AsyncClient(
-                    transport=transport, timeout=TIMEOUT_S, headers={"User-Agent": USER_AGENT}
+                    transport=transport,
+                    timeout=TIMEOUT_S,
+                    headers={"User-Agent": USER_AGENT},
+                    limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S),  # httpx's default is 5 s
                 )
             )
         return clients[0]
