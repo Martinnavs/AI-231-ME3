@@ -184,3 +184,31 @@ Spoken session `router-1029-0939` (350M kd-s0, plain race, same 15 phrases, one 
 Against the industry rows above: median 1.44 s sits between the best phone medians (Telnyx 1.30, ElevenLabs 1.42) and Vapi (1.56); p90 1.94 s is inside the phone-call p95 range (1.77-2.26 s); still above the course notes' 0.6-0.9 s band, which describes plain answers with no tool. About 0.9 s of each turn is the end-of-turn hold plus recogniser, untouched by the router.
 
 Caveats: 15 timed turns, one run, one speaker; differences under about 0.3 s are noise (the gain on router-answered turns, about 0.7 s, is well above that); the Gemini-only and router runs were separate sessions; not tested on a throttled or offline network; the hold variant (`--router-hold`) was not run with this model. The owner decided to keep the 350M kd-s0 as the default router for now (2026-10-29).
+
+## Update 2026-10-29 (evening): Kitten TTS, the stress batch, and the numbers against the industry again
+
+**Bottom line.** With the 350M router and **Kitten TTS Micro (voice Jasper)** in place of Supertonic, the median end of speech to first sound is **1.26-1.44 s**, inside the real phone-call medians (1.30-1.74 s) and below every tool-workflow mean except ElevenLabs (1.27 s). The TTS leg now meets its 250 ms target at the median. The tail (p90 2.3-2.8 s) and the course-note bands (good 0.6-0.9 s) are unchanged: about 0.9 s of every turn is the end-of-turn hold plus recogniser, and the turns Gemini answers are unchanged.
+
+**Choosing the voice** (all in `~/work/tts-bakeoff`, outside the repo; 2 CPU threads; 39 real bot sentences):
+- UTMOS (automatic naturalness score) put Supertonic F1 at 5 steps (4.35) level with Kitten Micro (4.26-4.29), and Supertonic F4/F5 below F1 at 4 steps (3.59, 3.66 against 3.97). Short-chunk time: Supertonic F1 311 ms, Kitten Micro Jasper 225 ms.
+- A **blind A/B listening test** (30 trials, one listener, laptop speakers, loudness-matched) chose Kitten over Supertonic in **20 of 20** comparisons (Jasper 13/15, Luna 12/15 wins; Supertonic 4 steps 3/15, 5 steps 2/15). UTMOS did not predict this, and the 5th step was not audible. One listener, one session; sentences played alone, so chunk seams were not tested.
+- Parakeet round trip (no hotwords / server name list): real replies word error 4.0% / 3.3% for Jasper against 3.7% / 3.5% for Supertonic; 32 target names right 81% / 88% against 78% / 84%. A tie. Both miss EDSA, Suttree and Anne Carson.
+- Kitten's own text cleaner lowercased everything, dropped commas and turned "person's" into "person ess", "AM" into the word "am" and "1933" into "one thousand nine hundred thirty-three". `KittenTTSEngine` (`src/lan_speech/engines.py`) keeps case, apostrophes and punctuation, spells AM/PM as letters and says years as years. `kittentts` is not a project dependency: set `KITTEN_SITE` to a site-packages directory that holds it (`--tts-engine kitten --kitten-voice Jasper`).
+
+**The router needs few threads.** The 350M model on 8 llama.cpp threads timed out on every request when 3 of the 4 cores were busy (3 s cap) and on every turn of one stress run, so Gemini answered everything (3-6 s). With 3 threads: 40 ms idle, 54 ms under the same load (4 threads: one 2.5 s stall; 2 threads: 65 ms). Run it with `-t 3 -tb 3`.
+
+End of speech to first sound, the same method for every row (interrupted and unanswered turns excluded):
+
+| Measure | Industry target | Gemini only (`0648`) | Router + Kitten, 15 phrases (`1127`) | Router + Kitten, stress batch (`1204`) |
+|---|---|---|---|---|
+| End of speech to first sound, median / p90 | phone medians 1.30-1.74 s (p95 1.77-2.26 s); tool-workflow means 1.27-3.08 s; course notes good 0.6-0.9 s, sluggish over 1.2 s | 2.32 / 2.70 s | **1.44 / 2.80 s** | **1.26 / 2.28 s** |
+| End-of-turn hold | 200-500 ms | 638 ms | 642 ms | 638 ms |
+| Transcript ready (hold + finalise) | streaming delay under 50 ms | 1019 ms | 929 ms | 908 ms |
+| TTS first audio, median / p90 | under 250 ms | 364 / 504 ms | **199 / 305 ms** | **178 / 240 ms** |
+| Cut to silence on a barge-in | under 50-100 ms | n/a | n/a | **0.2-0.9 ms** (4 barge-ins) |
+
+`1204` is a different phrase mix (more home commands the router handles), so only `0648` against `1127` is like for like. In `1204` the router answered 10 of 21 timed turns (median 1.24 s, p90 1.37 s) and Gemini the other 11 (median 1.46 s, p90 2.32 s); the router's own call took 0.12-0.35 s; TTS had 0 underruns.
+
+**Stress batch** (`.scratch/router-voice/stress-batch.md`, 20 turns, 4 interruptions; session `router-1029-1204`): 12 pass, 3 partial, 4 fail, 1 not run as written. The three barge-ins and the stop word all worked and the follow-up after each was handled. Found and fixed afterwards: (1) `ALARM|6:30 AM|tomorrow` put the whole string in the slot and the reply said "6:30 AM|tomorrow" (now folded into "6:30 AM tomorrow"); (2) a garbled turn ("Bucket on Mu.") was parroted back as the router's reply (now handed to Gemini when a 3-word-or-longer reply repeats the turn); (3) a failed read-only lookup is retried once when the failure looks transient (the retry was not exercised live). Not fixed: "I'm feeling cold" had a good router reply rejected by the "chat reply too long" rule and Gemini then set the thermostat to 24 degrees; the weather tool needed about 11 s on a first lookup of a new place (fillers played; the retry asked again and got 2.3 s); a hesitant utterance that was resumed ran the brightness command twice.
+
+Caveats: 15 and 21 timed turns, one speaker, one room; differences under about 0.3 s are noise; separate sessions; pronunciation of AM/PM, years and apostrophes was not listened to after the text fix; not tested on a throttled or offline network.
