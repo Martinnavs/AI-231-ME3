@@ -14,7 +14,7 @@ import pytest
 pytest.importorskip("langchain_core")
 
 from doc_chat.__main__ import Interruption, Session  # noqa: E402
-from doc_chat.bargein import OnsetDetector, PreRoll  # noqa: E402
+from doc_chat.bargein import BargeInGuard, OnsetDetector, PreRoll  # noqa: E402
 from doc_chat.dialogue import ChatHistory  # noqa: E402
 from doc_chat.speech import HeardTurn  # noqa: E402
 
@@ -61,6 +61,38 @@ def test_a_dip_inside_a_word_does_not_reset_it() -> None:
 def test_the_threshold_never_drops_below_the_floor() -> None:
     assert OnsetDetector(noise=0.0001, ratio=4.0, floor=0.02).threshold == 0.02
     assert OnsetDetector(noise=0.02, ratio=4.0, floor=0.02).threshold == pytest.approx(0.08)
+
+
+def _quiet_room_guard(min_bar: float) -> BargeInGuard:
+    return BargeInGuard(
+        0.01,
+        ratio=4.0,
+        mode="energy",
+        echo=EchoModel(prior=0.1),
+        level_kofn=(3, 8),
+        min_bar=min_bar,
+    )
+
+
+def _fires(guard: BargeInGuard, rms: float, blocks: int = 8) -> bool:
+    return any(guard.feed(block(rms), played=0.1, answering=True) for _ in range(blocks))
+
+
+def test_a_quiet_room_puts_the_bar_on_the_echo_without_a_minimum() -> None:
+    # room 0.01 -> floor 0.04: echo peaks of 0.045 get through (the 2026-10-29 false fire)
+    assert _fires(_quiet_room_guard(min_bar=0.0), 0.045)
+
+
+def test_the_minimum_bar_keeps_those_echo_peaks_out_and_speech_in() -> None:
+    assert not _fires(_quiet_room_guard(min_bar=0.06), 0.045)
+    assert _fires(_quiet_room_guard(min_bar=0.06), 0.14)  # speech at the mic: about -17 dBFS
+
+
+def test_the_minimum_bar_changes_nothing_in_a_noisy_room() -> None:
+    noisy = BargeInGuard(
+        0.0179, ratio=4.0, mode="energy", echo=EchoModel(prior=0.1), level_kofn=(3, 8), min_bar=0.06
+    )
+    assert noisy.min_bar < 4.0 * 0.0179  # the room floor (0.0716) already exceeds it
 
 
 def test_preroll_keeps_only_the_latest_blocks() -> None:

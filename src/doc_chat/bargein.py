@@ -169,8 +169,13 @@ class BargeInGuard:
         level_kofn: tuple[int, int] | None = None,
         warmup_blocks: int = 0,
         ducked_k: int | None = None,
+        min_bar: float = 0.0,
     ) -> None:
         self.mode = mode
+        # an absolute floor for the bar (block RMS, 0-1) while the assistant plays: the room-based
+        # floor (ratio x noise) drops in a quiet room, but the echo does not (2026-10-29: a -40 dBFS
+        # room put the floor at 0.040, on top of the echo's 95th percentile of 0.033-0.042)
+        self.min_bar = min_bar
         # with level_kofn: while the speaker is ducked (set `ducked` before `feed`), ducked_k
         # blocks above the bar are enough: the echo is 15 dB down, and a bare "stop" gives only
         # one or two loud blocks (.scratch/echo-next/PLAN.md, live session 1)
@@ -233,8 +238,9 @@ class BargeInGuard:
         if self.echo is not None and 0 < self._played_blocks <= self.warmup_blocks:
             guarded = max(extra, self.echo.margin * self.echo.prior * played)
         fired = self.playing.feed(level, dur, guarded)
-        bar = max(self.playing.threshold, extra)
-        guarded_bar = max(self.playing.threshold, guarded)
+        bar = max(self.playing.threshold, extra, self.min_bar)
+        guarded_bar = max(self.playing.threshold, guarded, self.min_bar)
+        fired = fired and level > self.min_bar
         if self.level_kofn is not None:
             self._above.append(level > guarded_bar)
             k = self.ducked_k if self.ducked and self.ducked_k else self.level_kofn[0]
