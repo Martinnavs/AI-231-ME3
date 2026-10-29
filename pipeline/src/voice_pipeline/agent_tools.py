@@ -35,6 +35,8 @@ SPOKEN_RESULT_TOOLS = {"weather", "wiki_summary", "get_volume", "set_volume"}
 # a failure sentence is not an answer: the model gets it and recovers (another topic, its own
 # knowledge), as before R5
 FAILURE = re.compile(r"couldn't find|did not answer|not connected|can't say|error", re.IGNORECASE)
+# failures that may clear on their own (a network blip), unlike "couldn't find": worth one retry
+TRANSIENT = re.compile(r"did not answer|not connected|can't say|error", re.IGNORECASE)
 NO_SECOND_REQUEST = FunctionCallResultProperties(run_llm=False)
 SAY = {
     "type": "string",
