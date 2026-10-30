@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any
 
 OUT = Path("out/agent_dryrun")
-CONDS = ("P0", "P1", "P2")
-PACKS = {"m": "87-pack", "d": "delegate pack", "r": "recheck pack", "h": "held-out pack"}
+CONDS = ("P0", "P1", "P2", "P3")
+PACKS = {"m": "87-pack", "d": "delegate pack", "r": "recheck pack", "h": "held-out pack", "g": "held-out pack 2"}
 ALIAS = {"wiki_summary": "web_answer"}
 
 
@@ -37,11 +37,15 @@ def matches(calls: list[dict[str, Any]], expect: list[dict[str, Any]]) -> bool:
 
 
 PREFIX = ""
+PAIRED: set[tuple[str, int]] | None = None  # (pack, rep) pairs where every condition ran with no failed turn
 
 
 def load(run: str) -> list[dict[str, Any]]:
     path = OUT / (PREFIX + run) / "rows.jsonl"
-    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    if PAIRED is not None and (run[3], int(run[4:])) not in PAIRED:
+        return []
+    return rows
 
 
 def pct(values: list[float], q: float) -> float:
@@ -68,6 +72,17 @@ def main() -> None:
     global PREFIX
     only = sys.argv[1] if len(sys.argv) > 1 else "mdr"
     PREFIX = sys.argv[2] if len(sys.argv) > 2 else ""
+    if len(sys.argv) > 3 and sys.argv[3] == "paired":
+        global PAIRED
+        PAIRED = None
+        every = [c for c in CONDS if any(load(f"{c}_{p}{n}") for p in only for n in (1, 2, 3))]
+        PAIRED = {
+            (p, n)
+            for p in only
+            for n in (1, 2, 3)
+            if all(load(f"{c}_{p}{n}") and all(r["status"] == "ok" for r in load(f"{c}_{p}{n}")) for c in every)
+        }
+        print("clean paired runs (pack, repetition):", sorted(PAIRED))
     packs = {p: label for p, label in PACKS.items() if p in only}
     conds = tuple(c for c in CONDS if any(load(f"{c}_{p}{n}") for p in packs for n in (1, 2, 3)))
     table: dict[str, dict[str, list[dict[str, Any]]]] = {c: {p: [] for p in packs} for c in conds}
@@ -111,23 +126,35 @@ def main() -> None:
             base = {"tool": vals[0], "none": vals[2]}
         elif base:
             print(f"      vs P0: tool p50 {100 * (vals[0] / base['tool'] - 1):+.1f}%  no-tool p50 {100 * (vals[2] / base['none'] - 1):+.1f}%")
-    if "h" in packs:
-        print("\n== held-out pack by category: alias-exact turns out of 3 repetitions x prompts (P0 | P1)")
-        kinds = sorted({r["kind"] for r in rows_by[conds[0]]})
-        for kind in kinds:
+    held = [p for p in packs if p in "hg"]
+    if held:
+        print("\n== held-out categories: alias-exact turns / turns, all repetitions")
+        for kind in sorted({r["kind"] for c in conds for p in held for n in (1, 2, 3) for r in load(f"{c}_{p}{n}")}):
             cells = []
             for c in conds:
-                rs = [r for r in rows_by[c] if r["kind"] == kind and r["status"] == "ok"]
-                cells.append(f"{sum(matches(r['calls'], r['expect']) for r in rs)}/{len(rs)}")
-            print(f"  {kind:<18}", "  ".join(f"{c}={x}" for c, x in zip(conds, cells, strict=True)))
-        print("\n== held-out prompts where the conditions differ (exact count of 3)")
-        ids = sorted({r["id"] for r in rows_by[conds[0]]})
-        for i in ids:
-            counts = [sum(matches(r["calls"], r["expect"]) for r in rows_by[c] if r["id"] == i and r["status"] == "ok") for c in conds]
-            if len(set(counts)) > 1:
-                sample = next(r for r in rows_by[conds[-1]] if r["id"] == i)
-                got = [[x.get("tool") or x.get("intent") for x in r["calls"]] for r in rows_by[conds[-1]] if r["id"] == i]
-                print(f"  {i} {sample['turns'] if 'turns' in sample else ''}{dict(zip(conds, counts, strict=True))} last-cond calls: {got}")
+                rs = [r for p in held for n in (1, 2, 3) for r in load(f"{c}_{p}{n}") if r["kind"] == kind and r["status"] == "ok"]
+                cells.append(f"{c}={sum(matches(r['calls'], r['expect']) for r in rs)}/{len(rs)}")
+            print(f"  {kind:<22}", "  ".join(cells))
+    if "r" in packs or "m" in packs:
+        print("\n== guard prompts, exact over every m and r run (a02 'Set an alarm.', b02 'Text Ben.')")
+        for guard in ("a02", "b02"):
+            cells = []
+            for c in conds:
+                rs = [r for p in packs if p in "mr" for n in (1, 2, 3) for r in load(f"{c}_{p}{n}") if pid(r) == guard and r["status"] == "ok"]
+                cells.append(f"{c}={sum(matches(r['calls'], r['expect']) for r in rs)}/{len(rs)}")
+            print(f"  {guard}:", "  ".join(cells))
+    print("\n== knowledge and arithmetic call patterns (all held-out packs and the 87-pack k01-k03), per condition")
+    for label, pick in (("knowledge", lambda r: r["kind"].endswith("knowledge")), ("arithmetic", lambda r: r["kind"].endswith("arithmetic"))):
+        for c in conds:
+            pats = Counter(tuple(str(x.get("tool") or x.get("intent")) for x in r["calls"]) for p in packs for n in (1, 2, 3) for r in load(f"{c}_{p}{n}") if pick(r) and r["status"] == "ok")
+            if pats:
+                print(f"  {label:<10} {c}: {dict(pats)}")
+
+
+def pid(row: dict[str, Any]) -> str:
+    import re
+
+    return re.sub(r"r\d+$", "", row["id"])
 
 
 if __name__ == "__main__":

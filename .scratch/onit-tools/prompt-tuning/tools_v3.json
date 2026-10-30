@@ -1,0 +1,5 @@
+{
+ "search_docs": "Search the documents about the novelist Cormac McCarthy (his life, books, characters, adaptations) and return the best-matching passages with their source file. Use it, and only it, for any question on that topic and answer from the passages. Write the query as a short self-contained question.",
+ "web_answer": "Look up a factual question on the web and get a short answer to say: people, places, films, facts, current events, how things work. Not for Cormac McCarthy (use search_docs). One call per question; write `query` as a complete question, for example 'Who painted the Mona Lisa?'. Say the answer as it is.",
+ "wiki_summary": "Fallback only: a short Wikipedia summary by subject name. Prefer web_answer, and never call both for one question."
+}

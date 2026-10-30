@@ -1,0 +1,25 @@
+{"id": "g01", "kind": "held2-knowledge", "turns": ["Who discovered penicillin?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "g02", "kind": "held2-knowledge", "turns": ["What's the capital of Canada?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "g03", "kind": "held2-knowledge", "turns": ["How many moons does Mars have?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "g04", "kind": "held2-knowledge", "turns": ["Who wrote One Hundred Years of Solitude?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "g05", "kind": "held2-knowledge", "turns": ["When was the first iPhone released?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "g06", "kind": "held2-knowledge", "turns": ["What's the longest river in South America?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "g07", "kind": "held2-arithmetic", "turns": ["What's seventeen times thirteen?"], "expect": [[]]}
+{"id": "g08", "kind": "held2-arithmetic", "turns": ["What is twenty percent of three hundred and fifty?"], "expect": [[]]}
+{"id": "g09", "kind": "held2-arithmetic", "turns": ["If I split a ninety-six dollar bill four ways, how much is each share?"], "expect": [[]]}
+{"id": "g10", "kind": "held2-arithmetic", "turns": ["What's forty-eight divided by six?"], "expect": [[]]}
+{"id": "g11", "kind": "held2-arithmetic", "turns": ["How many minutes are there in three and a half hours?"], "expect": [[]]}
+{"id": "g12", "kind": "held2-arithmetic", "turns": ["What is nine squared plus four?"], "expect": [[]]}
+{"id": "g13", "kind": "held2-mccarthy", "turns": ["What is The Road about?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "g14", "kind": "held2-mccarthy", "turns": ["Which Cormac McCarthy novel won the Pulitzer Prize?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "g15", "kind": "held2-mccarthy", "turns": ["Who is the kid in Blood Meridian?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "g16", "kind": "held2-mixed", "turns": ["Turn off the lights and tell me who painted The Starry Night."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"tool": "web_answer"}]]}
+{"id": "g17", "kind": "held2-mixed", "turns": ["Play some music and tell me how many moons Jupiter has."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}, {"tool": "web_answer"}]]}
+{"id": "g18", "kind": "held2-phonebook", "turns": ["Message Anna."], "expect": [[{"intent": "MESSAGE", "slot": "Anna"}]]}
+{"id": "g19", "kind": "held2-phonebook", "turns": ["Call Carlo."], "expect": [[{"intent": "CALL", "slot": "Carlo"}]]}
+{"id": "g20", "kind": "held2-missing", "turns": ["Remind me about something."], "expect": [[]]}
+{"id": "g21", "kind": "held2-missing", "turns": ["Wake me up early."], "expect": [[]]}
+{"id": "g22", "kind": "held2-feeling", "turns": ["It's chilly in the house."], "expect": [[]]}
+{"id": "g23", "kind": "held2-delegate", "turns": ["Put together a small website for my dog walking service."], "expect": [[{"tool": "delegate"}]]}
+{"id": "g24", "kind": "held2-delegate", "turns": ["Go through the log files in my logs folder and find which hour had the most errors."], "expect": [[{"tool": "delegate"}]]}
+{"id": "g25", "kind": "held2-plain", "turns": ["What rhymes with orange?"], "expect": [[]]}

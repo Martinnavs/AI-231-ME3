@@ -220,3 +220,22 @@ Corrected results, three repetitions per condition, P0 and P1 and P2 running at 
 - Held-out by category (exact of turns): feelings 0/12 -> 12/12 ("It's freezing in here" no longer sets the thermostat), missing value 4/12 -> 8/12, McCarthy docs 15/15 both, knowledge 0/15 -> 1/15, arithmetic 3/6 -> 4/6, phonebook 6/6 -> 6/6. On the 87-pack: ambiguous 14/24 -> 20/24, docs 37/45 -> 43/45, multi-turn 47/66 -> 64/66.
 - P2 rejected: "Set an alarm." (missing time) guessed an alarm more often (ambiguous 11/24 against 20/24 for P1) and the shorter `say` text saved no latency. It did fix two things P1 does not: the double lookup on knowledge questions (87-pack k01-k03: single `web_answer` 3/3, 3/3 and 1/3 for P2 against `web_answer` + `wiki_summary` 100% for P0 and P1) and "Text Ben." (phonebook 36/42 against 26/42 for P1). The `say` text is the likely cause of both effects (the same text sits on `smart_home`): a lighter `say` makes the model call `smart_home` more readily.
 - Still open under every variant: simple arithmetic is sent to `web_answer` (dn02 and dn03: P0 3 of 6 direct, P1 0 of 6), which costs a web lookup on a sum. Adopted: P1.
+
+## Prompt and tool-definition tuning, round 2 (2026-10-30)
+
+Pre-registered in `prompt-tuning/PLAN.md` ("Round 2"). P1 = the committed prompt; P3 = P1 plus "including sums and everyday reasoning you can do in your head" in the last case, plus new descriptions for search_docs, web_answer (example 'Who painted the Mona Lisa?', not a McCarthy title) and wiki_summary (fallback only), with the original `say` text. A fresh held-out pack (`agent_prompts_heldout2.jsonl`, 25 prompts) was written before any P3 run. Settled harness, P1 and P3 running at the same time.
+
+**The Gemini prepaid credit ran out during repetition 3** ("402 Payment Required: Your prepayment credits are depleted"). The delegate-pack and recheck-pack runs of repetition 3 are empty for both conditions and the 87-pack run of repetition 3 lost its last 3 turns, so the comparison uses only the clean paired runs: 87-pack and recheck pack x2, delegate pack x2, held-out pack 2 x3. The dry runs of this whole experiment (5,074 turns, about 9,500 requests of gemini-3.1-flash-lite, estimated $6-9, never ledgered) used the same key as the live agent's front-line model.
+
+| clean paired runs | exact P1 / P3 | extra calls | false calls |
+|---|---|---|---|
+| 87-pack (x2) | 78.5 / 80.5 | 9.5 / 12.0 | 3.0 / 2.5 |
+| delegate pack (x2) | 20.0 / 21.0 | 3.0 / 1.0 | 2.0 / 1.0 |
+| recheck pack (x2) | 36.5 / 35.0 | 9.0 / 11.0 | 1.0 / 0.0 |
+| held-out pack 2 (x3) | 15.0 / 17.7 | 16.7 / 10.3 | 3.0 / 0.7 |
+
+- Delegation: recall 12/12, no stray `delegate` call, for both. Latency: tool turns first-text p50 2.09 / 2.05 s (p90 3.18 / 3.06), no-tool 0.95 / 0.90 s.
+- P3 is better on knowledge (single `web_answer` in 13 of 24 turns against 7), arithmetic (18/18 answered without a tool against 15/18), a plain question ("What rhymes with orange?" 3/3 against 0/3) and both guard prompts ("Set an alarm." 14/14 against 11/14, "Text Ben." 10/14 against 8/14).
+- **By the rule written in advance P3 is not adopted:** extra calls are higher than P1 on the 87-pack (12.0 against 9.5) and the recheck pack (11.0 against 9.0), and recheck exact is 1.5 lower (the limit was 1). The excess is almost entirely one prompt, d08, where two P3 runs made a chain of 6-7 `web_answer` calls after `search_docs` (13 extra calls against 5 for P1); the x01 and x02 mixed prompts call `search_docs` twice under both. With two clean repetitions one sporadic loop decides this, so the result is a "not proven", not "worse". The committed prompt stays P1.
+- A runaway lookup chain is a product risk of its own: the agent has no per-turn cap on repeated `web_answer` calls (the subagent runner has a repeat guard, the agent does not), and each call takes 1-3 s. A code-level cap would be sturdier than any prompt rule.
+- Bug found by the experiment: two processes that start the delegate server against one state folder crashed each other (`JobTable.save` used one shared temp file name; 26-60% of starts failed in a 3,000-start test), so the delegate tools were missing from some runs. Fixed: the temp file name carries the process id, with a test that fails on the old code.
