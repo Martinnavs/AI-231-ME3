@@ -1,7 +1,18 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
-from voice_pipeline.dryrun import apply_tool_text, leaked, score_turn, settle
+import pytest
+
+from voice_pipeline.dryrun import (
+    Budget,
+    BudgetStop,
+    apply_tool_text,
+    estimate_usd,
+    leaked,
+    score_turn,
+    settle,
+)
 
 DOCS = {"tool": "search_docs", "args": {"query": "q"}}
 
@@ -74,3 +85,35 @@ async def test_settle_waits_for_a_late_call_and_then_returns() -> None:
     start = asyncio.get_running_loop().time()
     await settle(record, quiet_s=0.2, max_s=5.0)  # nothing more arrives
     assert asyncio.get_running_loop().time() - start < 1.0
+
+
+def test_the_estimate_scales_with_turns() -> None:
+    low, high = estimate_usd(100)
+    assert (round(low, 3), round(high, 3)) == (0.175, 0.3)
+
+
+def test_cost_uses_tokens_when_there_are_some_and_requests_when_there_are_none() -> None:
+    tokens = {"requests": 3, "prompt": 1_000_000, "completion": 100_000, "cached": 0}
+    assert Budget.cost(tokens) == pytest.approx(0.25 + 0.15)
+    assert Budget.cost(
+        {"requests": 10, "prompt": 0, "completion": 0, "cached": 0}
+    ) == pytest.approx(0.012)
+
+
+def test_a_budget_stops_at_ninety_percent_and_the_ledger_is_shared_between_runs(
+    tmp_path: Path,
+) -> None:
+    ledger = tmp_path / "spend.json"
+    first = Budget(0.5, ledger)
+    assert first.remaining == pytest.approx(0.45)
+    used = {"requests": 100, "prompt": 300_000, "completion": 10_000, "cached": 0}  # $0.09
+    assert first.check(used) == pytest.approx(0.09)
+    first.commit("run-1", used)
+    second = Budget(0.5, ledger)  # a later run on the same ledger starts from what is spent
+    assert second.spent == pytest.approx(0.09) and second.remaining == pytest.approx(0.36)
+    with pytest.raises(BudgetStop):
+        second.check(
+            {"requests": 1000, "prompt": 1_500_000, "completion": 0, "cached": 0}
+        )  # $0.375 more
+    second.commit("run-2", used)
+    assert Budget(0.5, ledger).spent == pytest.approx(0.18)
