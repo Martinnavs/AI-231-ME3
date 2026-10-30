@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from voice_agent.agent.jobs import DONE, ERROR, LOST, RUNNING, JobTable, listed_files, spoken
@@ -45,3 +47,15 @@ def test_notices_match_the_golden_file_the_pipeline_reads(tmp_path: Path) -> Non
     table.notify(table.finish("job2", ERROR, "it ran out of time"))
     assert table.notices.read_text() == GOLDEN.read_text()
     assert [json.loads(line)["job"] for line in GOLDEN.read_text().splitlines()] == ["job1", "job2"]
+
+
+def test_two_processes_can_open_the_same_state_folder(tmp_path: Path) -> None:
+    code = (
+        "import sys\nfrom pathlib import Path\nfrom voice_agent.agent.jobs import JobTable\n"
+        "for _ in range(300):\n    JobTable(Path(sys.argv[1]))\n"
+    )
+    procs = [
+        subprocess.Popen([sys.executable, "-c", code, str(tmp_path)], stderr=subprocess.PIPE)
+        for _ in range(2)
+    ]
+    assert [proc.wait(timeout=120) for proc in procs] == [0, 0]

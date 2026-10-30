@@ -19,7 +19,7 @@ The voice agent hands big tasks (a website, hard math with code, an audit) to a 
 | `src/voice_agent/mcp_servers/delegate.py` | new, verbatim | **241** (skeleton 219) |
 | `config/delegate.toml` | new, verbatim | **30** (skeleton 30) |
 | `tests/fixtures/delegate_notices.jsonl` | new, verbatim | **2** (skeleton 2) |
-| `tests/agent/test_jobs.py` | new, verbatim | **59** (skeleton 47) |
+| `tests/agent/test_jobs.py` | new, verbatim | **77** (skeleton 61) |
 | `tests/mcp_servers/test_delegate_server.py` | new, verbatim | **290** (skeleton 232) |
 
 **Non-goals / touch nothing else:** no change to `subagent.py`, the `code` server, the sandbox runner, `mcp_clients.py`, `config/agent.toml`, or anything under `pipeline/` (ticket 05b). No `serve` tool, no web tools, no client change.
@@ -127,7 +127,7 @@ class JobTable:
 
     def save(self) -> None:
         rows = [asdict(job) for job in self.jobs.values()]
-        tmp = self.path.with_suffix(".tmp")
+        tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps({"counter": self.counter, "jobs": rows}))
         os.replace(tmp, self.path)
 
@@ -427,6 +427,8 @@ secrets = "onit"
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from voice_agent.agent.jobs import DONE, ERROR, LOST, RUNNING, JobTable, listed_files, spoken
@@ -471,6 +473,18 @@ def test_notices_match_the_golden_file_the_pipeline_reads(tmp_path: Path) -> Non
     table.notify(table.finish("job2", ERROR, "it ran out of time"))
     assert table.notices.read_text() == GOLDEN.read_text()
     assert [json.loads(line)["job"] for line in GOLDEN.read_text().splitlines()] == ["job1", "job2"]
+
+
+def test_two_processes_can_open_the_same_state_folder(tmp_path: Path) -> None:
+    code = (
+        "import sys\nfrom pathlib import Path\nfrom voice_agent.agent.jobs import JobTable\n"
+        "for _ in range(300):\n    JobTable(Path(sys.argv[1]))\n"
+    )
+    procs = [
+        subprocess.Popen([sys.executable, "-c", code, str(tmp_path)], stderr=subprocess.PIPE)
+        for _ in range(2)
+    ]
+    assert [proc.wait(timeout=120) for proc in procs] == [0, 0]
 ```
 
 #### `tests/mcp_servers/test_delegate_server.py` (new, verbatim)
@@ -716,7 +730,7 @@ async def test_the_wait_comes_from_the_config_and_jobs_are_capped(tmp_path: Path
 
 - `src/voice_agent/agent/jobs.py`: top-level `Job`, `spoken`, `listed_files`, `JobTable`
 - `src/voice_agent/mcp_servers/delegate.py`: top-level `expand`, `resolve_model`, `Delegator`, `build_server`, `main`
-- `tests/agent/test_jobs.py`: top-level `test_spoken_drops_the_files_line_and_files_are_listed`, `test_create_finish_persist_and_reload`, `test_a_job_running_at_start_up_is_lost`, `test_notices_match_the_golden_file_the_pipeline_reads`
+- `tests/agent/test_jobs.py`: top-level `test_spoken_drops_the_files_line_and_files_are_listed`, `test_create_finish_persist_and_reload`, `test_a_job_running_at_start_up_is_lost`, `test_notices_match_the_golden_file_the_pipeline_reads`, `test_two_processes_can_open_the_same_state_folder`
 - `tests/mcp_servers/test_delegate_server.py`: top-level `make`, `notices`, `test_a_quick_task_is_answered_in_the_call_and_not_announced`, `test_a_slow_task_returns_started_and_is_announced_when_done`, `test_a_failure_uses_the_fallback_then_reports_a_reason`, `test_the_fallback_is_not_used_when_the_default_succeeds`, `test_cancel_stops_a_running_task_and_status_handles_no_jobs`, `test_resolve_model_reads_the_key_file_and_the_class_server`, `test_the_real_runner_works_in_a_sandbox_folder_with_a_scripted_model`, `test_a_dropped_call_while_the_job_runs_still_gets_its_notice`, `test_a_dropped_call_after_the_job_finished_still_gets_its_notice`, `test_the_wait_comes_from_the_config_and_jobs_are_capped`
 
 ## P — Proof
@@ -730,7 +744,7 @@ Run from the repository root of your working copy. Run exactly these, in this or
 3. `uv run --offline --group laptop mypy src/voice_agent/agent/jobs.py src/voice_agent/mcp_servers/delegate.py`
    Expected last line (ignore the timing): `Success: no issues found in 2 source files`
 4. `uv run --offline --group laptop pytest -q tests/agent tests/mcp_servers/test_delegate_server.py`
-   Expected last line (ignore the timing): `39 passed, 1 warning`
+   Expected last line (ignore the timing): `40 passed, 1 warning`
 
 ## Execution Log
 
