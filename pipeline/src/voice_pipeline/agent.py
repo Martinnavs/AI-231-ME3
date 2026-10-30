@@ -26,9 +26,11 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
     LLMMessagesUpdateFrame,
     LLMTextFrame,
+    MetricsFrame,
 )
+from pipecat.metrics.metrics import LLMUsageMetricsData
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineWorker
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -111,6 +113,9 @@ class TurnTap(FrameProcessor):
         self.on_text: OnText | None = None
         self.on_say: OnText | None = None
         self.on_tool: OnTool | None = None
+        # LLM requests and tokens since the tap was made (not reset per turn); tokens need the
+        # worker's usage metrics (Agent(usage=True))
+        self.usage = {"requests": 0, "prompt": 0, "completion": 0, "cached": 0}
         self.begin(None)
 
     def begin(
@@ -139,8 +144,18 @@ class TurnTap(FrameProcessor):
         await super().process_frame(frame, direction)
         now = time.perf_counter() - self.started
         if isinstance(frame, LLMFullResponseStartFrame):
+            self.usage["requests"] += 1
             self.calls_in_response = False
             self.responding = True
+        elif isinstance(frame, MetricsFrame):
+            for data in frame.data:
+                if isinstance(data, LLMUsageMetricsData):
+                    tokens = data.value
+                    self.usage["prompt"] += tokens.prompt_tokens
+                    self.usage["completion"] += tokens.completion_tokens + (
+                        tokens.reasoning_tokens or 0
+                    )
+                    self.usage["cached"] += tokens.cache_read_input_tokens or 0
         elif isinstance(frame, FunctionCallsStartedFrame):
             self.calls_in_response = True
             self.calls_started = len(frame.function_calls)
@@ -231,12 +246,14 @@ class TurnTap(FrameProcessor):
 class Agent:
     """One pipeline, one connection: user aggregator -> LLM -> tap -> assistant aggregator."""
 
-    def __init__(self, llm: GoogleLLMService, tools: ToolsSchema) -> None:
+    def __init__(self, llm: GoogleLLMService, tools: ToolsSchema, usage: bool = False) -> None:
         pair = LLMContextAggregatorPair(LLMContext(tools=tools))
         self.tap = TurnTap()
         # No idle timeout: a voice session can sit quiet for minutes between turns.
         self.worker = PipelineWorker(
-            Pipeline([pair.user(), llm, self.tap, pair.assistant()]), idle_timeout_secs=None
+            Pipeline([pair.user(), llm, self.tap, pair.assistant()]),
+            params=PipelineParams(enable_usage_metrics=usage),
+            idle_timeout_secs=None,
         )
         self._runner = WorkerRunner(handle_sigint=False)
         self._running: asyncio.Task[None] | None = None
