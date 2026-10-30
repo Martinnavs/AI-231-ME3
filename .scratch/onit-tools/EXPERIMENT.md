@@ -199,3 +199,24 @@ Setup: `voice_pipeline.dryrun` against gemini-3.1-flash-lite, `--pi-url ''` (Pi 
 - Recheck (42 turns x2 rounds, the unstable mixed/docs/multi-turn/phonebook/ambiguous prompts, three conditions): A old code+prompt 44/96, B new tools + old prompt 38/96, C new tools + new prompt 55/96. x02, which looked like a regression in the 87-pack, is bimodal in the baseline too (the messy pattern 5/12 times in A, 5/12 in C).
 - B shows that the delegate tools without the prompt text cause spurious `delegate_status` calls (19 on the two mixed prompts); C, the shipped configuration, made none.
 - One drift, attributable to the new prompt: "Text Ben." asks "what would you like to say?" without calling MESSAGE in 4/12 turns (A and B: 0/12, they call MESSAGE with the contact first). Not evaluated: what flash-lite says after a delegate result or error (the jobs failed on purpose here), the quality of its spoken lines, and spoken sessions.
+
+## Prompt and tool-definition tuning, round 1 (2026-10-30)
+
+Pre-registered in `prompt-tuning/PLAN.md` before any variant ran. P0 = committed prompt, P1 = `system_v1.txt` (prompt only), P2 = P1 plus `tools_v2.json` (new descriptions for search_docs, web_answer, wiki_summary and a shorter `say` text, applied with `dryrun --tool-text`). gemini-3.1-flash-lite, no Pi tools, throwaway HOME (a delegate call cannot spend).
+
+**A harness flaw invalidated the first batch.** The dry run counted a turn as finished at the first speakable tool result, so a call made in a later round landed in the next prompt's row, and one late call shifted the rows after it. Both conditions were affected unequally, so the first batch (and its latency numbers) was discarded. `dryrun` now waits for 2.5 s without a new call before scoring a turn and records `late_calls`; 16 of 1596 turns (1.0%) had late calls. The same short-circuit exists in the product: the client is told "done" at the first speakable result, so a second call in a later round is lost to the listener in about 1-3% of turns (not fixed).
+
+Corrected results, three repetitions per condition, P0 and P1 and P2 running at the same time (mean per run; alias-exact counts `wiki_summary` as `web_answer` and does not collapse repeated calls):
+
+| pack (turns) | exact P0 / P1 / P2 | extra calls | false calls |
+|---|---|---|---|
+| 87-pack (87) | 75.0 / 77.7 / 79.0 | 21.7 / 12.0 / 10.7 | 3.7 / 2.7 / 3.3 |
+| delegate pack (23) | 20.0 / 19.0 / 19.0 | 4.3 / 3.3 / 3.0 | 2.0 / 3.0 / 3.0 |
+| recheck pack (48) | 22.7 / 34.3 / 31.0 | 26.3 / 10.7 / 15.7 | 2.0 / 1.3 / 3.7 |
+| held-out pack (29, P2 not run) | 14.3 / 20.7 / - | 22.3 / 13.3 / - | 7.7 / 2.0 / - |
+
+- Delegation: recall 12/12 on every run of every variant. The baseline also delegated "What's eighteen times seven?" (with a `web_answer`) in 3 of 3 runs; P1 and P2 did not. One `delegate_status` on a mixed prompt under P1 (x03).
+- Latency (first spoken text, all turns, runs concurrent so absolute values are inflated): tool turns p50 2.02 / 1.96 / 1.97 s, p90 3.30 / 2.97 / 2.90; no-tool p50 0.92 / 0.88 / 0.83 s. P1 is at parity or faster.
+- Held-out by category (exact of turns): feelings 0/12 -> 12/12 ("It's freezing in here" no longer sets the thermostat), missing value 4/12 -> 8/12, McCarthy docs 15/15 both, knowledge 0/15 -> 1/15, arithmetic 3/6 -> 4/6, phonebook 6/6 -> 6/6. On the 87-pack: ambiguous 14/24 -> 20/24, docs 37/45 -> 43/45, multi-turn 47/66 -> 64/66.
+- P2 rejected: "Set an alarm." (missing time) guessed an alarm more often (ambiguous 11/24 against 20/24 for P1) and the shorter `say` text saved no latency. It did fix two things P1 does not: the double lookup on knowledge questions (87-pack k01-k03: single `web_answer` 3/3, 3/3 and 1/3 for P2 against `web_answer` + `wiki_summary` 100% for P0 and P1) and "Text Ben." (phonebook 36/42 against 26/42 for P1). The `say` text is the likely cause of both effects (the same text sits on `smart_home`): a lighter `say` makes the model call `smart_home` more readily.
+- Still open under every variant: simple arithmetic is sent to `web_answer` (dn02 and dn03: P0 3 of 6 direct, P1 0 of 6), which costs a web lookup on a sum. Adopted: P1.

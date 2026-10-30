@@ -1,0 +1,42 @@
+{"id": "x01r1", "kind": "mixed", "turns": ["Turn off the lights and tell me what The Road is about."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x02r1", "kind": "mixed", "turns": ["Play some music and tell me who Suttree is."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x03r1", "kind": "mixed", "turns": ["When did Blood Meridian come out? Also set a timer for 20 minutes."], "expect": [[{"tool": "search_docs"}, {"intent": "TIMER", "slot": "20 minutes"}]]}
+{"id": "t04r1", "kind": "multi-turn", "turns": ["Tell me about Suttree.", "And when did Blood Meridian come out?"], "expect": [[{"tool": "search_docs"}], [{"tool": "search_docs"}]]}
+{"id": "a02r1", "kind": "ambiguous", "turns": ["Set an alarm."], "expect": [[]]}
+{"id": "d06r1", "kind": "docs", "turns": ["What is the Border Trilogy?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "b02r1", "kind": "phonebook", "turns": ["Text Ben."], "expect": [[{"intent": "MESSAGE", "slot": "Ben"}]]}
+{"id": "x01r2", "kind": "mixed", "turns": ["Turn off the lights and tell me what The Road is about."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x02r2", "kind": "mixed", "turns": ["Play some music and tell me who Suttree is."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x03r2", "kind": "mixed", "turns": ["When did Blood Meridian come out? Also set a timer for 20 minutes."], "expect": [[{"tool": "search_docs"}, {"intent": "TIMER", "slot": "20 minutes"}]]}
+{"id": "t04r2", "kind": "multi-turn", "turns": ["Tell me about Suttree.", "And when did Blood Meridian come out?"], "expect": [[{"tool": "search_docs"}], [{"tool": "search_docs"}]]}
+{"id": "a02r2", "kind": "ambiguous", "turns": ["Set an alarm."], "expect": [[]]}
+{"id": "d06r2", "kind": "docs", "turns": ["What is the Border Trilogy?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "b02r2", "kind": "phonebook", "turns": ["Text Ben."], "expect": [[{"intent": "MESSAGE", "slot": "Ben"}]]}
+{"id": "x01r3", "kind": "mixed", "turns": ["Turn off the lights and tell me what The Road is about."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x02r3", "kind": "mixed", "turns": ["Play some music and tell me who Suttree is."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x03r3", "kind": "mixed", "turns": ["When did Blood Meridian come out? Also set a timer for 20 minutes."], "expect": [[{"tool": "search_docs"}, {"intent": "TIMER", "slot": "20 minutes"}]]}
+{"id": "t04r3", "kind": "multi-turn", "turns": ["Tell me about Suttree.", "And when did Blood Meridian come out?"], "expect": [[{"tool": "search_docs"}], [{"tool": "search_docs"}]]}
+{"id": "a02r3", "kind": "ambiguous", "turns": ["Set an alarm."], "expect": [[]]}
+{"id": "d06r3", "kind": "docs", "turns": ["What is the Border Trilogy?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "b02r3", "kind": "phonebook", "turns": ["Text Ben."], "expect": [[{"intent": "MESSAGE", "slot": "Ben"}]]}
+{"id": "x01r4", "kind": "mixed", "turns": ["Turn off the lights and tell me what The Road is about."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x02r4", "kind": "mixed", "turns": ["Play some music and tell me who Suttree is."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x03r4", "kind": "mixed", "turns": ["When did Blood Meridian come out? Also set a timer for 20 minutes."], "expect": [[{"tool": "search_docs"}, {"intent": "TIMER", "slot": "20 minutes"}]]}
+{"id": "t04r4", "kind": "multi-turn", "turns": ["Tell me about Suttree.", "And when did Blood Meridian come out?"], "expect": [[{"tool": "search_docs"}], [{"tool": "search_docs"}]]}
+{"id": "a02r4", "kind": "ambiguous", "turns": ["Set an alarm."], "expect": [[]]}
+{"id": "d06r4", "kind": "docs", "turns": ["What is the Border Trilogy?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "b02r4", "kind": "phonebook", "turns": ["Text Ben."], "expect": [[{"intent": "MESSAGE", "slot": "Ben"}]]}
+{"id": "x01r5", "kind": "mixed", "turns": ["Turn off the lights and tell me what The Road is about."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x02r5", "kind": "mixed", "turns": ["Play some music and tell me who Suttree is."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x03r5", "kind": "mixed", "turns": ["When did Blood Meridian come out? Also set a timer for 20 minutes."], "expect": [[{"tool": "search_docs"}, {"intent": "TIMER", "slot": "20 minutes"}]]}
+{"id": "t04r5", "kind": "multi-turn", "turns": ["Tell me about Suttree.", "And when did Blood Meridian come out?"], "expect": [[{"tool": "search_docs"}], [{"tool": "search_docs"}]]}
+{"id": "a02r5", "kind": "ambiguous", "turns": ["Set an alarm."], "expect": [[]]}
+{"id": "d06r5", "kind": "docs", "turns": ["What is the Border Trilogy?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "b02r5", "kind": "phonebook", "turns": ["Text Ben."], "expect": [[{"intent": "MESSAGE", "slot": "Ben"}]]}
+{"id": "x01r6", "kind": "mixed", "turns": ["Turn off the lights and tell me what The Road is about."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x02r6", "kind": "mixed", "turns": ["Play some music and tell me who Suttree is."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "x03r6", "kind": "mixed", "turns": ["When did Blood Meridian come out? Also set a timer for 20 minutes."], "expect": [[{"tool": "search_docs"}, {"intent": "TIMER", "slot": "20 minutes"}]]}
+{"id": "t04r6", "kind": "multi-turn", "turns": ["Tell me about Suttree.", "And when did Blood Meridian come out?"], "expect": [[{"tool": "search_docs"}], [{"tool": "search_docs"}]]}
+{"id": "a02r6", "kind": "ambiguous", "turns": ["Set an alarm."], "expect": [[]]}
+{"id": "d06r6", "kind": "docs", "turns": ["What is the Border Trilogy?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "b02r6", "kind": "phonebook", "turns": ["Text Ben."], "expect": [[{"intent": "MESSAGE", "slot": "Ben"}]]}
