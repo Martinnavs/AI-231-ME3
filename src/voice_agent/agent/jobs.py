@@ -58,7 +58,7 @@ class JobTable:
 
     def save(self) -> None:
         rows = [asdict(job) for job in self.jobs.values()]
-        tmp = self.path.with_suffix(".tmp")
+        tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps({"counter": self.counter, "jobs": rows}))
         os.replace(tmp, self.path)
 
