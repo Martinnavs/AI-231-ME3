@@ -1,0 +1,29 @@
+{"id": "h01", "kind": "held-knowledge", "turns": ["Who painted the Mona Lisa?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "h02", "kind": "held-knowledge", "turns": ["What's the tallest mountain in Africa?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "h03", "kind": "held-knowledge", "turns": ["Who directed the movie Inception?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "h04", "kind": "held-knowledge", "turns": ["When did the Berlin Wall fall?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "h05", "kind": "held-knowledge", "turns": ["Who wrote Pride and Prejudice?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "h06", "kind": "held-mccarthy", "turns": ["Who is Judge Holden in Blood Meridian?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "h07", "kind": "held-mccarthy", "turns": ["What is the plot of No Country for Old Men?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "h08", "kind": "held-mccarthy", "turns": ["Where was Cormac McCarthy born?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "h09", "kind": "held-mccarthy", "turns": ["Which of his novels was made into a film with Tommy Lee Jones?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "h10", "kind": "held-mccarthy", "turns": ["Tell me about The Orchard Keeper."], "expect": [[{"tool": "search_docs"}]]}
+{"id": "h11", "kind": "held-feeling", "turns": ["It's freezing in here."], "expect": [[]]}
+{"id": "h12", "kind": "held-feeling", "turns": ["I'm a bit warm."], "expect": [[]]}
+{"id": "h13", "kind": "held-feeling", "turns": ["I feel cold."], "expect": [[]]}
+{"id": "h14", "kind": "held-feeling", "turns": ["My room is so hot right now."], "expect": [[]]}
+{"id": "h15", "kind": "held-missing", "turns": ["Set a timer."], "expect": [[]]}
+{"id": "h16", "kind": "held-missing", "turns": ["Wake me up."], "expect": [[]]}
+{"id": "h17", "kind": "held-missing", "turns": ["Change the brightness."], "expect": [[]]}
+{"id": "h18", "kind": "held-missing", "turns": ["Set the temperature."], "expect": [[]]}
+{"id": "h19", "kind": "held-phonebook", "turns": ["Text Carlo."], "expect": [[{"intent": "MESSAGE", "slot": "Carlo"}]]}
+{"id": "h20", "kind": "held-phonebook", "turns": ["Call Mom."], "expect": [[{"intent": "CALL", "slot": "Mom"}]]}
+{"id": "h21", "kind": "held-mixed", "turns": ["Turn on the lights and tell me who wrote Pride and Prejudice."], "expect": [[{"intent": "LIGHT_ON", "slot": null}, {"tool": "web_answer"}]]}
+{"id": "h22", "kind": "held-mixed", "turns": ["Pause the music and tell me if it will rain tomorrow."], "expect": [[{"intent": "PAUSE", "slot": null}, {"tool": "weather"}]]}
+{"id": "h23", "kind": "held-arithmetic", "turns": ["What's eighteen times seven?"], "expect": [[]]}
+{"id": "h24", "kind": "held-arithmetic", "turns": ["What's ten percent of two hundred and fifty?"], "expect": [[]]}
+{"id": "h25", "kind": "held-delegate", "turns": ["Make me a landing page for my photography business."], "expect": [[{"tool": "delegate"}]]}
+{"id": "h26", "kind": "held-delegate", "turns": ["Work out how many ways there are to tile a four by ten board with dominoes."], "expect": [[{"tool": "delegate"}]]}
+{"id": "h27", "kind": "held-delegate", "turns": ["Check this laptop for open security problems and write me a report."], "expect": [[{"tool": "delegate"}]]}
+{"id": "h28", "kind": "held-home", "turns": ["Turn off the lights."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}]]}
+{"id": "h29", "kind": "held-home", "turns": ["Set a timer for ten minutes."], "expect": [[{"intent": "TIMER", "slot": "10 minutes"}]]}
