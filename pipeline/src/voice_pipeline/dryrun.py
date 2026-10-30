@@ -27,6 +27,10 @@ from voice_pipeline.agent import MODEL, Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import PI_URL, build_tools, runnable, standard_servers
 
 ROOT = Path(__file__).resolve().parents[2]
+# A turn counts as finished at the first spoken answer, but the model may still make a call in a
+# later round; those late calls used to land in the next prompt's row. Wait for quiet first.
+SETTLE_S = 2.5
+SETTLE_MAX_S = 20.0
 FREE_TEXT = {"CREATE_REMINDER"}
 LEAK = re.compile(
     r"function\s*=|<function|\"name\"\s*:|\"intent\"\s*:|smart_home\s*[(>]|</?[A-Z_]{3,}>|\[TOOL_CALLS\]",
@@ -71,8 +75,31 @@ def score_turn(calls: list[dict[str, Any]], expect: list[dict[str, Any]]) -> dic
     }
 
 
+def apply_tool_text(tools: Any, texts: dict[str, str]) -> None:
+    """Replace tool descriptions by name; the key `__say__` replaces the `say` parameter's text."""
+    for tool in tools.standard_tools:
+        if tool.name in texts:
+            tool._description = texts[tool.name]
+        if "__say__" in texts and "say" in tool.properties:
+            tool.properties["say"] = {**tool.properties["say"], "description": texts["__say__"]}
+
+
 def leaked(text: str) -> bool:
     return bool(LEAK.search(text))
+
+
+async def settle(
+    record: list[dict[str, Any]], quiet_s: float = SETTLE_S, max_s: float = SETTLE_MAX_S
+) -> None:
+    """Return once no tool call has been recorded for `quiet_s` seconds (or after `max_s`)."""
+    start = last_change = time.monotonic()
+    size = len(record)
+    while time.monotonic() - start < max_s:
+        await asyncio.sleep(0.1)
+        if len(record) != size:
+            size, last_change = len(record), time.monotonic()
+        elif time.monotonic() - last_change >= quiet_s:
+            return
 
 
 async def run_prompt(
@@ -82,7 +109,10 @@ async def run_prompt(
     for index, (turn, expect) in enumerate(zip(prompt["turns"], prompt["expect"], strict=True)):
         before = len(record)
         result = await agent.ask([{"role": "user", "content": turn}], reset=index == 0)
+        on_time = len(record) - before
+        await settle(record)
         made = record[before:]
+        late = len(made) - on_time
         if result["status"] == "ok" and not result["text"] and not made:
             result["status"] = "empty"
         rows.append(
@@ -91,6 +121,7 @@ async def run_prompt(
                 "kind": prompt["kind"],
                 "turn": index,
                 "calls": made,
+                "late_calls": late,
                 "expect": expect,
                 **result,
                 **score_turn(made, expect),
@@ -135,6 +166,7 @@ async def run(
     pi_url: str | None,
     model: str = MODEL,
     prompts_file: Path = ROOT / "config/eval/agent_prompts.jsonl",
+    tool_text: Path | None = None,
 ) -> int:
     lines = prompts_file.read_text().splitlines()
     prompts = [json.loads(line) for line in lines if line.strip()][:limit]
@@ -143,6 +175,8 @@ async def run(
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
     tools = await build_tools(record, live=live, servers=servers, optional=optional)
+    if tool_text is not None:
+        apply_tool_text(tools, json.loads(tool_text.read_text()))
     prompts, skipped = runnable(prompts, {t.name for t in tools.standard_tools})
     if skipped:
         print(f"skipped (tool not available): {', '.join(skipped)}")
@@ -176,6 +210,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pi-url", default=PI_URL, help="the Pi's device tools; '' for none")
     parser.add_argument("--model", default=MODEL, help="the Gemini model to test")
     parser.add_argument("--prompts", type=Path, default=ROOT / "config/eval/agent_prompts.jsonl")
+    parser.add_argument(
+        "--tool-text", type=Path, default=None, help="JSON of tool name -> description to try"
+    )
     args = parser.parse_args(argv)
     return asyncio.run(
         run(
@@ -186,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             args.pi_url or None,
             args.model,
             args.prompts,
+            args.tool_text,
         )
     )
 
