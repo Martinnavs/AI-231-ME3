@@ -20,6 +20,7 @@ _PASS_ENV = ("PATH", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDR
 _MERGED_DIRS = ("/bin", "/lib", "/sbin")
 _RUN_USER = Path("/run/user")
 _MAX_SCAN_ENTRIES = 200_000
+_HOST_RO_DIRS = ("/etc", "/opt", "/srv", "/var")
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class SandboxPolicy:
     hidden_paths: tuple[str, ...] = ()  # root-relative paths masked with an empty tmpfs
     max_dir_bytes: int = 256 * 1024 * 1024
     info_fd: int | None = None
+    host_readonly: bool = False
 
 
 @dataclass(frozen=True)
@@ -163,7 +165,11 @@ def build_command(policy: SandboxPolicy, argv: Sequence[str], layout: HostLayout
             cmd += ["--ro-bind", name, name]
     if layout.has_lib64 and "/lib64" not in layout.usr_merged:
         cmd += ["--ro-bind", "/lib64", "/lib64"]
-    if layout.has_etc_alternatives:
+    if policy.host_readonly:
+        for host in _HOST_RO_DIRS:
+            if Path(host).is_dir():
+                cmd += ["--ro-bind", host, host]
+    elif layout.has_etc_alternatives:
         cmd += ["--ro-bind", "/etc/alternatives", "/etc/alternatives"]
     cmd += ["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
     cmd += ["--bind", str(policy.root), "/sandbox"]
