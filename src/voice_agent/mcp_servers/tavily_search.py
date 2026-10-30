@@ -135,8 +135,9 @@ def build_server(
     @server.tool(
         description=(
             "Look up a factual question on the web and get a short answer to say: people, "
-            "places, books, films, facts, current events, how things work. Write `query` as a "
-            "complete question, for example 'Who wrote Blood Meridian?'. Say the answer as it is."
+            "places, films, facts, current events, how things work. Not for Cormac McCarthy "
+            "(use search_docs). One call per question; write `query` as a complete question, "
+            "for example 'Who painted the Mona Lisa?'. Say the answer as it is."
         )
     )
     async def web_answer(query: str) -> str:
