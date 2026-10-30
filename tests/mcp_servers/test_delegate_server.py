@@ -221,7 +221,7 @@ async def test_the_wait_comes_from_the_config_and_jobs_are_capped(tmp_path: Path
         return RunResult(status="done", summary="ok")
 
     delegator = make(tmp_path, runner)
-    assert (delegator.wait_s, delegator.max_jobs) == (9.0, 2)
+    assert (delegator.wait_s, delegator.max_jobs) == (4.0, 2)
     assert (await delegator.delegate("quick"))["status"] == DONE
     assert (await delegator.delegate("slow one", wait_s=0.01))["status"] == "started"
     assert (await delegator.delegate("slow two", wait_s=0.01))["status"] == "started"
