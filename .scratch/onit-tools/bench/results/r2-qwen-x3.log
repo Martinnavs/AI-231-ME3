@@ -1,0 +1,257 @@
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/W1-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 08:44:41] "GET /recipes/index.html HTTP/1.1" 200 -
+run r2-qwen-x3: 1 arms x 12 tasks x 3 reps = 36 runs
+  class-qwen             W1  PASS done        steps=8 49.9s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/W1-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 08:45:24] "GET /recipes/index.html HTTP/1.1" 200 -
+  class-qwen             W1  PASS done        steps=4 41.6s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/W1-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 08:46:28] "GET /recipes/index.html HTTP/1.1" 200 -
+  class-qwen             W1  PASS done        steps=11 62.8s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/W2-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             W2  PASS done        steps=4 9.9s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/W2-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             W2  PASS done        steps=4 8.7s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/W2-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             W2  PASS done        steps=6 9.6s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M1-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M1  PASS done        steps=5 10.8s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M1-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M1  PASS done        steps=4 9.9s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M1-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M1  PASS done        steps=4 14.7s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M2-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M2  PASS done        steps=2 7.7s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M2-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M2  PASS done        steps=2 6.9s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M2-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M2  PASS done        steps=2 6.5s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M3-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M3  PASS done        steps=4 7.8s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M3-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M3  PASS done        steps=2 5.5s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M3-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M3  PASS done        steps=2 6.6s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M4-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M4  PASS done        steps=3 8.1s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M4-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M4  PASS done        steps=4 8.5s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M4-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M4  PASS done        steps=2 11.9s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M5-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M5  PASS done        steps=4 8.2s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M5-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M5  PASS done        steps=4 11.5s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/M5-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M5  PASS done        steps=2 6.0s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T1-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T1  PASS done        steps=12 89.5s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T1-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T1  PASS done        steps=8 51.2s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T1-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T1  PASS done        steps=7 61.6s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T2-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T2  PASS done        steps=4 8.3s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T2-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T2  PASS done        steps=4 9.9s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T2-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T2  PASS done        steps=4 8.8s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T3-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T3  PASS done        steps=5 9.2s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T3-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T3  PASS done        steps=6 16.8s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/T3-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T3  PASS done        steps=6 8.9s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/S1-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             S1  PASS done        steps=2 2.4s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/S1-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             S1  PASS done        steps=2 3.3s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/S1-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             S1  PASS done        steps=2 2.0s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/S2-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+  class-qwen             S2  PASS done        steps=1 4.0s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/S2-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             S2  PASS done        steps=2 4.7s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r2-qwen-x3/class-qwen/S2-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             S2  PASS done        steps=2 4.3s $0.0000
+{'qwen': 0.0}

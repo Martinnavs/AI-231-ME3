@@ -1,0 +1,2 @@
+
+YOUR AXIS: OpenRouter and the open-weight / non-Google families (Qwen, GLM, DeepSeek, MiniMax, Kimi, Xiaomi MiMo, Anthropic Haiku, OpenAI luna, any others you find that are cheap and strong at agentic tool use). Use OpenRouter model pages, rankings and provider pages (quantization, throughput, latency per provider), Artificial Analysis, Terminal-Bench, SWE-bench, tau-bench, BFCL, AIME/HMMT style math results, and vendor posts.

@@ -1,0 +1,4 @@
+RESEARCH TASK (web search and page reading only; do not run shell commands, do not read local files, do not write files).
+
+PAGE ACCESS. You may open (read_url) pages ONLY on these domains: arxiv.org, github.com, raw.githubusercontent.com, pypi.org, ai.google.dev, cloud.google.com, developers.googleblog.com, deepmind.google, artificialanalysis.ai, openrouter.ai, huggingface.co, platform.openai.com, developers.openai.com, docs.anthropic.com, www.anthropic.com, qwenlm.github.io, z.ai, docs.z.ai, api-docs.deepseek.com, www.tbench.ai, swebench.com, gorilla.cs.berkeley.edu. Opening any other domain fails and ends your run with nothing, so never try. For anything else use search results only and say the evidence is a search snippet. At most about 40 page reads.
+

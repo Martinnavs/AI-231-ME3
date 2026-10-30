@@ -1,0 +1,33 @@
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r0-qwen/class-qwen/W1-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [29/Oct/2026 21:59:11] "GET /recipes/index.html HTTP/1.1" 200 -
+run r0-qwen: 1 arms x 4 tasks x 1 reps = 4 runs
+  class-qwen             W1  PASS done        steps=7 41.2s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r0-qwen/class-qwen/M2-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             M2  PASS done        steps=2 6.3s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r0-qwen/class-qwen/T1-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             T1  PASS done        steps=6 47.6s $0.0000
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r0-qwen/class-qwen/S1-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  class-qwen             S1  PASS done        steps=3 5.1s $0.0000
+{'qwen': 0.0}

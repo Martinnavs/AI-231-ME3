@@ -1,0 +1,164 @@
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X1-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+run r6-haiku-stress: 1 arms x 6 tasks x 3 reps = 18 runs
+  haiku-5.5              X1  PASS done        steps=4 11.0s $0.0016
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X1-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X1  PASS done        steps=5 12.5s $0.0026
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X1-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X1  PASS done        steps=4 11.5s $0.0017
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X2-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 10:38:14] "GET /portfolio/projects.html HTTP/1.1" 200 -
+  haiku-5.5              X2  PASS done        steps=3 15.9s $0.0032
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X2-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 10:38:27] "GET /portfolio/projects.html HTTP/1.1" 200 -
+  haiku-5.5              X2  PASS done        steps=3 11.4s $0.0022
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X2-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 10:38:44] "GET /portfolio/projects.html HTTP/1.1" 200 -
+  haiku-5.5              X2  PASS done        steps=3 16.3s $0.0035
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X3-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X3  PASS done        steps=7 17.7s $0.0043
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X3-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X3  PASS done        steps=5 15.3s $0.0032
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X3-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X3  PASS done        steps=8 21.4s $0.0052
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X4-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X4  PASS done        steps=3 9.6s $0.0022
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X4-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X4  PASS done        steps=3 9.5s $0.0022
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X4-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X4  PASS done        steps=5 14.8s $0.0043
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X5-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X5  PASS done        steps=5 12.7s $0.0019
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X5-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X5  PASS done        steps=6 18.9s $0.0032
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X5-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X5  PASS done        steps=5 17.5s $0.0024
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X6-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X6  PASS done        steps=3 8.5s $0.0010
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X6-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X6  PASS done        steps=3 6.8s $0.0010
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r6-haiku-stress/haiku-5.5/X6-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+  haiku-5.5              X6  PASS done        steps=3 6.2s $0.0009
+{'qwen': 0.0, 'gemini': 0.1186, 'openrouter': 0.1651}

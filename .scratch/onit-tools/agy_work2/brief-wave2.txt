@@ -1,0 +1,38 @@
+Done by you alone: do not launch subagents or background tasks. Put your final report in your reply.
+
+Implement the delegate server and the spoken notices: tickets 05a-delegate-server.md and 05b-pipeline-notices.md.
+These tickets add code whose full text is already in each ticket. Your job is to copy it into place exactly and prove it is green, not to improve it.
+
+The three rules that matter most:
+1. The code in each ticket's "C — Contracts" section IS the implementation. Copy it byte-for-byte, blank lines included. Where a ticket gives an edit list, apply exactly those replacements, in the order given, and nothing else; each OLD block occurs exactly once in the file as it is at that moment.
+2. Blocked (missing module, failing command, mismatch with a landed file): write the exact error in that ticket's Execution Log and stop that ticket. Install nothing; no network.
+3. Exactly the function inventory, exactly the listed tests, every file under its line cap. Never compress lines to fit; anything beyond the ticket is a material deviation: log "Material - needs human" and stop that ticket.
+
+Your working directory is /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/onit-tools/agy_work2/work. It is a copy of the repository; work only inside it. The Python environment is already installed there; run every uv command with --offline (and --group laptop for the root project), exactly as the Proof commands are written; the pipeline project has its own environment under pipeline/.
+
+Run the tickets in order: 05a, then 05b (05b's tests read a file that 05a creates). Run every Proof command in the foreground and wait for it; never as a background task.
+
+Read first, fully, in this order:
+1. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/onit-tools/agy_work2/work/.scratch/onit-tools/tickets/GUARDRAILS.md (binding on every ticket)
+2. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/onit-tools/agy_work2/work/.scratch/onit-tools/developer-role.md — your role, including its "At level 3" section. The design gate is already approved.
+3. /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/onit-tools/agy_work2/work/.scratch/onit-tools/WAVE-PLAN2.md
+4. The tickets, in /mnt/School/PhD/AI231/AI-231-ME3-agy/.scratch/onit-tools/agy_work2/work/.scratch/onit-tools/tickets/: 05a-delegate-server.md, 05b-pipeline-notices.md
+
+Hard rules for this run:
+- Edit only the files in each ticket's file table, plus the ticket file itself (Status, Proof results, Deviations, Execution Log).
+- Git is not available to you for writing: no commits.
+- No network. Never start the agent server, the speech server or any MCP server outside the tests. Never touch any bwrap flag, sandbox limit or command-policy entry.
+- Run only each ticket's Proof commands.
+
+Before you finish each ticket: wc -l every file you own against its cap, then re-read your diff against the forbidden list in GUARDRAILS.md and remove anything it names.
+
+Append to each ticket's "## Execution Log" (never rewrite earlier entries):
+### 2026-10-30 agy: DONE | BLOCKED | PARTIAL
+- Proof: 1 ✅/❌ 2 ✅/❌ ... (each command and its last output line)
+- Files: path (lines / cap), one per file
+- Deviations: none | one line each
+- Notes for reviewer: only what is not obvious from the diff
+
+Final reply, terse: one block per ticket (status, line counts vs caps, Proof checkmarks, open issues), then every file you changed.
+
+Again, the three rules: copy the ticket's code byte-for-byte; when blocked, report and stop; nothing beyond the inventory, tests and caps, and never compress lines.

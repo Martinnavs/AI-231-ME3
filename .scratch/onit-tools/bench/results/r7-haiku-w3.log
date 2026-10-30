@@ -1,0 +1,26 @@
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r7-haiku-w3/haiku-5.5/W3-0
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 10:43:58] "GET /bakery/index.html HTTP/1.1" 200 -
+run r7-haiku-w3: 1 arms x 1 tasks x 3 reps = 3 runs
+  haiku-5.5              W3  PASS done        steps=2 9.5s $0.0015
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r7-haiku-w3/haiku-5.5/W3-1
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 10:44:09] "GET /bakery/index.html HTTP/1.1" 200 -
+  haiku-5.5              W3  PASS done        steps=2 10.0s $0.0014
+INFO:voice_agent.mcp.code:code server: root=/home/bertie/.cache/onit-bench/runs/r7-haiku-w3/haiku-5.5/W3-2
+INFO:mcp.server.lowlevel.server:Processing request of type ListToolsRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+127.0.0.1 - - [30/Oct/2026 10:44:19] "GET /bakery/index.html HTTP/1.1" 200 -
+  haiku-5.5              W3  PASS done        steps=2 8.9s $0.0014
+{'qwen': 0.0, 'gemini': 0.1186, 'openrouter': 0.1695}
