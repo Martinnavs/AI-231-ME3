@@ -1,0 +1,36 @@
+{"id": "q01r1", "kind": "signal-p3-better", "turns": ["What's seventeen times thirteen?"], "expect": [[]]}
+{"id": "q01r2", "kind": "signal-p3-better", "turns": ["What's seventeen times thirteen?"], "expect": [[]]}
+{"id": "q02r1", "kind": "signal-p3-better", "turns": ["What rhymes with orange?"], "expect": [[]]}
+{"id": "q02r2", "kind": "signal-p3-better", "turns": ["What rhymes with orange?"], "expect": [[]]}
+{"id": "q03r1", "kind": "signal-p3-better", "turns": ["Make a phone call."], "expect": [[]]}
+{"id": "q03r2", "kind": "signal-p3-better", "turns": ["Make a phone call."], "expect": [[]]}
+{"id": "q04r1", "kind": "signal-p3-better", "turns": ["Tell me about the Eiffel Tower."], "expect": [[{"tool": "wiki_summary"}]]}
+{"id": "q04r2", "kind": "signal-p3-better", "turns": ["Tell me about the Eiffel Tower."], "expect": [[{"tool": "wiki_summary"}]]}
+{"id": "q05r1", "kind": "signal-p3-better", "turns": ["Who wrote One Hundred Years of Solitude?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "q05r2", "kind": "signal-p3-better", "turns": ["Who wrote One Hundred Years of Solitude?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "q06r1", "kind": "signal-p3-better", "turns": ["Set an alarm for nine tonight."], "expect": [[{"intent": "ALARM", "slot": "9:00 PM"}]]}
+{"id": "q06r2", "kind": "signal-p3-better", "turns": ["Set an alarm for nine tonight."], "expect": [[{"intent": "ALARM", "slot": "9:00 PM"}]]}
+{"id": "q07r1", "kind": "signal-p3-better", "turns": ["Who is Lionel Messi?"], "expect": [[{"tool": "wiki_summary"}]]}
+{"id": "q07r2", "kind": "signal-p3-better", "turns": ["Who is Lionel Messi?"], "expect": [[{"tool": "wiki_summary"}]]}
+{"id": "q08r1", "kind": "signal-p3-better", "turns": ["What's fifteen percent of eighty?"], "expect": [[]]}
+{"id": "q08r2", "kind": "signal-p3-better", "turns": ["What's fifteen percent of eighty?"], "expect": [[]]}
+{"id": "q09r1", "kind": "signal-p3-better", "turns": ["What is twelve times fourteen?"], "expect": [[]]}
+{"id": "q09r2", "kind": "signal-p3-better", "turns": ["What is twelve times fourteen?"], "expect": [[]]}
+{"id": "q10r1", "kind": "signal-p3-better", "turns": ["What's the capital of Canada?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "q10r2", "kind": "signal-p3-better", "turns": ["What's the capital of Canada?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "q11r1", "kind": "signal-p3-better", "turns": ["Remind me about something."], "expect": [[]]}
+{"id": "q11r2", "kind": "signal-p3-better", "turns": ["Remind me about something."], "expect": [[]]}
+{"id": "q12r1", "kind": "signal-p3-better", "turns": ["How many moons does Mars have?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "q12r2", "kind": "signal-p3-better", "turns": ["How many moons does Mars have?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "q13r1", "kind": "signal-p3-worse", "turns": ["Message Anna."], "expect": [[{"intent": "MESSAGE", "slot": "Anna"}]]}
+{"id": "q13r2", "kind": "signal-p3-worse", "turns": ["Message Anna."], "expect": [[{"intent": "MESSAGE", "slot": "Anna"}]]}
+{"id": "q14r1", "kind": "signal-p3-worse", "turns": ["Turn on the lights and tell me the weather."], "expect": [[{"intent": "LIGHT_ON", "slot": null}, {"tool": "weather"}]]}
+{"id": "q14r2", "kind": "signal-p3-worse", "turns": ["Turn on the lights and tell me the weather."], "expect": [[{"intent": "LIGHT_ON", "slot": null}, {"tool": "weather"}]]}
+{"id": "q15r1", "kind": "signal-loop", "turns": ["What was McCarthy's last novel?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "q15r2", "kind": "signal-loop", "turns": ["What was McCarthy's last novel?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "q15r3", "kind": "signal-loop", "turns": ["What was McCarthy's last novel?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "q15r4", "kind": "signal-loop", "turns": ["What was McCarthy's last novel?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "q15r5", "kind": "signal-loop", "turns": ["What was McCarthy's last novel?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "q15r6", "kind": "signal-loop", "turns": ["What was McCarthy's last novel?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "q16r1", "kind": "signal-p3-worse", "turns": ["Call Gary."], "expect": [[]]}
+{"id": "q16r2", "kind": "signal-p3-worse", "turns": ["Call Gary."], "expect": [[]]}

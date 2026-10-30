@@ -1,0 +1,51 @@
+{"id": "s_d_dn02", "kind": "delegate-negative", "turns": ["What's fifteen percent of eighty?"], "expect": [[]]}
+{"id": "s_d_dn03", "kind": "delegate-negative", "turns": ["What is twelve times fourteen?"], "expect": [[]]}
+{"id": "s_h_h01", "kind": "held-knowledge", "turns": ["Who painted the Mona Lisa?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "s_h_h11", "kind": "held-feeling", "turns": ["It's freezing in here."], "expect": [[]]}
+{"id": "s_h_h12", "kind": "held-feeling", "turns": ["I'm a bit warm."], "expect": [[]]}
+{"id": "s_h_h13", "kind": "held-feeling", "turns": ["I feel cold."], "expect": [[]]}
+{"id": "s_h_h14", "kind": "held-feeling", "turns": ["My room is so hot right now."], "expect": [[]]}
+{"id": "s_h_h15", "kind": "held-missing", "turns": ["Set a timer."], "expect": [[]]}
+{"id": "s_h_h17", "kind": "held-missing", "turns": ["Change the brightness."], "expect": [[]]}
+{"id": "s_h_h18", "kind": "held-missing", "turns": ["Set the temperature."], "expect": [[]]}
+{"id": "s_h_h22", "kind": "held-mixed", "turns": ["Pause the music and tell me if it will rain tomorrow."], "expect": [[{"intent": "PAUSE", "slot": null}, {"tool": "weather"}]]}
+{"id": "s_h_h23", "kind": "held-arithmetic", "turns": ["What's eighteen times seven?"], "expect": [[]]}
+{"id": "s_m_a01", "kind": "ambiguous", "turns": ["I'm cold."], "expect": [[]]}
+{"id": "s_m_a02", "kind": "ambiguous", "turns": ["Set an alarm."], "expect": [[]]}
+{"id": "s_m_b02", "kind": "phonebook", "turns": ["Text Ben."], "expect": [[{"intent": "MESSAGE", "slot": "Ben"}]]}
+{"id": "s_m_b05", "kind": "phonebook", "turns": ["Call Gary."], "expect": [[]]}
+{"id": "s_m_b06", "kind": "phonebook", "turns": ["Message my boss."], "expect": [[]]}
+{"id": "s_m_c16", "kind": "phonebook", "turns": ["Make a phone call."], "expect": [[]]}
+{"id": "s_m_c17", "kind": "phonebook", "turns": ["Send a message."], "expect": [[]]}
+{"id": "s_m_d08", "kind": "docs", "turns": ["What was McCarthy's last novel?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "s_m_k01", "kind": "knowledge", "turns": ["Who is Lionel Messi?"], "expect": [[{"tool": "wiki_summary"}]]}
+{"id": "s_m_k03", "kind": "knowledge", "turns": ["What is a Raspberry Pi?"], "expect": [[{"tool": "wiki_summary"}]]}
+{"id": "s_m_m01", "kind": "mixed", "turns": ["Turn on the lights and tell me the weather."], "expect": [[{"intent": "LIGHT_ON", "slot": null}, {"tool": "weather"}]]}
+{"id": "s_m_s05", "kind": "slot-normalize", "turns": ["Set an alarm for nine tonight."], "expect": [[{"intent": "ALARM", "slot": "9:00 PM"}]]}
+{"id": "s_m_t03", "kind": "time", "turns": ["If it's 3 PM here, what time is it in New York?"], "expect": [[{"tool": "convert_time"}]]}
+{"id": "s_m_t04", "kind": "multi-turn", "turns": ["Tell me about Suttree.", "And when did Blood Meridian come out?"], "expect": [[{"tool": "search_docs"}], [{"tool": "search_docs"}]]}
+{"id": "s_m_x02", "kind": "mixed", "turns": ["Play some music and tell me who Suttree is."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "s_m_x03", "kind": "mixed", "turns": ["When did Blood Meridian come out? Also set a timer for 20 minutes."], "expect": [[{"tool": "search_docs"}, {"intent": "TIMER", "slot": "20 minutes"}]]}
+{"id": "s_r_d06r1", "kind": "docs", "turns": ["What is the Border Trilogy?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "s_r_x01r1", "kind": "mixed", "turns": ["Turn off the lights and tell me what The Road is about."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"tool": "search_docs"}]]}
+{"id": "t_m_c08", "kind": "tripwire-canonical", "turns": ["Lower the volume."], "expect": [[{"intent": "VOLUME_DOWN", "slot": null}]]}
+{"id": "t_m_c05", "kind": "tripwire-canonical", "turns": ["Stop playing."], "expect": [[{"intent": "STOP", "slot": null}]]}
+{"id": "t_m_c06", "kind": "tripwire-canonical", "turns": ["Skip this song."], "expect": [[{"intent": "NEXT", "slot": null}]]}
+{"id": "t_m_c10", "kind": "tripwire-canonical", "turns": ["Adjust brightness to 60 percent."], "expect": [[{"intent": "BRIGHTNESS", "slot": "60 percent"}]]}
+{"id": "t_m_c19", "kind": "tripwire-canonical", "turns": ["List my reminders."], "expect": [[{"intent": "LIST_REMINDERS", "slot": null}]]}
+{"id": "t_m_c11", "kind": "tripwire-canonical", "turns": ["Change the color to blue."], "expect": [[{"intent": "COLOR", "slot": "blue"}]]}
+{"id": "t_m_p05", "kind": "tripwire-paraphrase", "turns": ["Do I need an umbrella today?"], "expect": [[{"tool": "weather"}]]}
+{"id": "t_m_p01", "kind": "tripwire-paraphrase", "turns": ["Could you switch the lights on for me?"], "expect": [[{"intent": "LIGHT_ON", "slot": null}]]}
+{"id": "t_m_p07", "kind": "tripwire-paraphrase", "turns": ["What's on my to-do list?"], "expect": [[{"intent": "LIST_REMINDERS", "slot": null}]]}
+{"id": "t_m_f01", "kind": "tripwire-free-value", "turns": ["Set a timer for 45 minutes."], "expect": [[{"intent": "TIMER", "slot": "45 minutes"}]]}
+{"id": "t_m_o02", "kind": "tripwire-free-value", "turns": ["Change the lights to purple."], "expect": [[{"intent": "COLOR", "slot": "purple"}]]}
+{"id": "t_m_f03", "kind": "tripwire-free-value", "turns": ["Dim the lights to 35 percent."], "expect": [[{"intent": "BRIGHTNESS", "slot": "35 percent"}]]}
+{"id": "t_m_s06", "kind": "tripwire-slot-normalize", "turns": ["Ten second timer, please."], "expect": [[{"intent": "TIMER", "slot": "10 seconds"}]]}
+{"id": "t_m_s02", "kind": "tripwire-device", "turns": ["Is the speaker connected?"], "expect": [[{"tool": "device_status"}]]}
+{"id": "t_m_s07", "kind": "tripwire-slot-normalize", "turns": ["Remind me to go study."], "expect": [[{"intent": "CREATE_REMINDER", "slot": "study"}]]}
+{"id": "t_m_n03", "kind": "tripwire-docs", "turns": ["When did Cormac McCarthy win the Pulitzer Prize?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "t_m_d07", "kind": "tripwire-docs", "turns": ["Where did Cormac McCarthy grow up?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "t_d_d03", "kind": "tripwire-delegate", "turns": ["Do a quick security check of this laptop and write up what you find."], "expect": [[{"tool": "delegate"}]]}
+{"id": "t_d_d04", "kind": "tripwire-delegate", "turns": ["How many whole numbers up to a million have digits that add up to twenty and aren't divisible by three, five or seven?"], "expect": [[{"tool": "delegate"}]]}
+{"id": "t_d_d10", "kind": "tripwire-delegate", "turns": ["Analyse the csv files in my downloads folder and give me a summary of what's in them."], "expect": [[{"tool": "delegate"}]]}
+{"id": "t_d_d07", "kind": "tripwire-delegate", "turns": ["Look through the server log in my logs folder and tell me which error code shows up the most."], "expect": [[{"tool": "delegate"}]]}
