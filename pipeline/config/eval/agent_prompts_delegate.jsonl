@@ -1,0 +1,21 @@
+{"id": "d01", "kind": "delegate", "turns": ["Build me a simple website for my bakery."], "expect": [[{"tool": "delegate"}]]}
+{"id": "d02", "kind": "delegate", "turns": ["Can you make a small todo list web app with tests and commit it for me?"], "expect": [[{"tool": "delegate"}]]}
+{"id": "d03", "kind": "delegate", "turns": ["Do a quick security check of this laptop and write up what you find."], "expect": [[{"tool": "delegate"}]]}
+{"id": "d04", "kind": "delegate", "turns": ["How many whole numbers up to a million have digits that add up to twenty and aren't divisible by three, five or seven?"], "expect": [[{"tool": "delegate"}]]}
+{"id": "d05", "kind": "delegate", "turns": ["What's the sum of all the prime numbers below three million that end in a three?"], "expect": [[{"tool": "delegate"}]]}
+{"id": "d06", "kind": "delegate", "turns": ["Go through my sales exports folder and tell me which customer spent the most last quarter."], "expect": [[{"tool": "delegate"}]]}
+{"id": "d07", "kind": "delegate", "turns": ["Look through the server log in my logs folder and tell me which error code shows up the most."], "expect": [[{"tool": "delegate"}]]}
+{"id": "d08", "kind": "delegate", "turns": ["Find out why the tests in my project folder are failing and fix them."], "expect": [[{"tool": "delegate"}]]}
+{"id": "d09", "kind": "delegate", "turns": ["Write a Python script that renames all the photos in a folder by date, and test that it works."], "expect": [[{"tool": "delegate"}]]}
+{"id": "d10", "kind": "delegate", "turns": ["Analyse the csv files in my downloads folder and give me a summary of what's in them."], "expect": [[{"tool": "delegate"}]]}
+{"id": "d11", "kind": "delegate-follow", "turns": ["Build me a personal website.", "How is it going?"], "expect": [[{"tool": "delegate"}], [{"tool": "delegate_status"}]]}
+{"id": "d12", "kind": "delegate-follow", "turns": ["Build me a personal website.", "Actually, stop that."], "expect": [[{"tool": "delegate"}], [{"tool": "delegate_cancel"}]]}
+{"id": "dn01", "kind": "delegate-negative", "turns": ["Tell me a joke."], "expect": [[]]}
+{"id": "dn02", "kind": "delegate-negative", "turns": ["What's fifteen percent of eighty?"], "expect": [[]]}
+{"id": "dn03", "kind": "delegate-negative", "turns": ["What is twelve times fourteen?"], "expect": [[]]}
+{"id": "dn04", "kind": "delegate-negative", "turns": ["Write me a short poem about rain."], "expect": [[]]}
+{"id": "dn05", "kind": "delegate-negative", "turns": ["Explain how a refrigerator works."], "expect": [[]]}
+{"id": "dn06", "kind": "delegate-negative", "turns": ["Who wrote Blood Meridian?"], "expect": [[{"tool": "web_answer"}]]}
+{"id": "dn07", "kind": "delegate-negative", "turns": ["Will it rain tomorrow?"], "expect": [[{"tool": "weather"}]]}
+{"id": "dn08", "kind": "delegate-negative", "turns": ["Turn the lights purple."], "expect": [[{"intent": "COLOR", "slot": "purple"}]]}
+{"id": "dn09", "kind": "delegate-negative", "turns": ["What time is it in London?"], "expect": [[{"tool": "get_current_time"}]]}

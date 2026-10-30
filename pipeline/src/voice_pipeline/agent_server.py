@@ -31,6 +31,7 @@ from voice_pipeline import fast_path
 from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import FAILURE, PI_URL, TRANSIENT, build_tools, standard_servers
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
+from voice_pipeline.notices import NoticeQueue
 from voice_pipeline.router import (
     HISTORY_PAIRS,
     NO_SLOT_SAY,
@@ -55,8 +56,10 @@ class AgentServer:
         log: Path,
         tools: Any = None,
         router: LocalRouter | None = None,
+        notices: NoticeQueue | None = None,
     ) -> None:
         self.router = router
+        self.notices = notices
         self.router_lines: dict[str, str] = {}  # reply we spoke -> the router lines behind it
         self.agent = agent
         self.record = record
@@ -291,6 +294,11 @@ class AgentServer:
                 await self.agent.cancel()
             result = await turn
             closed.cancel()
+            said: list[str] = []
+            if not cancelled and result["status"] == "ok" and self.notices is not None:
+                said = self.notices.pop()
+                for text in said:
+                    await on_say(f"Update on your earlier request: {text}")
             if not cancelled:
                 reply = {"done": True} if result["status"] == "ok" else {"error": "timeout"}
                 try:
@@ -302,6 +310,7 @@ class AgentServer:
                 "question": messages[-1]["content"] if messages else "",
                 "calls": self.record[before:],
                 "cancelled": cancelled,
+                "notices": said,
                 **result,
             }
             with self.log.open("a") as sink:
@@ -320,6 +329,7 @@ async def run(
     router_url: str | None = None,
     router_timeout: float = TIMEOUT_S,
     router_hold: float = 0.0,
+    notices: Path | None = None,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
@@ -353,7 +363,8 @@ async def run(
         book = {c["name"]: c["relation"] for c in load_phonebook()}
         router = LocalRouter(router_url, book, router_timeout)
         await router.warm_up()
-    server = AgentServer(agent, record, log, tools if fast or router else None, router)
+    queue = NoticeQueue(notices) if notices else None
+    server = AgentServer(agent, record, log, tools if fast or router else None, router, queue)
     try:
         async with serve(server.handle, "127.0.0.1", port):
             print(f"agent server on ws://127.0.0.1:{port}, log {log}", flush=True)
@@ -415,6 +426,11 @@ def main(argv: list[str] | None = None) -> int:
         "claiming the turn that long so the router's complete answer is not beaten by Gemini's "
         "short filler sentence (about +0.3 s on turns the router defers)",
     )
+    parser.add_argument(
+        "--notices",
+        default=str(Path.home() / ".local/state/voice_agent/delegate/notices.jsonl"),
+        help="where the delegate server writes the spoken notices of jobs that ended; '' for none",
+    )
     args = parser.parse_args(argv)
     try:
         return asyncio.run(
@@ -430,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.router_url,
                 args.router_timeout,
                 args.router_hold,
+                Path(args.notices) if args.notices else None,
             )
         )
     except KeyboardInterrupt:

@@ -134,8 +134,9 @@ async def run(
     system_file: Path,
     pi_url: str | None,
     model: str = MODEL,
+    prompts_file: Path = ROOT / "config/eval/agent_prompts.jsonl",
 ) -> int:
-    lines = (ROOT / "config/eval/agent_prompts.jsonl").read_text().splitlines()
+    lines = prompts_file.read_text().splitlines()
     prompts = [json.loads(line) for line in lines if line.strip()][:limit]
     out = ROOT / "out/agent_dryrun" / run_id
     out.mkdir(parents=True, exist_ok=True)
@@ -174,9 +175,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--system", type=Path, default=ROOT / "config/eval/system_agent.txt")
     parser.add_argument("--pi-url", default=PI_URL, help="the Pi's device tools; '' for none")
     parser.add_argument("--model", default=MODEL, help="the Gemini model to test")
+    parser.add_argument("--prompts", type=Path, default=ROOT / "config/eval/agent_prompts.jsonl")
     args = parser.parse_args(argv)
     return asyncio.run(
-        run(args.limit, args.live, args.run_id, args.system, args.pi_url or None, args.model)
+        run(
+            args.limit,
+            args.live,
+            args.run_id,
+            args.system,
+            args.pi_url or None,
+            args.model,
+            args.prompts,
+        )
     )
 
 
