@@ -1,0 +1,30 @@
+# Hard tasks the voice agent hands to a stronger model that works in a sandbox (voice_agent.mcp_servers.delegate).
+[backend]
+default = "haiku"
+fallback = "qwen"
+
+[limits]
+max_steps = 25
+max_seconds = 300
+max_usd = 0.15
+budget_usd = 1.0
+wait_s = 9
+max_jobs = 2
+
+[paths]
+state_dir = "~/.local/state/voice_agent/delegate"
+sandbox_root = "~/agent_sandbox/jobs"
+
+[models.haiku]
+pool = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+model = "anthropic/claude-haiku-5.5"
+key_file = "~/.secrets/openrouter/api-key.txt"
+price_in = 0.1
+price_out = 0.5
+price_cached = 0.01
+extra = { reasoning = { effort = "low" }, usage = { include = true } }
+
+[models.qwen]
+pool = "qwen"
+secrets = "onit"

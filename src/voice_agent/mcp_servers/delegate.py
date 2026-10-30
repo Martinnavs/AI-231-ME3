@@ -1,0 +1,219 @@
+"""Delegate MCP server: a stronger model works on a hard task in a sandbox, in the background.
+
+uv run --group laptop python -m voice_agent.mcp_servers.delegate [--config config/delegate.toml]
+
+The default model (config/delegate.toml, haiku-5.5 on OpenRouter) runs a tool loop over the `code`
+server in a fresh sandbox folder per job; if it ends in an error the fallback (the class Qwen
+server) runs the task once more. Keys are read at run time from files and never printed or put in
+a result. A job that ends is recorded in the job table with a sentence to say (jobs.py); a job that
+finishes while `delegate` is still waiting is answered in that call instead.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+import time
+import tomllib
+from collections.abc import Awaitable, Callable, Sequence
+from pathlib import Path
+from typing import Any
+
+import httpx
+from fastmcp import FastMCP
+
+from doc_chat.qwen import _read_secret_file, normalize_base_url
+from voice_agent.agent.jobs import CANCELLED, DONE, ERROR, RUNNING, JobTable, spoken
+from voice_agent.agent.mcp_clients import McpClientManager
+from voice_agent.agent.subagent import Ledger, Limits, Model, RunResult, run_task
+from voice_agent.config import McpServerSpec
+
+CONFIG = Path(__file__).resolve().parents[3] / "config" / "delegate.toml"
+MAX_WAIT_S = 20.0
+REASONS = {
+    "step_limit": "it took too many steps",
+    "time_limit": "it ran out of time",
+    "token_limit": "it used up its context",
+    "cost_limit": "it cost too much",
+    "budget": "the delegate budget is used up",
+}
+Runner = Callable[[str, Model, str, Path, str], Awaitable[RunResult]]
+
+
+def expand(path: str) -> Path:
+    return Path(path).expanduser()
+
+
+async def resolve_model(
+    config: dict[str, Any], name: str, client: httpx.AsyncClient
+) -> tuple[Model, str]:
+    """The Model and API key of a configured backend (the class server's id is asked of it)."""
+    spec = config["models"][name]
+    if spec.get("secrets") == "onit":
+        key = _read_secret_file("api_key.txt") or ""
+        base = normalize_base_url(_read_secret_file("host_address.txt") or "")
+        reply = await client.get(
+            f"{base}/models", headers={"Authorization": f"Bearer {key}"}, timeout=10.0
+        )
+        model_id = reply.json()["data"][0]["id"]
+    else:
+        key = expand(spec["key_file"]).read_text().strip()
+        base, model_id = spec["base_url"], spec["model"]
+    prices = (spec.get("price_in", 0.0), spec.get("price_out", 0.0), spec.get("price_cached"))
+    return Model(base, model_id, *prices, spec.get("extra", {})), key
+
+
+class Delegator:
+    """The three tools' logic: jobs run as background tasks, each in its own sandbox folder."""
+
+    def __init__(
+        self,
+        config: dict[str, Any],
+        table: JobTable,
+        run: Runner | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self.config, self.table, self.transport = config, table, transport
+        self.run = run or self.run_in_sandbox
+        self.tasks: dict[str, asyncio.Task[None]] = {}
+        self.inline: set[str] = set()
+        self.sandbox = expand(config["paths"]["sandbox_root"])
+        cap = config["limits"]
+        self.limits = Limits(cap["max_steps"], cap["max_seconds"], max_usd=cap["max_usd"])
+        self.wait_s, self.max_jobs = float(cap["wait_s"]), int(cap["max_jobs"])
+        budgets = {"openrouter": cap["budget_usd"], "qwen": 1e9}
+        self.ledger = Ledger(table.path.with_name("spend.json"), budgets)
+
+    async def run_in_sandbox(
+        self, task: str, model: Model, key: str, folder: Path, pool: str
+    ) -> RunResult:
+        args = ("-m", "voice_agent.mcp_servers.code", "--root", str(folder))
+        spec = McpServerSpec(command=sys.executable, args=args)
+        async with McpClientManager({"code": spec}) as registry:
+            if registry.unavailable:
+                return RunResult(status="error", summary="the code tools did not start")
+            tools = registry.subset(["code__"], exclude=["code__publish_site"])
+            async with httpx.AsyncClient(transport=self.transport, timeout=120.0) as client:
+                return await run_task(
+                    task,
+                    model,
+                    key,
+                    tools,
+                    self.limits,
+                    client=client,
+                    ledger=self.ledger,
+                    pool=pool,
+                )
+
+    async def work(self, job_id: str) -> None:
+        job = self.table.jobs[job_id]
+        names = [self.config["backend"]["default"], self.config["backend"].get("fallback")]
+        result = RunResult()
+        for tried, name in enumerate(n for n in names if n):
+            job.backend = name
+            job.folder = str(self.sandbox / (job_id if tried == 0 else f"{job_id}-{name}"))
+            Path(job.folder).mkdir(parents=True, exist_ok=True)
+            try:
+                async with httpx.AsyncClient(transport=self.transport) as client:
+                    model, key = await resolve_model(self.config, name, client)
+                pool = self.config["models"][name].get("pool", name)
+                result = await self.run(job.task, model, key, Path(job.folder), pool)
+            except Exception as exc:
+                result = RunResult(status="error", summary=type(exc).__name__)
+            if result.status not in ("error", "budget"):
+                break
+        done = result.status == "done"
+        summary = result.summary if done else REASONS.get(result.status, "something went wrong")
+        job = self.table.finish(job_id, DONE if done else ERROR, summary, result.usd)
+        if job_id not in self.inline:
+            self.table.notify(job)
+
+    async def delegate(self, task: str, wait_s: float | None = None) -> dict[str, Any]:
+        if sum(not worker.done() for worker in self.tasks.values()) >= self.max_jobs:
+            message = f"Already working on {self.max_jobs} tasks; wait for one to finish."
+            return {"status": "busy", "message": message}
+        wait = self.wait_s if wait_s is None else wait_s
+        job = self.table.create(task, self.config["backend"]["default"])
+        self.inline.add(job.id)
+        worker = asyncio.create_task(self.work(job.id))
+        self.tasks[job.id] = worker
+        try:
+            await asyncio.wait({worker}, timeout=max(0.0, min(wait, MAX_WAIT_S)))
+        except asyncio.CancelledError:
+            ended = self.table.jobs[job.id]
+            if worker.done() and ended.status in (DONE, ERROR):  # nobody will hear the answer
+                self.table.notify(ended)
+            raise
+        finally:
+            self.inline.discard(job.id)
+        if worker.done():
+            done = self.table.jobs[job.id]
+            return {"job": job.id, "status": done.status, "summary": spoken(done.summary)}
+        return {
+            "job": job.id,
+            "status": "started",
+            "message": "It is running in the background; the result is announced when it is done.",
+        }
+
+    def status(self, job: str = "") -> dict[str, Any]:
+        found = self.table.jobs.get(job) if job else self.table.latest()
+        if found is None:
+            return {"status": "none", "message": "There are no delegated tasks."}
+        seconds = round((found.finished or time.time()) - found.started)
+        return {
+            "job": found.id,
+            "status": found.status,
+            "task": found.task[:120],
+            "seconds": seconds,
+            "summary": spoken(found.summary),
+        }
+
+    def cancel(self, job: str = "") -> dict[str, Any]:
+        found = self.table.jobs.get(job) if job else self.table.latest()
+        if found is None or found.status != RUNNING or found.id not in self.tasks:
+            return {"status": "none", "message": "There is no running task to stop."}
+        self.tasks[found.id].cancel()
+        self.table.finish(found.id, CANCELLED)
+        return {"job": found.id, "status": CANCELLED}
+
+
+def build_server(delegator: Delegator) -> FastMCP:
+    server = FastMCP("delegate")
+
+    @server.tool(
+        description=(
+            "Hand a big task to a stronger background assistant that can run commands and write "
+            "files in a sandbox: build a small website or app, solve a hard multi-step math "
+            "problem with code, audit this machine, analyse files or data. Write `task` as the "
+            "complete request with every detail it needs; it cannot ask questions. A quick task "
+            "returns its result; otherwise it returns 'started' and the result is announced "
+            "later. Never use it for simple questions, home commands, the weather or the time."
+        )
+    )
+    async def delegate(task: str) -> dict[str, Any]:
+        return await delegator.delegate(task)
+
+    @server.tool(description="How the latest delegated task is going, or the one named by `job`.")
+    def delegate_status(job: str = "") -> dict[str, Any]:
+        return delegator.status(job)
+
+    @server.tool(description="Stop the latest delegated task, or the one named by `job`.")
+    def delegate_cancel(job: str = "") -> dict[str, Any]:
+        return delegator.cancel(job)
+
+    return server
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="voice_agent.mcp_servers.delegate")
+    parser.add_argument("--config", type=Path, default=CONFIG)
+    args = parser.parse_args(argv)
+    config = tomllib.loads(args.config.read_text())
+    table = JobTable(expand(config["paths"]["state_dir"]))
+    build_server(Delegator(config, table)).run(show_banner=False)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
