@@ -140,8 +140,8 @@ def build_server(
 
     @server.tool(
         description=(
-            "A short encyclopedia summary (Wikipedia) of a person, place, book, film or thing. "
-            "Use it for general-knowledge questions; write `topic` as the name of the subject."
+            "Fallback only: a short Wikipedia summary by subject name. Prefer web_answer, and "
+            "never call both for one question."
         )
     )
     async def wiki_summary(topic: str) -> str:

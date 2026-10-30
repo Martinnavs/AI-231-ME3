@@ -15,7 +15,7 @@ from langchain_community.retrievers import BM25Retriever
 from doc_chat.corpus import load_and_split_corpus, tokenize
 
 DEFAULT_CORPUS = Path("corpus/cormac-mccarthy")
-DEFAULT_TOPIC = "the life and works of the novelist Cormac McCarthy"
+DEFAULT_TOPIC = "the novelist Cormac McCarthy (his life, books, characters, adaptations)"
 CHUNK_SIZE = 1000
 
 
@@ -27,8 +27,8 @@ def build_server(corpus: Path, topic: str = DEFAULT_TOPIC) -> FastMCP:
 
     @server.tool(
         description=(
-            f"Search the document collection about {topic} and return the best-matching "
-            "passages with their source file. Use it for any question on that topic and answer "
+            f"Search the documents about {topic} and return the best-matching passages with "
+            "their source file. Use it, and only it, for any question on that topic and answer "
             "from the passages. Write the query as a short self-contained question."
         )
     )
