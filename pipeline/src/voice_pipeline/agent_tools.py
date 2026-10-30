@@ -29,6 +29,7 @@ ROOT_MODULE = ["uv", "run", "--group", "laptop", "python", "-m"]
 DOCS_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.docs"]
 WEB_INFO_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
 TAVILY_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.tavily_search"]
+DELEGATE_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.delegate"]
 TIME_COMMAND = [sys.executable, "-m", "mcp_server_time", "--local-timezone", "Asia/Manila"]
 PI_URL = "http://169.254.230.219:8790/mcp"
 # Tools whose result is already a sentence to say: no second LLM request (R5; TurnTap decides).
@@ -69,7 +70,8 @@ def pi_device_server(url: str | None = PI_URL, token: str | None = None) -> MCPC
 
 
 def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list[MCPClient]]:
-    """(required, optional) servers: docs, time, web_info, tavily_search; the Pi's if reachable."""
+    """(required, optional) servers: docs, time, web_info, tavily_search; delegate and the Pi's
+    (if reachable) are optional."""
     pi = pi_device_server(pi_url)
     required = [
         docs_server(),
@@ -77,7 +79,8 @@ def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list
         stdio_server(WEB_INFO_COMMAND),
         stdio_server(TAVILY_COMMAND),
     ]
-    return required, [pi] if pi is not None else []
+    optional = [stdio_server(DELEGATE_COMMAND)]
+    return required, optional + ([pi] if pi is not None else [])
 
 
 def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionSchema:
