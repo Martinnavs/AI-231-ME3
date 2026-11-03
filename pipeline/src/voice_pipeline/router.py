@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import httpx
 
 from voice_pipeline import fast_path
+from voice_pipeline.question import needs_reasoning
 
 FINETUNE = Path(__file__).resolve().parents[3] / "finetune"
 TIMEOUT_S = 1.5  # the router's p95 is about 0.7 s; a slower answer is not worth waiting for
@@ -32,7 +33,9 @@ HISTORY_PAIRS = 1  # earlier turns shown to the router: the prompt is re-read fr
 # (about 100 tokens/s on this CPU), so every extra pair costs about 0.3 s
 CHAT_MAX_WORDS = 5  # a `none|` reply is a pleasantry ("thanks" -> "You're welcome."); a 1B model
 # answers anything longer with an invention, so longer chat turns go to Gemini
-CHAT_REPLY_MAX_WORDS = 8  # likewise a long reply: "Middle aspiration." got an invented definition
+# likewise a long reply: an invented joke is 13 words and a made-up capability speech 18; 10 lets
+# through the trained "That sounds chilly. Want me to warm the room?" (9)
+CHAT_REPLY_MAX_WORDS = 10
 
 
 ECHO_MIN_WORDS = (
@@ -135,6 +138,8 @@ class LocalRouter:
                     return "unsupported: time zone"
             elif name not in INFO_TOOLS or name not in available:
                 return f"unsupported: {name}"
+            elif needs_reasoning(user):  # "should I bring an umbrella": a decision, not a forecast
+                return "needs reasoning"
         return None
 
     async def route(

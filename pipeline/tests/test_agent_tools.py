@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -9,8 +10,10 @@ import pytest
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 
+from voice_pipeline import question
 from voice_pipeline.agent_tools import (
     TIME_COMMAND,
+    _recorded,
     build_tools,
     pi_device_server,
     runnable,
@@ -115,3 +118,35 @@ def test_every_expected_call_names_a_known_tool_or_intent() -> None:
                     assert call["tool"] in TOOL_NAMES, prompt["id"]
                 else:
                     assert call["intent"] in INTENTS, prompt["id"]
+
+
+async def _spoken_result_properties(tool: str, asked: str) -> Any:
+    """What `_recorded` tells the pipeline to do after `tool` answers `asked`."""
+    seen: list[Any] = []
+
+    async def handler(params: Any) -> None:
+        await params.result_callback("Today in Davao: light rain, 40 percent chance of rain.")
+
+    async def result_callback(result: Any, *, properties: Any = None) -> None:
+        seen.append(properties)
+
+    schema = FunctionSchema(name=tool, description="d", properties={}, required=[], handler=handler)
+    question.current = asked
+    try:
+        wrapped = _recorded(schema, [])
+        assert wrapped.handler is not None
+        params = SimpleNamespace(arguments={}, result_callback=result_callback)
+        await wrapped.handler(params)  # type: ignore[arg-type]
+    finally:
+        question.current = ""
+    return seen[0]
+
+
+async def test_a_lookup_is_spoken_as_it_is_for_a_plain_question() -> None:
+    properties = await _spoken_result_properties("weather", "What's the weather in Davao?")
+    assert properties is not None and properties.run_llm is False
+
+
+async def test_a_lookup_goes_back_to_the_model_when_the_question_wants_a_decision() -> None:
+    properties = await _spoken_result_properties("weather", "Should I bring an umbrella?")
+    assert properties is None

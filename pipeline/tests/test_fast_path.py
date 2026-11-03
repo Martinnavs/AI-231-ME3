@@ -1,10 +1,13 @@
 """fast_path: exact phrasings of common home commands, answered without the LLM."""
 
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from voice_pipeline import fast_path
 from voice_pipeline.fast_path import Match, clock, match, number, spoken_result
 
 PROMPTS = Path(__file__).resolve().parents[1] / "config" / "eval" / "agent_prompts.jsonl"
@@ -152,3 +155,22 @@ def test_the_preloaded_phrase_list_matches_the_fixed_confirmations() -> None:
         "phrases"
     ]
     assert sorted(listed) == sorted({confirm for _intent, confirm in FIXED.values()})
+
+
+def test_what_a_question_to_the_clock_wants() -> None:
+    ask = fast_path.clock_question
+    assert ask("What's the day's date?") == "date"
+    assert ask("What day of the week is it in Tokyo?") == "date"
+    assert ask("What month is it?") == "date"
+    assert ask("What's the date and time?") == "both"
+    assert ask("What time is it in London?") == "time"
+    assert ask("whatever") == "time"
+
+
+def test_the_clock_answers_the_date_the_time_or_both() -> None:
+    now = datetime(2026, 11, 3, 14, 8, tzinfo=ZoneInfo(fast_path.TIMEZONE))
+    said = {w: fast_path.local_answer(fast_path.Match("clock", {"what": w}, None), now)
+            for w in ("time", "date", "both")}  # fmt: skip
+    assert said["time"] == "It's 2:08 PM."
+    assert said["date"] == "Today is Tuesday, November 3."
+    assert said["both"] == "It's 2:08 PM. Today is Tuesday, November 3."
