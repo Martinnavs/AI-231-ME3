@@ -14,10 +14,12 @@ life, place lookups are remembered, and a forecast is reused for FORECAST_TTL_S.
 from __future__ import annotations
 
 import argparse
+import asyncio
+import contextlib
 import os
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 
 import httpx
@@ -33,6 +35,13 @@ USER_AGENT = "me3-voice-agent/0.1 (https://github.com/Martinnavs/AI-231-ME3; cou
 TIMEOUT_S = 4.0
 KEEPALIVE_S = 120.0  # keep the connection open between turns (httpx closes it after 5 s)
 FORECAST_TTL_S = 600.0
+# A lookup of a new place on cold connections took 2.7-5.7 s (2026-11-03, Manila): the geocoding
+# and forecast hosts each cost 0.8-1.2 s of TCP and TLS, against 0.55-1.0 s on warm ones. So both
+# connections are opened at start and a request to each host's root (no forecast is fetched) goes
+# out every PING_EVERY_S while the server is in use.
+PING_URLS = ("https://geocoding-api.open-meteo.com/", "https://api.open-meteo.com/")
+PING_EVERY_S = 20.0
+PING_WHILE_ACTIVE_S = 600.0  # stop pinging after this long without a lookup
 MAX_SENTENCES = 3
 MAX_CHARS = 600
 
@@ -73,9 +82,10 @@ def build_server(
     home: str = HOME_PLACE,
     transport: httpx.AsyncBaseTransport | None = None,
     clock: Callable[[], float] = time.monotonic,
+    ping_every_s: float | None = PING_EVERY_S,
 ) -> FastMCP:
-    """A FastMCP server with weather and wiki_summary; `transport` and `clock` are for tests."""
-    server = FastMCP("web_info")
+    """A FastMCP server with weather and wiki_summary; `transport`, `clock` and `ping_every_s`
+    (None: no pings) are for tests."""
     clients: list[httpx.AsyncClient] = []  # made on first use, inside the server's event loop
     places: dict[str, dict[str, Any]] = {}
     forecasts: dict[tuple[float, float], tuple[float, dict[str, Any]]] = {}
@@ -92,6 +102,30 @@ def build_server(
             )
         return clients[0]
 
+    last_use = [clock()]
+
+    async def keep_warm(every: float) -> None:
+        """Open both connections now, then touch them while lookups are happening."""
+        while True:
+            if clock() - last_use[0] < PING_WHILE_ACTIVE_S:
+                for url in PING_URLS:
+                    with contextlib.suppress(httpx.HTTPError):
+                        await client().get(url, timeout=5.0)
+            await asyncio.sleep(every)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastMCP) -> AsyncIterator[None]:
+        task = asyncio.create_task(keep_warm(ping_every_s)) if ping_every_s else None
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+            for c in clients:
+                await c.aclose()
+
+    server = FastMCP("web_info", lifespan=lifespan)
+
     @server.tool(
         description=(
             f"The weather for a place, today or tomorrow: conditions, temperature range and the "
@@ -100,6 +134,7 @@ def build_server(
         )
     )
     async def weather(place: str | None = None, day: str = "today") -> str:
+        last_use[0] = clock()
         name = (place or home).strip()
         offset = 1 if day.strip().lower() == "tomorrow" else 0
         http = client()

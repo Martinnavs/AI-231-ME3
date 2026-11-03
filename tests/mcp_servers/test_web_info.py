@@ -36,13 +36,13 @@ def _transport(
 
 
 async def _call(transport: httpx.MockTransport, tool: str, args: dict[str, object]) -> str:
-    async with Client(build_server("Quezon City", transport)) as client:
+    async with Client(build_server("Quezon City", transport, ping_every_s=None)) as client:
         result = await client.call_tool(tool, args)
     return str(result.structured_content["result"])
 
 
 async def test_lists_the_two_tools() -> None:
-    async with Client(build_server("Quezon City", _transport({}))) as client:
+    async with Client(build_server("Quezon City", _transport({}), ping_every_s=None)) as client:
         names = sorted(t.name for t in await client.list_tools())
     assert names == ["weather", "wiki_summary"]
 

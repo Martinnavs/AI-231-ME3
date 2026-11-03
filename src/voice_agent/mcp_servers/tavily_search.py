@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import difflib
 import os
 import re
 import time
@@ -56,6 +57,21 @@ LEAD_IN = re.compile(
 MAX_RESULTS = 3
 ANSWER_SENTENCES = 2
 ANSWER_CHARS = 400
+# Two wordings of one question share a lookup (the router asks with the user's words, the model
+# rewrites them a second later): same content words, or this much overlap with at least two.
+JOIN_OVERLAP = 0.75
+STOP_WORDS = frozenset(
+    {
+        *("a", "an", "the", "of", "in", "on", "at", "to", "for", "from", "by", "with", "and", "or"),
+        *("is", "are", "was", "were", "be", "been", "it", "its", "this", "that", "these", "those"),
+        *("who", "whom", "what", "when", "where", "which", "how", "why", "did", "do", "does"),
+        *("me", "my", "i", "you", "tell", "about", "please", "there", "their"),
+        *("current", "currently", "now", "today"),
+    }
+)
+NAME_SKIP = frozenset({"I", "I'm", "I'd", "I'll", "I've"})
+# a name this close to a word in the sources (accents, spelling) counts as found
+SPELLING_MATCH = 0.8
 
 
 def load_key() -> str | None:
@@ -82,9 +98,50 @@ def spoken(data: dict[str, Any]) -> str | None:
     return None
 
 
-def cache_key(query: str) -> str:
-    """The question without case, punctuation or extra spaces: 'Who won?' and 'who won' match."""
-    return " ".join(re.findall(r"[a-z0-9']+", query.lower()))
+def content_words(query: str) -> frozenset[str]:
+    """The words that make the question what it is: 'When was the EDSA revolution?' and 'the EDSA
+    revolution' both come down to {edsa, revolution}."""
+    words = re.findall(r"[a-z0-9]+", query.lower().replace("'s ", " "))
+    return frozenset(w for w in words if w not in STOP_WORDS)
+
+
+def same_question(a: frozenset[str], b: frozenset[str]) -> bool:
+    if a == b:
+        return True
+    return min(len(a), len(b)) >= 2 and len(a & b) / len(a | b) >= JOIN_OVERLAP
+
+
+def unconfirmed(query: str, answer: str, data: dict[str, Any]) -> list[str]:
+    """What the question asks about that neither the answer nor any source mentions: a number (a
+    year) or a name. A search engine returns the nearest thing it has ('2087' -> the 1987 prizes),
+    and a result nobody compares with the question gets spoken as if it answered it."""
+    sources = " ".join(
+        f"{r.get('title', '')} {r.get('content', '')} {r.get('url', '')}"
+        for r in data.get("results") or []
+    )
+    found = f"{answer} {sources}".lower()
+    digits = found.replace(",", "")
+    words = re.findall(r"[a-z0-9]+", found)
+    missing: list[str] = []
+    tokens = re.findall(r"[A-Za-z0-9][\w'’.,-]*", query)
+    for i, token in enumerate(tokens):
+        token = re.sub(r"(?:'s|’s)$", "", token).strip(".,'’-")
+        if any(c.isdigit() for c in token):
+            number = token.replace(",", "")
+            if number not in digits:
+                missing.append(token)
+        elif i > 0 and token[:1].isupper() and token not in NAME_SKIP and len(token) > 2:
+            lowered = token.lower()
+            close = difflib.get_close_matches(lowered, words, n=1, cutoff=SPELLING_MATCH)
+            if lowered not in found and not close:
+                missing.append(token)
+    return missing
+
+
+def hedged(missing: list[str], answer: str) -> str:
+    """The answer, preceded by what could not be confirmed."""
+    what = " and ".join(missing[:2])
+    return f"I couldn't confirm {what} in what I found. The closest result says: {answer}"
 
 
 def build_server(
@@ -96,7 +153,8 @@ def build_server(
     """A FastMCP server with web_answer; `transport`, `key`, `ping_every_s` (None: no pings) and
     `clock` are for tests (key None: load it)."""
     clients: list[httpx.AsyncClient] = []  # made on first use, inside the server's event loop
-    cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
+    cache: OrderedDict[frozenset[str], tuple[float, str]] = OrderedDict()
+    inflight: dict[frozenset[str], asyncio.Task[str]] = {}
     last_use = [clock()]
 
     def client() -> httpx.AsyncClient:
@@ -141,14 +199,23 @@ def build_server(
         )
     )
     async def web_answer(query: str) -> str:
-        api_key = key or load_key()
         http = client()
         last_use[0] = clock()
-        wanted = cache_key(query)
-        hit = cache.get(wanted)
-        if hit is not None and clock() - hit[0] < CACHE_TTL_S:
-            cache.move_to_end(wanted)
-            return hit[1]
+        wanted = content_words(query)
+        for words, (when, text) in list(cache.items()):
+            if clock() - when < CACHE_TTL_S and same_question(wanted, words):
+                cache.move_to_end(words)
+                return text
+        for words, task in inflight.items():  # the same question already on its way: join it
+            if same_question(wanted, words):
+                return await asyncio.shield(task)  # shield: one caller giving up must not stop it
+        task = asyncio.ensure_future(search(http, query, wanted))
+        inflight[wanted] = task
+        task.add_done_callback(lambda _: inflight.pop(wanted, None))
+        return await asyncio.shield(task)
+
+    async def search(http: httpx.AsyncClient, query: str, wanted: frozenset[str]) -> str:
+        api_key = key or load_key()
         if api_key:
             body = {
                 "query": query,
@@ -162,8 +229,11 @@ def build_server(
                         TAVILY_URL, json=body, headers={"Authorization": f"Bearer {api_key}"}
                     )
                 response.raise_for_status()
-                answer = spoken(response.json())
+                data = response.json()
+                answer = spoken(data)
                 if answer:
+                    if missing := unconfirmed(query, answer, data):
+                        answer = hedged(missing, answer)
                     cache[wanted] = (clock(), answer)
                     while len(cache) > CACHE_MAX:
                         cache.popitem(last=False)
