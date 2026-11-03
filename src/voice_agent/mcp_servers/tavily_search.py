@@ -1,8 +1,10 @@
-"""Tavily web search MCP server (fastmcp): one short, sayable answer to a factual question.
+"""Web answer MCP server (fastmcp): one short, sayable answer to a factual question.
 
 uv run --group laptop python -m voice_agent.mcp_servers.tavily_search
 
-Prototype that replaces the Wikipedia lookup for general-knowledge questions: Tavily's search API
+Prototype that replaces the Wikipedia lookup for general-knowledge questions. First choice, when
+a Gemini key exists and the month's search allowance is not used up: Gemini with Google Search
+grounding (gemini_grounding.py, median 0.79 s). Then Tavily's search API
 (https://api.tavily.com/search) writes a short answer from live web results, so it covers people,
 places, current facts and news, not only subjects with an encyclopedia page. Wikipedia stays as
 the fallback when the key is missing or Tavily does not answer (no key, HTTP error, timeout, no
@@ -10,7 +12,8 @@ answer), so a lookup never gets worse than before.
 
 The API key is read at run time from $TAVILY_API_KEY or ~/.secrets/tavily/api-key.txt
 ($TAVILY_KEY_FILE overrides the path). It is sent only as the Authorization header and is never
-logged or put in a result. The question text is sent to Tavily.
+logged or put in a result. The question text is sent to Tavily, and to Google when Gemini answers
+($WEB_BACKEND=tavily turns Gemini off).
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from typing import Any
 import httpx
 from fastmcp import FastMCP
 
+from voice_agent.mcp_servers import gemini_grounding
 from voice_agent.mcp_servers.web_info import USER_AGENT, first_sentences, wiki_text
 
 TAVILY_URL = "https://api.tavily.com/search"
@@ -45,6 +49,8 @@ SEARCH_DEPTH = os.environ.get("TAVILY_DEPTH", "fast")  # basic | fast | ultra-fa
 # took 3.5 s), so a cheap ping of the API root (no search is run) goes out while the server is used.
 KEEPALIVE_S = 120.0
 PING_URL = "https://api.tavily.com/"
+GEMINI_PING_URL = "https://generativelanguage.googleapis.com/"
+GEMINI_TIMEOUT_S = 3.0  # a grounded answer that takes longer is dropped for Tavily
 PING_EVERY_S = 20.0
 PING_WHILE_ACTIVE_S = 600.0  # stop pinging after this long without a lookup
 CACHE_TTL_S = 600.0  # a repeated or rephrased-the-same question is answered from memory
@@ -149,22 +155,29 @@ def build_server(
     key: str | None = None,
     ping_every_s: float | None = PING_EVERY_S,
     clock: Callable[[], float] = time.monotonic,
+    grounding: bool = False,
+    gemini_key: str | None = None,
+    ledger: gemini_grounding.Ledger | None = None,
 ) -> FastMCP:
     """A FastMCP server with web_answer; `transport`, `key`, `ping_every_s` (None: no pings) and
-    `clock` are for tests (key None: load it)."""
+    `clock` are for tests (key None: load it). `grounding` puts Gemini with Google Search first
+    (`gemini_key` None: load it; `ledger` None: the default ledger file)."""
     clients: list[httpx.AsyncClient] = []  # made on first use, inside the server's event loop
     cache: OrderedDict[frozenset[str], tuple[float, str]] = OrderedDict()
     inflight: dict[frozenset[str], asyncio.Task[str]] = {}
+    spend = ledger if ledger is not None else gemini_grounding.Ledger(gemini_grounding.LEDGER)
     last_use = [clock()]
 
     def client() -> httpx.AsyncClient:
         if not clients:
+            # IPv4 only: the IPv6 path to Google resets connections on this network
+            limits = httpx.Limits(keepalive_expiry=KEEPALIVE_S)
             clients.append(
                 httpx.AsyncClient(
-                    transport=transport,
+                    transport=transport
+                    or httpx.AsyncHTTPTransport(local_address="0.0.0.0", limits=limits),
                     timeout=TIMEOUT_S,
                     headers={"User-Agent": USER_AGENT},
-                    limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S),
                 )
             )
         return clients[0]
@@ -173,8 +186,9 @@ def build_server(
         """Open the connection now, then touch it while lookups are happening."""
         while True:
             if clock() - last_use[0] < PING_WHILE_ACTIVE_S:
-                with contextlib.suppress(httpx.HTTPError):
-                    await client().get(PING_URL, timeout=5.0)
+                for url in (PING_URL, GEMINI_PING_URL) if grounding else (PING_URL,):
+                    with contextlib.suppress(httpx.HTTPError):
+                        await client().get(url, timeout=5.0)
             await asyncio.sleep(every)
 
     @contextlib.asynccontextmanager
@@ -214,7 +228,34 @@ def build_server(
         task.add_done_callback(lambda _: inflight.pop(wanted, None))
         return await asyncio.shield(task)
 
+    def remember(wanted: frozenset[str], text: str) -> None:
+        cache[wanted] = (clock(), text)
+        while len(cache) > CACHE_MAX:
+            cache.popitem(last=False)
+
+    async def grounded(http: httpx.AsyncClient, query: str, wanted: frozenset[str]) -> str | None:
+        """Gemini's answer with Google Search, or None to go on to Tavily."""
+        api_key = gemini_key or gemini_grounding.load_key()
+        if not api_key or spend.exhausted:
+            return None
+        try:
+            async with asyncio.timeout(GEMINI_TIMEOUT_S):
+                answer = await gemini_grounding.ask(http, query, api_key)
+        except (httpx.HTTPError, ValueError, KeyError, TimeoutError):
+            return None
+        if answer is None:
+            return None
+        spend.add(answer)
+        # no answer check here: the model read the question itself (it refused "2087 Nobel Prize" as
+        # not yet awarded), and its reply need not repeat the question's names, which the check
+        # wants of a search engine's nearest page (it hedged a correct reply when tried)
+        text = first_sentences(answer.text, ANSWER_SENTENCES, ANSWER_CHARS)
+        remember(wanted, text)
+        return text
+
     async def search(http: httpx.AsyncClient, query: str, wanted: frozenset[str]) -> str:
+        if grounding and (text := await grounded(http, query, wanted)) is not None:
+            return text
         api_key = key or load_key()
         if api_key:
             body = {
@@ -234,9 +275,7 @@ def build_server(
                 if answer:
                     if missing := unconfirmed(query, answer, data):
                         answer = hedged(missing, answer)
-                    cache[wanted] = (clock(), answer)
-                    while len(cache) > CACHE_MAX:
-                        cache.popitem(last=False)
+                    remember(wanted, answer)
                     return answer
             except (httpx.HTTPError, ValueError, TimeoutError):
                 pass  # fall through to Wikipedia
@@ -246,7 +285,8 @@ def build_server(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    build_server().run(show_banner=False)
+    grounding = os.environ.get("WEB_BACKEND", "gemini").lower() != "tavily"
+    build_server(grounding=grounding).run(show_banner=False)
     return 0
 
 
