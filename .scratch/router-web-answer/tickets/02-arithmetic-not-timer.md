@@ -63,3 +63,11 @@ copy wording from `pipeline/config/eval/agent_prompts.jsonl` or `eval/onit_eval.
 
 ## Execution Log
 (append dated entries below; never rewrite earlier ones)
+
+### 2026-11-03 (cluster)
+Bottom line: retrained; on the generator dev split arithmetic is 80/80 with 0 routed to a home action (previous model 10/80, 7 to a home action). Not run: GGUF, OnIt set, pack (laptop).
+- Data: `ARITH_TEMPLATES` + `s_arithmetic` (weight 5), timer durations/phrasings, tests (every TIMER target has a unit). Beyond the ticket: 11 Pi device_status wordings, `s_pi` weight 4->6 (fixes the "what's the pi temperature" false positive).
+- Counts seed 0 before->after: train 11356->11777, dev 1154->1209, test 1116->1191; distill train 21578->23016.
+- Commands: as in the ticket; teacher `h1b-lora-web2-s0` (GPU 4, ~58 min), student `kd-350m-web2-s0` (GPU 4, ~2.1 h).
+- Dev (1209): exact 97.5% vs 91.6%; web_answer tp/fp/fn 31/0/0 vs 31/8/0; arithmetic 80/80 vs 10/80; timer 83/83 both; pi 27/34 vs 18/34 (misses: "is the pi running okay" -> escalate|tools).
+- Adapter: martinnavs/granite-4.0-h-350m-router-kd-web2-s0-unverified (private). Spend $0. Nothing pushed.
