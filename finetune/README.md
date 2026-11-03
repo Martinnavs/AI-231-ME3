@@ -153,6 +153,22 @@ GPU=0 bash train/run.sh start kd-350m-web-s0 --model ibm-granite/granite-4.0-h-3
 
 **Known issue (decided not urgent):** all 10 false positives are one phrase, "what's the pi temperature", which returns `web_answer` instead of `device_status` (the Pi category is 12/22 on dev). The generator has one device-status wording for it; add several device-status and Pi wordings as hard negatives and retrain teacher and student before serving this adapter. The adapter is private at `martinnavs/granite-4.0-h-350m-router-kd-web-s0-unverified`; acceptance on the OnIt set and pack (no regression beyond 1 item against kd-s0: 76/77 and 79/92) is still open.
 
+## Cluster session 2026-11-03 (ticket 02): arithmetic is never a home action
+
+Same recipe as above with run names `h1b-lora-web2-s0` and `kd-350m-web2-s0` (GPU 4), one seed, dev only. Data: `ARITH_TEMPLATES` / `s_arithmetic` (spoken arithmetic -> `escalate|reasoning`, weight 5), 7 more timer durations and 4 more timer phrasings, and, beyond the ticket, 11 Pi device-status wordings with `s_pi` weight 4 -> 6. Counts for seed 0 (before -> after): train 11356 -> 11777, dev 1154 -> 1209, test 1116 -> 1191; merged distillation train 21578 -> 23016. The 1B teacher scored 96.3% on the 300-example dev subset, the student 96.3%.
+
+Both students on the **new** dev split (1209, generator templates, so optimistic; the previous student never saw arithmetic data):
+
+| | kd-web-s0 (previous) | kd-web2-s0 (new) |
+| --- | --- | --- |
+| Overall exact | 1107/1209 (91.6%) | 1179/1209 (97.5%) |
+| `web_answer` tp / fp / fn | 31 / 8 / 0 | 31 / 0 / 0 |
+| Arithmetic exact (routed to a home action) | 10/80 (7) | 80/80 (0) |
+| Timer exact | 83/83 | 83/83 |
+| Pi device status exact | 18/34 | 27/34 |
+
+Remaining Pi misses are all "is the pi running okay" phrasings going to `escalate|tools`. Adapter (private, unverified): `martinnavs/granite-4.0-h-350m-router-kd-web2-s0-unverified`. The laptop acceptance (OnIt >= 75/77, pack >= 78/92, no arithmetic to a home intent) is still open.
+
 ## Rules that apply here (the owner's standing agreements)
 
 - Never read or print API keys (`~/.secrets/*`, `.env`, any `*key*` file); code reads them at run time and prints only OK or failure.
