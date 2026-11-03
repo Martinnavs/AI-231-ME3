@@ -29,7 +29,14 @@ from websockets.exceptions import ConnectionClosed
 
 from voice_pipeline import fast_path, question
 from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
-from voice_pipeline.agent_tools import FAILURE, PI_URL, TRANSIENT, build_tools, standard_servers
+from voice_pipeline.agent_tools import (
+    FAILURE,
+    PI_URL,
+    TRANSIENT,
+    build_tools,
+    standard_servers,
+    with_builtin_search,
+)
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
 from voice_pipeline.notices import NoticeQueue
 from voice_pipeline.router import (
@@ -355,26 +362,32 @@ async def run(
     router_timeout: float = TIMEOUT_S,
     router_hold: float = 0.0,
     notices: Path | None = None,
+    builtin_search: bool = False,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
     tools = await build_tools(record, live=live, servers=servers, optional=optional)
     system = system_file.read_text()
+    llm_tools = with_builtin_search if builtin_search else (lambda t: t)  # what the model sees
+    if builtin_search:  # the model has to know the date to know what can have changed
+        system = system.replace(
+            "{today}", f"{datetime.now(ZoneInfo(fast_path.TIMEZONE)):%A, %B %-d, %Y}"
+        )
+
+    def llm() -> Any:
+        return build_llm(
+            system, keepalive_s=keepalive, ipv4_only=ipv4_only, builtin_search=builtin_search
+        )
+
     agent: Agent | HedgedAgent
     if hedge is None:
-        agent = Agent(build_llm(system, keepalive_s=keepalive, ipv4_only=ipv4_only), tools)
+        agent = Agent(llm(), llm_tools(tools))
         await agent.start()
         await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
     else:  # R4: two requests per turn, the first to answer wins (hedge.py)
         gate = HedgeGate()
         agent = HedgedAgent(
-            [
-                Agent(
-                    build_llm(system, keepalive_s=keepalive, ipv4_only=ipv4_only),
-                    gated_tools(tools, gate, i),
-                )
-                for i in range(2)
-            ],
+            [Agent(llm(), llm_tools(gated_tools(tools, gate, i))) for i in range(2)],
             gate,
             hedge,
             hold_s=router_hold,
@@ -403,7 +416,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--port", type=int, default=8781)
     parser.add_argument("--live", default=None, help="ME2 dashboard URL; default records only")
-    parser.add_argument("--system", type=Path, default=ROOT / "config/eval/system_agent.txt")
+    parser.add_argument("--system", type=Path, default=None, help="the system prompt file")
+    parser.add_argument(
+        "--builtin-search",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="prototype: the model searches the web itself (Gemini's Google Search in the same "
+        "request as the function tools, in place of web_answer); uses system_agent_search.txt. "
+        "With --hedge both requests would search: use --hedge -1",
+    )
     parser.add_argument("--pi-url", default=PI_URL, help="the Pi's device tools; '' for none")
     parser.add_argument(
         "--fast-path",
@@ -462,7 +483,13 @@ def main(argv: list[str] | None = None) -> int:
             run(
                 args.port,
                 args.live,
-                args.system,
+                args.system
+                or ROOT
+                / (
+                    "config/eval/system_agent_search.txt"
+                    if args.builtin_search
+                    else "config/eval/system_agent.txt"
+                ),
                 args.pi_url or None,
                 args.fast_path,
                 None if args.hedge < 0 else args.hedge,
@@ -472,6 +499,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.router_timeout,
                 args.router_hold,
                 Path(args.notices) if args.notices else None,
+                args.builtin_search,
             )
         )
     except KeyboardInterrupt:

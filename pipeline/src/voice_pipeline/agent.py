@@ -94,11 +94,15 @@ def build_llm(
     model: str = MODEL,
     keepalive_s: float | None = KEEPALIVE_S,
     ipv4_only: bool = False,
+    builtin_search: bool = False,
 ) -> GoogleLLMService:
+    """`builtin_search`: the model may use Gemini's own Google Search next to the function tools,
+    which the API only accepts with include_server_side_tool_invocations (HTTP 400 otherwise)."""
     return GoogleLLMService(
         api_key=read_key("google-ai-studio"),
         http_options=warm_http_options(keepalive_s, ipv4_only),
         settings=GoogleLLMService.Settings(model=model, system_instruction=system),
+        tool_config={"include_server_side_tool_invocations": True} if builtin_search else None,
     )
 
 

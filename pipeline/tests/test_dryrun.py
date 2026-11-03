@@ -1,6 +1,8 @@
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -117,3 +119,65 @@ def test_a_budget_stops_at_ninety_percent_and_the_ledger_is_shared_between_runs(
         )  # $0.375 more
     second.commit("run-2", used)
     assert Budget(0.5, ledger).spent == pytest.approx(0.18)
+
+
+def test_a_lookup_call_is_not_expected_of_a_model_that_searches_itself() -> None:
+    from voice_pipeline.dryrun import builtin_expect, lookup_expected
+
+    expect = [{"tool": "web_answer"}, {"intent": "PAUSE", "slot": None}]
+    assert lookup_expected(expect) and not lookup_expected([{"tool": "weather"}])
+    assert builtin_expect(expect) == [{"intent": "PAUSE", "slot": None}]
+    assert builtin_expect([{"tool": "wiki_summary"}]) == []
+
+
+def test_searches_are_priced_into_the_budget_at_the_paid_rate() -> None:
+    from voice_pipeline.dryrun import Budget
+
+    usage = {"requests": 10, "prompt": 30_000, "completion": 300, "searches": 0}
+    base = Budget.cost(usage)
+    assert Budget.cost({**usage, "searches": 10}) == pytest.approx(base + 0.14)
+    assert Budget.cost({"requests": 2, "prompt": 0, "completion": 0}) > 0  # old callers: no key
+
+
+def test_the_targeted_builtin_pack_is_well_formed() -> None:
+    path = Path(__file__).resolve().parents[1] / "config/eval/agent_prompts_builtin.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert len(rows) == 15 and len({r["id"] for r in rows}) == 15
+    for r in rows:
+        assert len(r["turns"]) == len(r["expect"]) == 1 and r["search"] in (True, False, None)
+    kinds = {r["kind"] for r in rows}
+    assert {"tb-changing", "tb-settled", "tb-mccarthy", "tb-weather", "tb-home"} <= kinds
+    assert all(r["search"] for r in rows if r["kind"] == "tb-changing")
+
+
+async def test_stubbed_lookups_answer_offline_and_are_still_recorded() -> None:
+    from types import SimpleNamespace
+
+    from pipecat.adapters.schemas.function_schema import FunctionSchema
+    from pipecat.adapters.schemas.tools_schema import ToolsSchema
+
+    from voice_pipeline.dryrun import CANNED_LOOKUP, stub_lookups
+
+    async def real(params: Any) -> None:
+        raise AssertionError("the real tool must not run")
+
+    tools = ToolsSchema(
+        standard_tools=[
+            FunctionSchema(name=n, description="d", properties={}, required=[], handler=real)
+            for n in ("web_answer", "weather")
+        ]
+    )
+    record: list[dict[str, Any]] = []
+    stubbed = stub_lookups(tools, record)
+    results: list[Any] = []
+
+    async def done(result: Any, **kw: Any) -> None:
+        results.append(result)
+
+    web = next(t for t in stubbed.standard_tools if t.name == "web_answer")
+    params = SimpleNamespace(arguments={"query": "q", "say": "Looking."}, result_callback=done)
+    assert web.handler is not None
+    await web.handler(params)  # type: ignore[arg-type]
+    assert results == [CANNED_LOOKUP] and record == [{"tool": "web_answer", "args": {"query": "q"}}]
+    weather = next(t for t in stubbed.standard_tools if t.name == "weather")
+    assert weather.handler is real  # other tools are untouched
