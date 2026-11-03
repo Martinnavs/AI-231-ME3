@@ -58,4 +58,15 @@ live runs about $0.15).
 | web, router path | ~3.4 s (the "looking it up" line at ~2.05 s) |
 Overall median about 1.5 s (inside real phone-call medians 1.30-1.74 s); p90 about 3.4-3.7 s (phone p95
 1.77-2.26 s). Web answers are about 0.5 s later than in the 10-29 stress test because grounded Gemini (33/40
-right) replaced Tavily (~0.7 s slower per search). Next: make grounded Gemini faster.
+right) replaced Tavily (~0.7 s slower per search).
+
+## Making grounded Gemini faster: stopped (2026-11-03)
+Codex research (`.scratch/grounding-speed/CODEX-grounding.md`, checked in `VERIFIED.md`) ranked streaming first.
+A paired test (`STREAM-RULE.md`, 7 calls, $0.099) refuted it: the streamed first sentence came 0.04-0.33 s
+LATER than the blocking answer on all 3 paired questions (median 1.79 s vs 1.53 s). The answers are one or two
+short sentences and text starts only after the search, so there is nothing to speak early; the earlier
+"1.4 s vs 1.98 s" compared separate samples. Also dropped: gemini-3.5-flash-lite (skips searches, stalls),
+speculative starts (dropped before), the Live API (audio output only). Not tested: the Priority tier
+(eligibility unknown, 75-100 % more per token). Tavily is exhausted from the client side (server time 1.03 s of
+1.25 s, one Virginia host) and stays the fallback: faster on searched questions, less accurate on changing facts.
+Owner's decision: stop here; about 2 s is the floor for an accurate web answer, covered by the 1 s line.
