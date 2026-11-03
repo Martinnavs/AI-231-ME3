@@ -68,7 +68,14 @@ def test_the_reviewed_phrase_file_loads() -> None:
     assert (f.stall_s, f.notice_s, f.giveup_s) == (1.8, 2.5, 8.0)
     assert len(f.sets["stall"]) == 7 and len(f.sets["giveup"]) == 5
     assert len(f.sets["tool:weather"]) == 7 and len(f.sets["default"]) == 7
-    for name in ("smart_home", "get_current_time", "wiki_summary", "set_volume", "device_status"):
+    for name in (
+        "smart_home",
+        "get_current_time",
+        "wiki_summary",
+        "web_answer",
+        "set_volume",
+        "device_status",
+    ):
         assert len(f.sets[f"tool:{name}"]) == 7, name
 
 
