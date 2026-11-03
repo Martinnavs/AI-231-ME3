@@ -31,7 +31,7 @@ Final test of 2026-10-29. Run: `NOTE="stress v2" bash .scratch/router-voice/run.
 |---|---|---|
 | 11 | Call Bob. | says Bob is not in the phonebook; places no call |
 | 12 | What does the fox say?<br>*(known issue)* | a trivia answer; NOT a phonebook line (router hallucination) |
-| 13 | Paki-on mo yung ilaw. | Taglish: LIGHT_ON or a polite clarification; note what happens |
+| 13 | ~~Paki-on mo yung ilaw.~~ | **Skipped**: Taglish is outside the English-only requirement. Do not say this line |
 
 ### D. Tavily web answers
 

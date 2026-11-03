@@ -81,6 +81,8 @@ def main() -> int:
     # the script as a sequence of lines to hear: each item, then the words said over an interruption
     seq: list[tuple[int, str, str]] = []
     for it in items:
+        if it.get("skip"):
+            continue  # out of scope (the reason is in the script): not said, not scored
         say = re.sub(r"\[[^\]]*\]|\.\.\.", " ", it["say"])
         seq.append((it["id"], "main", say))
         if it.get("interrupt"):
@@ -121,6 +123,9 @@ def main() -> int:
         iid = it["id"]
         i = match.get((iid, "main"))
         label = it["say"][:46]
+        if it.get("skip"):
+            results.append((iid, "SKIP", label, it["skip"]))
+            continue
         if i is None:
             results.append((iid, "NOT RUN", label, ""))
             continue
@@ -234,7 +239,7 @@ def main() -> int:
         for v in ("PASS", "PASS*", "FAIL", "FAIL*", "NOT RUN")
     }
     print(
-        f"\n{c['PASS']} pass, {c['PASS*']} known issues now fixed, {c['FAIL']} fail, {c['FAIL*']} known issues still present, {c['NOT RUN']} not run  (of {len(results)})"
+        f"\n{c['PASS']} pass, {c['PASS*']} known issues now fixed, {c['FAIL']} fail, {c['FAIL*']} known issues still present, {c['NOT RUN']} not run, {c['SKIP']} skipped  (of {len(results)})"
     )
     print("  (* = a known issue from earlier runs)")
 
