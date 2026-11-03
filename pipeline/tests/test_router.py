@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from voice_pipeline import agent_server
 from voice_pipeline.agent_server import AgentServer
 from voice_pipeline.hedge import HedgedAgent, HedgeGate
 from voice_pipeline.router import LocalRouter
@@ -217,6 +218,72 @@ async def test_the_trained_offer_for_a_feeling_is_spoken_not_sent_to_gemini(
     _, spoken = await turn(server, "I'm feeling cold.")
     assert agent.asked == [] and spoken == ["That sounds chilly. Want me to warm the room?"]
     assert server.calls == []  # type: ignore[attr-defined]  # the thermostat is not touched
+
+
+def web_server(delay: float, tmp_path: Path) -> AgentServer:
+    """A router that writes wiki_summary, and a web_answer tool that answers after `delay`."""
+    server, _ = server_for("wiki_summary|Mona Lisa", tmp_path)
+
+    async def web_answer(params: Any) -> None:
+        await asyncio.sleep(delay)
+        await params.result_callback("Leonardo da Vinci painted it.")
+
+    server.tools["web_answer"] = SimpleNamespace(name="web_answer", handler=web_answer)
+    server.tools["wiki_summary"] = SimpleNamespace(name="wiki_summary", handler=web_answer)
+    return server  # the router is trained on wiki_summary; the server runs it as web_answer
+
+
+async def turn_with_events(
+    server: AgentServer, text: str
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    spoken: list[str] = []
+    events: list[tuple[Any, ...]] = []
+
+    async def on_text(t: str) -> None:
+        spoken.append(t)
+
+    async def on_tool(*event: Any) -> None:
+        events.append(event)
+
+    await server.routed_turn([{"role": "user", "content": text}], on_text, on_tool, on_text)
+    return spoken, events
+
+
+async def test_a_slow_web_lookup_tells_the_client_a_tool_is_under_way(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(agent_server, "LOOKUP_ACK_S", 0.05)
+    spoken, events = await turn_with_events(web_server(0.3, tmp_path), "Who painted the Mona Lisa?")
+    assert events == [("web_answer", False)]  # the client then plays its "Let me look that up."
+    assert spoken == ["Leonardo da Vinci painted it."]
+
+
+async def test_a_quick_web_lookup_is_not_announced(tmp_path: Path, monkeypatch: Any) -> None:
+    monkeypatch.setattr(agent_server, "LOOKUP_ACK_S", 0.5)
+    spoken, events = await turn_with_events(
+        web_server(0.02, tmp_path), "Who painted the Mona Lisa?"
+    )
+    assert events == [] and spoken == ["Leonardo da Vinci painted it."]
+    await asyncio.sleep(0.6)  # the timer was cancelled: nothing arrives late
+    assert events == []
+
+
+async def test_other_lookups_and_home_commands_are_never_announced(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(agent_server, "LOOKUP_ACK_S", 0.01)
+    server, _ = server_for("weather|Baguio|today", tmp_path)
+
+    async def slow_weather(params: Any) -> None:
+        await asyncio.sleep(0.1)
+        await params.result_callback("It is 29 degrees in Baguio.")
+
+    server.tools["weather"] = SimpleNamespace(name="weather", handler=slow_weather)
+    _, events = await turn_with_events(server, "weather in Baguio")
+    assert events == []  # the weather answers in about 0.5 s: a line would only delay it
+    server, _ = server_for("TIMER|45 minutes", tmp_path)
+    _, events = await turn_with_events(server, "timer for forty five minutes")
+    assert events == []
 
 
 class SlowGemini:

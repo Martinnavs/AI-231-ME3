@@ -44,6 +44,13 @@ from voice_pipeline.router import (
 from voice_pipeline.tools.smart_home import load_phonebook
 
 ROOT = Path(__file__).resolve().parents[2]
+# A web lookup the router runs can take 0.8-2.9 s (grounded Gemini: 1.3 s with no search, 2.1 s with
+# one). If it is still running this long after it started, the client is told a tool call is under
+# way and plays that tool's pre-recorded line ("Let me look that up."), as for a model tool call.
+# Simulated on 65 measured lookups: first sound 1.8 s -> 1.2 s and answer start 2.8 s -> 2.2 s for
+# the questions that need a search; quick ones (median 0.8 s) finish before it would fire.
+LOOKUP_ACK_S = 1.0
+ACKED_LOOKUPS = frozenset({"web_answer"})
 
 
 class AgentServer:
@@ -125,12 +132,28 @@ class AgentServer:
         await self.tools[name].handler(params)
         return results[0] if results else {"ok": False}
 
+    async def acked_call(self, tool: str, args: dict[str, Any], on_tool: Any, home: bool) -> Any:
+        """`call_tool`, telling the client after LOOKUP_ACK_S that a slow lookup is under way."""
+        if home or on_tool is None or tool not in ACKED_LOOKUPS:
+            return await self.call_tool(tool, args)
+
+        async def announce() -> None:
+            await asyncio.sleep(LOOKUP_ACK_S)
+            await on_tool(tool, False)
+
+        ack = asyncio.create_task(announce())
+        try:
+            return await self.call_tool(tool, args)
+        finally:
+            ack.cancel()
+
     async def run_routed(
         self,
         routed: Routed,
         started: float,
         on_text: Any,
         claim: Callable[[], bool] = lambda: True,
+        on_tool: Any = None,
     ) -> dict[str, Any] | None:
         """Run the router's calls with the agent's own tools and say the result. `claim` is asked
         before the first home command and before speaking: False means Gemini already answered
@@ -177,7 +200,7 @@ class AgentServer:
                     )
                 if home and not take():
                     return None
-                result = await self.call_tool(tool, args)
+                result = await self.acked_call(tool, args, on_tool, home)
                 if not home and TRANSIENT.search(str(result)) and not claimed:
                     result = await self.call_tool(
                         tool, args
@@ -233,7 +256,7 @@ class AgentServer:
             routed = await router.route(self.history(messages), user, set(self.tools))
             info.update(router_s=routed.seconds, router_lines=routed.lines)
             if routed.reason is None:
-                done = await self.run_routed(routed, started, on_text, claim)
+                done = await self.run_routed(routed, started, on_text, claim, on_tool)
                 if done is not None:
                     return done
                 routed.reason = "lookup failed or Gemini first"
