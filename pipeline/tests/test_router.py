@@ -184,6 +184,41 @@ async def test_invented_long_reply_goes_to_gemini(tmp_path: Path) -> None:
     assert spoken == ["From Gemini."] and result["router_reason"] == "chat reply too long"
 
 
+async def test_a_date_question_is_answered_with_the_date_not_the_time(tmp_path: Path) -> None:
+    server, agent = server_for("get_current_time", tmp_path)
+    _, spoken = await turn(server, "What's the day's date?")
+    assert agent.asked == [] and spoken[0].startswith("Today is ") and "PM." not in spoken[0]
+    _, spoken = await turn(server, "What's the date and time?")
+    assert spoken[0].startswith("It's ") and "Today is " in spoken[0]
+
+
+async def test_the_date_in_another_zone_names_the_zone(tmp_path: Path) -> None:
+    server, _ = server_for("get_current_time|Asia/Tokyo", tmp_path)
+    _, spoken = await turn(server, "What is today's date in Tokyo?")
+    assert spoken[0].startswith("Today is ") and spoken[0].endswith("in Tokyo.")
+
+
+async def test_a_question_that_wants_a_decision_is_not_answered_with_a_forecast(
+    tmp_path: Path,
+) -> None:
+    server, agent = server_for("weather|Davao|tomorrow", tmp_path)
+    result, spoken = await turn(server, "Should I bring an umbrella in Davao tomorrow?")
+    assert spoken == ["From Gemini."] and result["router_reason"] == "needs reasoning"
+    assert server.calls == []  # type: ignore[attr-defined]  # nothing was looked up locally
+    _, spoken = await turn(server, "What's the weather in Davao tomorrow?")
+    assert spoken == ["It is 29 degrees in Baguio."]
+
+
+async def test_the_trained_offer_for_a_feeling_is_spoken_not_sent_to_gemini(
+    tmp_path: Path,
+) -> None:
+    reply = "none|That sounds chilly. Want me to warm the room?"
+    server, agent = server_for(reply, tmp_path)
+    _, spoken = await turn(server, "I'm feeling cold.")
+    assert agent.asked == [] and spoken == ["That sounds chilly. Want me to warm the room?"]
+    assert server.calls == []  # type: ignore[attr-defined]  # the thermostat is not touched
+
+
 class SlowGemini:
     """A model request: says `text` after `delay`, unless cancelled first."""
 

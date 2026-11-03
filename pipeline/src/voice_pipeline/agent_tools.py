@@ -22,6 +22,7 @@ from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.mcp_service import MCPClient
 
+from voice_pipeline import question
 from voice_pipeline.tools.smart_home import SCHEMA, make_handler
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -96,8 +97,11 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
 
             async def result_callback(result: Any, *, properties: Any = None) -> None:
                 failed = isinstance(result, str) and FAILURE.search(result) is not None
+                # a failure, or a question that wants a decision made from the result ("should I
+                # bring an umbrella"), goes back to the model instead of being spoken as it is
+                ask_again = failed or question.needs_reasoning(question.current)
                 await deliver(
-                    result, properties=properties or (None if failed else NO_SECOND_REQUEST)
+                    result, properties=properties or (None if ask_again else NO_SECOND_REQUEST)
                 )
 
             params.result_callback = result_callback

@@ -186,11 +186,27 @@ def match(text: str) -> Match | None:
     return None
 
 
+DATE_ASKED = re.compile(
+    r"\bdate\b|\b(?:what|which) (?:day|month|year)\b|\bday of the (?:week|month)\b"
+)
+TIME_ASKED = re.compile(r"\btime\b|\bo clock\b")
+
+
+def clock_question(text: str) -> str:
+    """What a question to the clock wants: "time" (also the default), "date" or "both"."""
+    said = normalize(text)
+    date, time = DATE_ASKED.search(said) is not None, TIME_ASKED.search(said) is not None
+    return "both" if date and time else "date" if date else "time"
+
+
 def local_answer(found: Match, now: datetime) -> str:
     """The reply to a `clock` match, given the current time in the demo's time zone."""
-    if found.args["what"] == "time":
-        return f"It's {now.hour % 12 or 12}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'}."
-    return f"Today is {now:%A}, {now:%B} {now.day}."
+    what = found.args["what"]
+    clock_text = f"It's {now.hour % 12 or 12}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'}."
+    date_text = f"Today is {now:%A}, {now:%B} {now.day}."
+    if what == "time":
+        return clock_text
+    return date_text if what == "date" else f"{clock_text} {date_text}"
 
 
 def spoken_result(found: Match, result: Any) -> str:

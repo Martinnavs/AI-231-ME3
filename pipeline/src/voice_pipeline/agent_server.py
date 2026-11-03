@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from voice_pipeline import fast_path
+from voice_pipeline import fast_path, question
 from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import FAILURE, PI_URL, TRANSIENT, build_tools, standard_servers
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
@@ -152,7 +152,8 @@ class AgentServer:
             elif name == "get_current_time":
                 zone = spec.to_tool_args(call).get("timezone", fast_path.TIMEZONE)
                 now = datetime.now(ZoneInfo(zone))
-                text = fast_path.local_answer(fast_path.Match("clock", {"what": "time"}, None), now)
+                what = fast_path.clock_question(routed.user)
+                text = fast_path.local_answer(fast_path.Match("clock", {"what": what}, None), now)
                 spoken.append(
                     text
                     if zone == fast_path.TIMEZONE
@@ -272,6 +273,7 @@ class AgentServer:
         async with self.lock:
             before = len(self.record)
             last = messages[-1] if messages else {}
+            question.current = str(last.get("content", "")) if last.get("role") == "user" else ""
             found = (
                 fast_path.match(str(last.get("content", "")))
                 if last.get("role") == "user"
