@@ -330,6 +330,171 @@ def s_follow_up(rng: random.Random) -> Example:
     )
 
 
+def doc_subject(rng: random.Random) -> str:
+    return rng.choice(B.DOC_SUBJECTS + [t.lower() for t in B.WIKI_TOPICS])
+
+
+def s_doc(rng: random.Random) -> Example:
+    """A question about the user's own documents: escalate|tools, never a general-knowledge lookup."""
+    subject = doc_subject(rng)
+    if rng.random() < 0.2:
+        text = rng.choice(B.DOC_BARE).format(s=subject)
+    else:
+        text = rng.choice(B.DOC_TEMPLATES).format(place=rng.choice(B.DOC_PLACES), s=subject)
+    return ex("doc", f"doc:{text}", text, [line("escalate", "tools")], phonebook(rng))
+
+
+def s_doc_follow_up(rng: random.Random) -> Example:
+    a, b = doc_subject(rng), doc_subject(rng)
+    first = rng.choice(B.DOC_TEMPLATES).format(place=rng.choice(B.DOC_PLACES), s=a)
+    text = rng.choice(B.DOC_FOLLOWUPS).format(s=b)
+    return ex(
+        "doc",
+        f"docfollow:{first}:{text}",
+        text,
+        [line("escalate", "tools")],
+        phonebook(rng),
+        [(first, line("escalate", "tools"))],
+    )
+
+
+def s_doc_compound(rng: random.Random) -> Example:
+    """A home command and a document question in one turn: the home line, then escalate|tools."""
+    name = rng.choice(list(B.HOME_FOR_COMPOUND))
+    home = rng.choice(B.HOME_FOR_COMPOUND[name])
+    subject = doc_subject(rng)
+    doc = rng.choice(B.DOC_TEMPLATES).format(place=rng.choice(B.DOC_PLACES), s=subject)
+    joiner = rng.choice([" and ", " then ", " and also ", ", and "])
+    if rng.random() < 0.5:
+        return ex(
+            "doc",
+            f"doccompound:{home}:{doc}",
+            home + joiner + doc,
+            [line(name), line("escalate", "tools")],
+            phonebook(rng),
+        )
+    return ex(
+        "doc", f"doccompound:{doc}:{home}", doc + joiner + home, [line("escalate", "tools"), line(name)], phonebook(rng)
+    )
+
+
+def s_wiki_contrast(rng: random.Random) -> Example:
+    """The general-knowledge side of the contrast with s_doc: a named topic asked about plainly is a lookup."""
+    return s_wiki(rng)
+
+
+def s_chat_fact(rng: random.Random) -> Example:
+    text, reply = rng.choice(list(B.CHAT_FACTS.items()))
+    return ex("chat", f"chatfact:{text}", text, [line("none", reply)], phonebook(rng))
+
+
+def s_ask_more(rng: random.Random) -> Example:
+    text, question = rng.choice(list(B.ASK_MORE.items()))
+    return ex("ask", f"askmore:{text}", text, [line("none", question)], phonebook(rng))
+
+
+def s_ask_follow_up(rng: random.Random) -> Example:
+    """The user answers the question the router asked: now the call goes out."""
+    pool = {**B.ASK, **B.ASK_MORE}
+    asks = [(t, q) for t, q in pool.items() if q in B.ASK_FOLLOW]
+    first, question = rng.choice(asks)
+    tool = B.ASK_FOLLOW[question]
+    book = phonebook(rng)
+    if tool in ("CALL", "MESSAGE"):
+        name = rng.choice(list(book))
+        text = rng.choice(
+            ["{n}", "call {n}", "{n} please", "it's {n}"] if tool == "CALL" else ["{n}", "{n} please", "message {n}"]
+        ).format(n=name)
+        target = [line(tool, name)]
+    elif tool == "TIMER":
+        d = rng.choice(B.DURATIONS)
+        text, target = rng.choice(["{d}", "for {d}", "make it {d}"]).format(d=d), [line("TIMER", d)]
+    else:
+        hour, minute, ampm = rng.randint(1, 12), rng.choice([0, 15, 30, 45]), rng.choice(["AM", "PM"])
+        text = rng.choice(["{t}", "at {t}", "for {t}"]).format(t=time_forms(hour, minute, ampm, rng))
+        target = [line("ALARM", f"{hour}:{minute:02d} {ampm}")]
+    return ex("follow-up", f"askfollow:{first}:{text}", text, target, book, [(first, line("none", question))])
+
+
+def s_defer_near_home(rng: random.Random) -> Example:
+    text = rng.choice(B.DEFER_NEAR_HOME)
+    return ex("defer", f"nearhome:{text}", text, [line("escalate", "tools")], phonebook(rng))
+
+
+def s_web_answer(rng: random.Random) -> Example:
+    """A question that needs current information: the router passes the complete question to web_answer."""
+    family = rng.choices(
+        ["office", "champion", "price", "currency", "product", "upcoming", "happened", "fact"],
+        weights=[4, 3, 3, 2, 3, 2, 5, 4],
+    )[0]
+    if family == "office":
+        office = rng.choice(B.OFFICES)
+        place = rng.choice(B.PLACES_OFFICE[office])
+        said, query = rng.choice(B.OFFICE_TEMPLATES)
+        if not place:  # a global office: drop the "of ..." and its place
+            said, query = "who is the current secretary general of the united nations", None
+            text, question = said, "Who is the current Secretary-General of the United Nations?"
+        else:
+            text, question = said.format(o=office, p=place), query.format(o=office, p=place)
+    elif family == "champion":
+        event = rng.choice(B.EVENTS_CHAMP)
+        said, query = rng.choice(B.CHAMP_TEMPLATES)
+        text, question = said.format(e=event), query.format(e=event)
+    elif family == "price":
+        asset = rng.choice(B.ASSETS)
+        said, query = rng.choice(B.PRICE_TEMPLATES)
+        text, question = said.format(a=asset), query.format(a=asset)
+    elif family == "currency":
+        a, b, name_a, name_b = rng.choice(B.CURRENCIES)
+        said, query = rng.choice(B.CURRENCY_TEMPLATES)
+        text, question = said.format(a=a, b=b, na=name_a, nb=name_b), query.format(a=a, b=b, na=name_a, nb=name_b)
+    elif family == "product":
+        product = rng.choice(B.PRODUCTS)
+        said, query = rng.choice(B.PRODUCT_TEMPLATES)
+        text, question = said.format(p=product), query.format(p=product)
+    elif family == "upcoming":
+        text, question = rng.choice(B.UPCOMING)
+    elif family == "happened":
+        text, question = rng.choice(B.HAPPENED)
+    else:
+        fact, question = rng.choice(B.WEB_FACTS)
+        text = rng.choice(B.WEB_FACT_TEMPLATES).format(f=fact)
+    return ex("web", f"web:{text}", text, [line("web_answer", question)], phonebook(rng))
+
+
+def s_settled(rng: random.Random) -> Example:
+    """Hard negative: a settled historical fact is a topic lookup, whatever the time words say."""
+    text, topic = rng.choice(B.SETTLED)
+    return ex("info", f"settled:{text}", text, [line("wiki_summary", topic)], phonebook(rng))
+
+
+def s_now_variants(rng: random.Random) -> Example:
+    """Hard negatives: weather, clock and home requests that carry 'now' or 'today' keep their own tool."""
+    pick = rng.choice(["weather", "weather-place", "time", "time-city", "home"])
+    if pick == "weather":
+        text = rng.choice(B.WEATHER_NOW)
+        return ex("info", f"now:{text}", text, [line("weather")], phonebook(rng))
+    if pick == "weather-place":
+        place = rng.choice(B.WEATHER_PLACES)
+        text = rng.choice(
+            ["what's the weather in {p} right now", "is it raining in {p} now", "how's {p} weather today"]
+        ).format(p=place)
+        return ex("info", f"now:{text}", text, [line("weather", place)], phonebook(rng))
+    if pick == "time":
+        text = rng.choice(B.TIME_NOW)
+        return ex("info", f"now:{text}", text, [line("get_current_time")], phonebook(rng))
+    if pick == "time-city":
+        city = rng.choice(list(B.CITIES))
+        text = rng.choice(
+            ["what time is it in {c} right now", "what's the time in {c} now", "current time in {c} right now"]
+        ).format(c=city)
+        return ex("info", f"now:{text}", text, [line("get_current_time", B.CITIES[city])], phonebook(rng))
+    base = rng.choice([s_noslot, s_slot])(rng)
+    suffix = rng.choice(B.NOW_SUFFIXES)
+    text = f"{suffix} {base['user']}" if rng.random() < 0.3 else f"{base['user']} {suffix}"
+    return ex("home", f"now:{text}", text, [base["target"]], base["phonebook"])
+
+
 MIX: list[tuple[float, Callable[[random.Random], Example]]] = [
     (14, s_noslot),
     (14, s_slot),
@@ -346,6 +511,17 @@ MIX: list[tuple[float, Callable[[random.Random], Example]]] = [
     (10, s_defer_compose),
     (6, s_two_calls),
     (14, s_follow_up),
+    (5, s_doc),
+    (3, s_doc_follow_up),
+    (3, s_doc_compound),
+    (3, s_wiki_contrast),
+    (4, s_chat_fact),
+    (3, s_ask_more),
+    (3, s_ask_follow_up),
+    (4, s_defer_near_home),
+    (5, s_web_answer),
+    (2, s_settled),
+    (3, s_now_variants),
 ]
 
 

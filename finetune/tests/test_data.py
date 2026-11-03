@@ -98,3 +98,34 @@ def test_alarm_wording_never_changes_the_canonical_target():
             call = T.parse_line(ln)
             if call.name == "ALARM":
                 assert call.args[0].count(":") == 1 and call.args[0].endswith(("AM", "PM"))
+
+
+def test_web_answer_targets_are_complete_questions_and_the_boundary_has_negatives(data):
+    web = [r for rows in data.values() for r in rows if r["target"].startswith("web_answer|")]
+    assert web, "no web_answer examples"
+    for r in web:
+        query = T.parse_line(r["target"]).args[0]
+        assert query.endswith("?") and len(query.split()) >= 4, query
+    # the deferral banks no longer hold single current-fact items
+    deferred = {r["messages"][-2]["content"] for rows in data.values() for r in rows if r["kind"] == "defer"}
+    assert not any("typhoons today" in u or "price of rice" in u for u in deferred)
+
+
+def test_now_and_today_do_not_turn_weather_time_or_home_into_a_lookup():
+    rng = random.Random(2)
+    for _ in range(300):
+        e = G.s_now_variants(rng)
+        assert not e["target"].startswith(("web_answer", "escalate")), (e["user"], e["target"])
+        assert any(w in e["user"] for w in ("now", "today", "moment", "instant", "later")), e["user"]
+
+
+def test_settled_facts_stay_a_topic_lookup():
+    rng = random.Random(3)
+    for _ in range(100):
+        e = G.s_settled(rng)
+        assert T.parse_line(e["target"]).name == "wiki_summary"
+
+
+def test_web_answer_has_a_weight_comparable_to_wiki():
+    weights = {m.__name__: w for w, m in G.MIX}
+    assert 0.5 <= weights["s_web_answer"] / weights["s_wiki"] <= 2

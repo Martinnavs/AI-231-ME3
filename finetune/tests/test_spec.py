@@ -121,3 +121,11 @@ def test_grammar_constrains_enums_and_arity():
     assert all(
         re.fullmatch(r"[a-z0-9-]+", name) for name in re.findall(r"^([^ ]+) ::=", g, re.M)
     )  # llama.cpp rule-name syntax
+
+
+def test_web_answer_is_a_local_one_argument_call():
+    t = T.BY_NAME["web_answer"]
+    assert t.local and [a.name for a in t.args] == ["query"] and t.group == "info"
+    call = T.parse_line("web_answer|Who is the current Senate President of the Philippines?")
+    assert call.name == "web_answer" and call.args == ["Who is the current Senate President of the Philippines?"]
+    assert T.BY_NAME["web_search"].group == "web"  # an OnIt tool the router never emits

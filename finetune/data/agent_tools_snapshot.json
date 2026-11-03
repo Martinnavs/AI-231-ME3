@@ -240,5 +240,27 @@
     "required": []
    }
   }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "web_answer",
+   "description": "Look up a factual question on the web and get a short answer to say: people, places, films, facts, current events, how things work. Not for Cormac McCarthy (use search_docs). One call per question; write `query` as a complete question, for example 'Who painted the Mona Lisa?'. Say the answer as it is.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "say": {
+      "type": "string",
+      "description": "One short sentence said to the user the moment this call starts, saying what you are doing (like 'Checking the weather.'); never the result."
+     }
+    },
+    "required": [
+     "query"
+    ]
+   }
+  }
  }
 ]

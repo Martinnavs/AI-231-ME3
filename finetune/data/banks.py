@@ -164,7 +164,7 @@ CONTACT_NAMES = [
     ("Rica", "friend"),
     ("Kuya Ed", "brother"),
 ]
-NOT_IN_BOOK = ["Dana", "Marcus", "Joanne", "Victor", "Priya", "Tomas", "Elena", "Kenji", "Noor", "Hugo"]
+NOT_IN_BOOK = ["Gary", "Dana", "Marcus", "Joanne", "Victor", "Priya", "Tomas", "Elena", "Kenji", "Noor", "Hugo"]
 
 # --- information tools
 CITIES = {  # spoken place -> IANA zone
@@ -255,14 +255,16 @@ DEFER = {
         "run the unit tests",
         "list the files in downloads",
         "search the web for cheap flights to cebu",
-        "look up the opening hours of the national museum",
         "open this page and tell me what it says",
         "find lines that mention error in the log file",
         "are there updates waiting to be installed",
         "what's listening on port 3000",
         "start the server in the background",
         "show me the log of that job",
-        "any news about typhoons today",
+        "get me the wikipedia article on manila",
+        "pull up the wikipedia page for mount apo",
+        "fetch the wikipedia article about the philippine sea",
+        "download the page about jose rizal from wikipedia",
     ],
     "code": [
         "write a python function that reverses a string",
@@ -291,8 +293,6 @@ DEFER = {
         "what's the difference between a virus and a bacterium",
         "should i learn python or javascript first",
         "explain how a mortgage works",
-        "tell me a joke",
-        "give me a fun fact",
         "why is the sky blue at noon but red at sunset",
         "help me write a polite email declining an invitation",
         "what should i cook tonight",
@@ -300,6 +300,9 @@ DEFER = {
         "how do i get better at chess",
         "recommend a good book for the weekend",
         "what is the meaning of life",
+        "why is my laptop so slow these days",
+        "why does my computer keep running hot",
+        "why does my phone battery drain so fast",
     ],
     "other": [
         "run sudo apt update",
@@ -397,14 +400,10 @@ FILES = [
     "the log file",
     "settings dot json",
 ]
-WEB_QUERIES = [
+WEB_QUERIES = [  # multi-step, how-to or open-ended: still deferred (single current facts are in WEB_FACTS)
     "cheap flights to cebu",
-    "the latest python release",
     "best budget phones this year",
     "how to fix a leaking faucet",
-    "typhoon updates",
-    "opening hours of the national museum",
-    "the price of rice today",
     "tips for learning guitar",
     "restaurants near makati",
     "reviews of the new samsung phone",
@@ -436,7 +435,6 @@ DEFER_COMPOSE = {
         "open {file} and read it",
         "search the web for {query}",
         "look up {query} online",
-        "any news about {query}",
         "how big is my {folder} folder",
         "list what's in my {folder} folder",
         "check {file} for errors",
@@ -457,3 +455,351 @@ DEFER_COMPOSE = {
         "audit my {folder} folder for problems and write a report",
     ],
 }
+
+
+# --- feedback round 1 (docs/LOCAL-LLM-BASELINE-FEEDBACK.md): own-document questions, chat that must stay chat,
+# missing values, and hosted-domain wording near a home intent
+DOC_SUBJECTS = [  # the thing being read: an author, a book, a character, a file, a topic
+    "the judge",
+    "the kid",
+    "the road",
+    "blood meridian",
+    "suttree",
+    "the border trilogy",
+    "no country for old men",
+    "the author's childhood",
+    "the main character",
+    "the ending",
+    "the lease",
+    "the handbook",
+    "the warranty",
+    "the meeting notes",
+    "the recipe collection",
+    "chapter three",
+    "the first page",
+    "the budget",
+]
+DOC_PLACES = [
+    "my documents",
+    "my notes",
+    "my files",
+    "the corpus",
+    "my library",
+    "my notes folder",
+    "the documents i loaded",
+    "my reading folder",
+    "the files i gave you",
+    "my papers",
+]
+DOC_TEMPLATES = [
+    "what does {place} say about {s}",
+    "what do {place} say about {s}",
+    "according to {place} what happened with {s}",
+    "find {s} in {place}",
+    "summarize what {place} say about {s}",
+    "search {place} for {s}",
+    "what is {s} about according to {place}",
+    "in {place} who is {s}",
+    "check {place} and tell me about {s}",
+    "look through {place} for {s} and tell me what it says",
+    "tell me what {place} mention about {s}",
+    "is there anything on {s} in {place}",
+]
+DOC_BARE = [  # a question about a thing being read, no place named
+    "what is {s} about in the text",
+    "what happens to {s} in the book",
+    "who is {s} in the story",
+    "what does the author say about {s}",
+    "how does the story describe {s}",
+]
+DOC_FOLLOWUPS = ["and what about {s}", "what about {s}", "and {s}", "how about {s}", "what else does it say about {s}"]
+HOME_FOR_COMPOUND = {
+    "LIGHT_ON": ["turn on the lights", "lights on"],
+    "LIGHT_OFF": ["turn off the lights", "lights off"],
+    "PAUSE": ["pause the music", "pause"],
+    "STOP": ["stop the music"],
+}
+# chat from the model's own knowledge: facts and jokes are plain replies, never a lookup or a deferral
+CHAT_FACTS = {
+    "tell me a joke": "Why did the scarecrow win an award? He was outstanding in his field.",
+    "got any jokes": "What do you call a fake noodle? An impasta.",
+    "make me laugh": "I told my computer a joke, and it said I was byte-ing off more than I could chew.",
+    "what can you do": (
+        "I can control your lights, timers and alarms, make calls, tell time and weather, "
+        "and hand bigger jobs to a helper."
+    ),
+    "what are you able to do": "I can control your home, set timers, call and message people, and look things up.",
+    "who are you": "I'm your home assistant.",
+    "how are you": "I'm doing well, thanks.",
+    "tell me a fun fact about cats": "Cats sleep for most of the day, around twelve to sixteen hours.",
+    "tell me a fun fact about octopuses": "An octopus has three hearts.",
+    "tell me a fun fact about honey": "Honey found in ancient tombs was still good to eat.",
+    "give me a fun fact about the moon": "The moon drifts away from Earth by about four centimeters a year.",
+    "fun fact about bananas": "Bananas are berries, but strawberries are not.",
+    "tell me a fun fact about penguins": "Penguins can drink salt water, because a gland filters out the salt.",
+    "tell me a fun fact about sharks": "Sharks are older than trees.",
+    "give me a fun fact": "Wombat droppings are cube shaped.",
+    "i'm cold": "That sounds chilly. Want me to warm the room?",
+    "i'm hot": "Want me to cool the room down?",
+    "it's dark in here": "Should I turn on the lights?",
+    "it's too bright": "Should I dim the lights?",
+    "i'm bored": "Want a joke or some music?",
+    "i'm tired": "Rest up. Want me to set an alarm?",
+    "it's so quiet": "Want me to play some music?",
+    "i feel a bit stuffy": "Should I lower the temperature?",
+}
+# missing required value -> ask; each is also trained with the follow-up turn that supplies it
+ASK_MORE = {
+    "make a phone call": "Who should I call?",
+    "make a call": "Who should I call?",
+    "i want to call someone": "Who should I call?",
+    "give someone a ring": "Who should I call?",
+    "send a text": "Who should I message?",
+    "message somebody": "Who should I message?",
+    "send someone a message": "Who should I message?",
+    "wake me up": "For what time?",
+    "set a wake up alarm": "For what time?",
+    "put on a timer": "For how long?",
+    "remind me about something": "To do what?",
+}
+ASK_FOLLOW = {  # the first turn in ASK_MORE/ASK -> which tool the value completes
+    "Who should I call?": "CALL",
+    "Who should I message?": "MESSAGE",
+    "For how long?": "TIMER",
+    "For what time?": "ALARM",
+}
+# hosted-domain wording that sits near a home intent: shell, serve and status wording defers
+DEFER_NEAR_HOME = [
+    "is the server running",
+    "stop the web server",
+    "stop the job that's running",
+    "what background jobs are running",
+    "list what is scheduled to run",
+    "list the running jobs",
+    "show me the server logs",
+    "is the firewall on",
+    "which ports are listening",
+    "restart the web server",
+    "what is the status of the build",
+    "is the database up",
+    "kill the process that is using the most memory",
+    "start the server with python app dot py",
+    "show me its logs",
+    "okay stop it",
+    "what is running in the background",
+    "what's the status of my deployment",
+    "is the backup job finished",
+]
+
+
+# --- web_answer (ticket router-web-answer): one finished answer from the web, the router only passes the question on
+WEB_FACTS = [  # (what the user says after "search the web for / what is / tell me", the complete question)
+    ("the latest python release", "What is the latest Python release?"),
+    ("the price of rice today", "What is the price of rice today?"),
+    (
+        "the price of gasoline in the philippines this week",
+        "What is the price of gasoline in the Philippines this week?",
+    ),
+    ("the opening hours of the national museum", "What are the opening hours of the National Museum?"),
+    (
+        "the exchange rate of the dollar to the peso",
+        "What is the exchange rate of the US dollar to the Philippine peso?",
+    ),
+    ("the latest version of android", "What is the latest version of Android?"),
+    ("the newest iphone", "What is the newest iPhone?"),
+    ("the current version of node", "What is the current version of Node.js?"),
+    ("the latest news about typhoons", "What is the latest news about typhoons in the Philippines?"),
+    ("the score of the last lakers game", "What was the score of the last Lakers game?"),
+    ("the current price of gold", "What is the current price of gold?"),
+    ("the temperature record this year", "What is this year's global temperature record?"),
+]
+WEB_FACT_TEMPLATES = [
+    "search the web for {f}",
+    "look up {f} online",
+    "what is {f}",
+    "tell me {f}",
+    "google {f}",
+    "can you check {f}",
+]
+OFFICES = [
+    "president",
+    "prime minister",
+    "senate president",
+    "speaker of the house",
+    "chief justice",
+    "secretary general of the united nations",
+    "mayor",
+    "governor",
+]
+PLACES_OFFICE = {
+    "president": ["the philippines", "france", "south korea", "indonesia", "brazil", "mexico", "the united states"],
+    "prime minister": ["the united kingdom", "japan", "canada", "australia", "india", "italy", "thailand"],
+    "senate president": ["the philippines"],
+    "speaker of the house": ["the philippines", "the united states"],
+    "chief justice": ["the philippines", "the united states", "india"],
+    "secretary general of the united nations": [""],
+    "mayor": ["manila", "cebu city", "davao", "new york", "london", "paris", "tokyo", "quezon city"],
+    "governor": ["cebu", "california", "texas", "new york", "bangko sentral ng pilipinas"],
+}
+OFFICE_TEMPLATES = [  # (user wording, complete question); {o} the office, {p} the place
+    ("who is the current {o} of {p}", "Who is the current {o} of {p}?"),
+    ("who's the {o} of {p} right now", "Who is the current {o} of {p}?"),
+    ("who is {p}'s current {o}", "Who is the current {o} of {p}?"),
+    ("tell me who the {o} of {p} is these days", "Who is the current {o} of {p}?"),
+    ("who is running {p} as {o} now", "Who is the current {o} of {p}?"),
+]
+EVENTS_CHAMP = [
+    "the nba finals",
+    "the world cup",
+    "the formula one championship",
+    "wimbledon",
+    "the super bowl",
+    "the champions league",
+    "the pba finals",
+    "the uaap basketball finals",
+    "the tour de france",
+    "the australian open",
+    "the masters",
+    "the nobel peace prize",
+]
+CHAMP_TEMPLATES = [
+    ("who won {e} this year", "Who won {e} this year?"),
+    ("who won {e} last time", "Who won {e} most recently?"),
+    ("who's the reigning champion of {e}", "Who is the reigning champion of {e}?"),
+    ("did anyone win {e} yet", "Has {e} been decided yet, and who won?"),
+    ("who is winning {e} right now", "Who is leading {e} right now?"),
+]
+ASSETS = [
+    "bitcoin",
+    "ethereum",
+    "gold",
+    "silver",
+    "oil",
+    "the s and p 500",
+    "tesla stock",
+    "apple stock",
+    "rice",
+    "gasoline",
+]
+PRICE_TEMPLATES = [
+    ("what is the price of {a} today", "What is the price of {a} today?"),
+    ("how much is {a} right now", "What is the price of {a} right now?"),
+    ("how much is {a} trading at", "What is the current price of {a}?"),
+    ("is {a} up or down today", "Is the price of {a} up or down today?"),
+    ("what's {a} worth now", "What is {a} worth right now?"),
+]
+CURRENCIES = [
+    ("a dollar", "pesos", "US dollar", "Philippine peso"),
+    ("a euro", "pesos", "euro", "Philippine peso"),
+    ("a pound", "pesos", "British pound", "Philippine peso"),
+    ("a dollar", "yen", "US dollar", "Japanese yen"),
+    ("a euro", "dollars", "euro", "US dollar"),
+    ("a thousand pesos", "dollars", "Philippine peso", "US dollar"),
+]
+CURRENCY_TEMPLATES = [  # (user wording, complete question); {a}/{b} spoken, {na}/{nb} full currency names
+    ("how much is {a} in {b} today", "How much is {a} in {b} today?"),
+    ("how many {b} is {a} right now", "How many {b} is {a} worth right now?"),
+    ("what's the exchange rate for {a} to {b} today", "What is the {na} to {nb} exchange rate today?"),
+]
+PRODUCTS = [
+    "iphone",
+    "samsung galaxy phone",
+    "version of windows",
+    "version of ubuntu",
+    "version of python",
+    "version of chrome",
+    "playstation",
+    "nintendo console",
+    "tesla model",
+    "version of the linux kernel",
+    "macbook",
+    "pixel phone",
+]
+PRODUCT_TEMPLATES = [
+    ("what is the latest {p}", "What is the latest {p}?"),
+    ("what's the newest {p} out right now", "What is the newest {p}?"),
+    ("which {p} just came out", "Which {p} came out most recently?"),
+    ("what is the current {p}", "What is the current {p}?"),
+]
+UPCOMING = [
+    ("when is the next apple event", "When is the next Apple event?"),
+    ("when does the next world cup start", "When does the next World Cup start?"),
+    ("when is the next full moon", "When is the next full moon?"),
+    ("when is the next solar eclipse", "When is the next solar eclipse?"),
+    ("when is the next olympics", "When are the next Olympic Games?"),
+    (
+        "when is the next presidential election in the philippines",
+        "When is the next presidential election in the Philippines?",
+    ),
+    ("when is the next typhoon season", "When is the next typhoon season in the Philippines?"),
+    ("when does the next star wars movie come out", "When does the next Star Wars movie come out?"),
+]
+HAPPENED = [  # did-it-happen-yet, records, rankings, results
+    ("has anyone broken the marathon record this year", "Has anyone broken the marathon world record this year?"),
+    ("did the lakers win last night", "Did the Lakers win last night?"),
+    ("did the gilas pilipinas win their last game", "Did Gilas Pilipinas win their last game?"),
+    ("has the new iphone been released yet", "Has the new iPhone been released yet?"),
+    ("has the election result been announced", "Has the latest election result been announced?"),
+    (
+        "who won the last election in the philippines",
+        "Who won the most recent presidential election in the Philippines?",
+    ),
+    (
+        "who won the election in the united states",
+        "Who won the most recent presidential election in the United States?",
+    ),
+    ("who is the richest person in the world right now", "Who is the richest person in the world right now?"),
+    ("what is the tallest building in the world now", "What is the tallest building in the world now?"),
+    ("who holds the 100 meter world record", "Who holds the men's 100 meter world record?"),
+    ("who is the number one tennis player right now", "Who is the number one ranked tennis player right now?"),
+    ("which team is first in the nba right now", "Which team is first in the NBA right now?"),
+    ("what is the most streamed song right now", "What is the most streamed song right now?"),
+    ("what is the population of the philippines now", "What is the current population of the Philippines?"),
+    ("how many people live in tokyo now", "How many people live in Tokyo now?"),
+    ("is the sale at the mall still on", "Is the sale at the mall still on?"),
+    ("what movies are showing this week", "What movies are showing in cinemas this week?"),
+    ("what's trending today", "What is trending today?"),
+    ("what happened in the news today", "What are the top news stories today?"),
+    ("any news about the philippine peso today", "Is there any news about the Philippine peso today?"),
+    ("is there a typhoon coming", "Is there a typhoon coming to the Philippines?"),
+    ("what is the inflation rate in the philippines now", "What is the current inflation rate in the Philippines?"),
+]
+
+# hard negatives: settled facts with time words stay a lookup of the topic (not web_answer)
+SETTLED = [  # (user wording, topic for wiki_summary)
+    ("who was the first president of the philippines", "Emilio Aguinaldo"),
+    ("what year did world war two end", "World War II"),
+    ("who painted the mona lisa", "Mona Lisa"),
+    ("when did the berlin wall fall", "Berlin Wall"),
+    ("who discovered penicillin", "Penicillin"),
+    ("who wrote noli me tangere", "Noli Me Tangere"),
+    ("when was the printing press invented", "Printing press"),
+    ("who was the first person on the moon", "Apollo 11"),
+    ("when did the titanic sink", "Titanic"),
+    ("who built the great wall of china", "Great Wall of China"),
+    ("what happened in the year 1896 in the philippines", "Philippine Revolution"),
+    ("who was the first woman to win a nobel prize", "Marie Curie"),
+    ("when did the roman empire fall", "Fall of the Western Roman Empire"),
+    ("who invented the telephone", "Alexander Graham Bell"),
+    ("who was the president of the philippines in 1950", "Elpidio Quirino"),
+    ("when did the french revolution start", "French Revolution"),
+]
+# time words that must not turn a home, weather, time or conversion request into a lookup
+NOW_SUFFIXES = ["now", "right now", "right now please", "today", "this instant", "at the moment"]
+WEATHER_NOW = [
+    "what's the weather like right now",
+    "how's the weather now",
+    "is it raining now",
+    "how hot is it today",
+    "is it cold outside right now",
+    "what's the weather today",
+    "will it rain later today",
+    "what's the temperature outside now",
+]
+TIME_NOW = [
+    "what time is it now",
+    "what time is it right now",
+    "what's the time at the moment",
+    "tell me the time right now",
+    "what is today's time",
+]

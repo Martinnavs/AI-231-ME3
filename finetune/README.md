@@ -125,6 +125,34 @@ Then evaluate the GGUF with llama.cpp (`llama-server --jinja`, grammar from `spe
 
 Open questions for the owner, to ask when they are online: which GPU indexes are free on `ai-n002` and whether another user competes; whether the node has internet (the preflight says); whether a second hosted request for the spoken answer is acceptable on turns the router defers (assumed yes: the router defers, Gemini does request 1 and request 2).
 
+## Cluster session 2026-11-03: distilled 350M with `web_answer`
+
+One run each, seed 0, dev only (the OnIt set and the pack were **not** run on these models; GGUF conversion is done on the laptop).
+
+| Model | Data | Dev exact |
+| --- | --- | --- |
+| 1B v1 LoRA (teacher, no `web_answer`) | `generate.py --seed 0 --n 30000` (before the web round) | 97.7% (293/300) |
+| 350M LoRA | same | 96.0% (288/300) |
+| 350M distilled from the 1B v1 (`kd-s0`) | v1 seed 0 + seed 1 (`--n 40000`), merged | 98.3% (295/300) |
+| 1B web teacher | `web_answer` data, seed 0 | 96.7% (290/300) |
+| 350M distilled from the 1B web teacher | web data, seed 0 + seed 1 | 97.0% (291/300); 97.8% (1129/1154) on the full dev split |
+
+The plain 350M saw half the prompts of the distilled one, so "distillation helped" is not separated from "more data".
+
+Distillation recipe (`train/train.py --teacher ... --teacher-adapter ...`): loss on the reply tokens, `0.5 * KL(teacher || student, T=2) + 0.5 * gold cross-entropy`; same tokenizer and vocabulary, so logits compare directly. Data: `python3 scripts/merge_distill_data.py data/generated data/generated-s1 data/distill` (seed-0 train plus all of a second seed, minus anything whose text is in dev or test).
+
+```bash
+python3 data/generate.py --out data/generated --n 30000 --seed 0
+python3 data/generate.py --out data/generated-s1 --n 40000 --seed 1
+python3 scripts/merge_distill_data.py data/generated data/generated-s1 data/distill
+GPU=0 bash train/run.sh start h1b-lora-web-s0 --model ibm-granite/granite-4.0-h-1b --data data/generated --out runs/h1b-lora-web-s0 --seed 0 --batch 4 --accum 16
+GPU=0 bash train/run.sh start kd-350m-web-s0 --model ibm-granite/granite-4.0-h-350m --data data/distill --out runs/kd-350m-web-s0 --seed 0 --batch 8 --accum 8 --teacher ibm-granite/granite-4.0-h-1b --teacher-adapter runs/h1b-lora-web-s0/final
+```
+
+**`web_answer`** (`spec/tools.py`, ticket `.scratch/router-web-answer/tickets/01-retrain-350m-web-answer.md`): a router call `web_answer|<complete question>` for single current-fact questions; multi-step, how-to and file/document requests still `escalate|tools`. On the dev split `web_answer` recall is 39/39 and precision 39/49.
+
+**Known issue (decided not urgent):** all 10 false positives are one phrase, "what's the pi temperature", which returns `web_answer` instead of `device_status` (the Pi category is 12/22 on dev). The generator has one device-status wording for it; add several device-status and Pi wordings as hard negatives and retrain teacher and student before serving this adapter. The adapter is private at `martinnavs/granite-4.0-h-350m-router-kd-web-s0-unverified`; acceptance on the OnIt set and pack (no regression beyond 1 item against kd-s0: 76/77 and 79/92) is still open.
+
 ## Rules that apply here (the owner's standing agreements)
 
 - Never read or print API keys (`~/.secrets/*`, `.env`, any `*key*` file); code reads them at run time and prints only OK or failure.

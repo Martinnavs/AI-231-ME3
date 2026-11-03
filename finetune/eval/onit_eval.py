@@ -30,6 +30,8 @@ ROOT = HERE.parents[1]  # the repository root
 sys.path.insert(0, str(HERE.parent / "spec"))
 import tools as T  # noqa: E402
 
+# single current-fact web items: the router may pass the question to web_answer instead of deferring it
+WEB_ANSWER_OK = {"w01", "w02", "w04"}
 DEFER_KINDS = {"docs", "files", "shell", "serve", "web", "workflow", "code"}
 RESULT_KINDS = {
     "docs",
@@ -87,7 +89,7 @@ def _swap_docs(original):
     return [[("escalate", [None]) if c[0] == "search_docs" else c for c in alt] for alt in original]
 
 
-def defer_expect(kind, original):
+def defer_expect(kind, original, pid=None):
     """The deferral expectation of the split design: every request for a summarising tool, code or a workflow
     must produce an escalate call; other kinds keep their expectation."""
     if kind.startswith("pack-"):
@@ -95,6 +97,8 @@ def defer_expect(kind, original):
         if [] in swapped:  # "no tool expected": a spoken reply (`none|text`) is no tool call either
             swapped.append([("none", [None])])
         return swapped
+    if kind == "web" and pid in WEB_ANSWER_OK:
+        return [[("escalate", [None])], [("web_answer", [None])]]
     if kind in DEFER_KINDS:
         return [[("escalate", [None])]]
     if kind == "multi":
@@ -330,7 +334,7 @@ def main() -> None:
     for r in rows:
         exp = r["expect"]
         if a.backend in ("router-split", "router-ft"):
-            exp = defer_expect(r["kind"], exp)
+            exp = defer_expect(r["kind"], exp, r["id"])
         r["scored"] = not (a.backend == "gemini" and r["kind"] in ("workflow", "code"))
         r["exact"] = any(match_alt(r["calls"], alt) for alt in exp)
         r["name_ok"] = any(match_alt(r["calls"], alt, names_only=True) for alt in exp)
@@ -354,6 +358,12 @@ def main() -> None:
             f"{k:<10}{len(g):>4}{ex:>7}{nm:>9}{st.median(lat):>9.2f}{pct(lat, 0.95):>9.2f}"
             f"{(st.median(l2) if l2 else float('nan')):>10.2f}{pct(l2, 0.95) if l2 else float('nan'):>10.2f}"
         )
+    used = sorted({r["id"] for r in rows if any(c[0] == "web_answer" for c in r["calls"])})
+    web = [r for r in rows if r["kind"] == "web" and r["id"] in WEB_ANSWER_OK]
+    print(
+        f"web_answer used on {len(used)} item(s): {used}; "
+        f"single-fact web items sent to it: {sum(any(c[0] == 'web_answer' for c in r['calls']) for r in web)}/{len(web)}"
+    )
 
 
 if __name__ == "__main__":
