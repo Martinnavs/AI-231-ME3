@@ -158,6 +158,13 @@ TOOLS: tuple[Tool, ...] = tuple(
             example="wiki_summary|Peru",
         ),
         Tool(
+            "web_answer",
+            "Look up a factual question on the web and get a short answer to say.",
+            (Arg("query"),),
+            "info",
+            example="web_answer|Who is the current Senate President of the Philippines?",
+        ),
+        Tool(
             "search_docs",
             "Search the sample documents (Cormac McCarthy corpus).",
             (Arg("query"),),
