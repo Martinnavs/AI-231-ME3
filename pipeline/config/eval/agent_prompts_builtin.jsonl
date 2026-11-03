@@ -1,0 +1,15 @@
+{"id": "tb01", "kind": "tb-changing", "turns": ["Who is the current Senate President of the Philippines?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb02", "kind": "tb-changing", "turns": ["Who won the men's singles title at Wimbledon in 2026?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb03", "kind": "tb-changing", "turns": ["What is the price of gold per ounce right now?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb04", "kind": "tb-changing", "turns": ["What is the latest version of Android?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb05", "kind": "tb-settled", "turns": ["What is the capital of Canada?"], "expect": [[{"tool": "web_answer"}]], "search": false}
+{"id": "tb06", "kind": "tb-settled", "turns": ["Who painted the Mona Lisa?"], "expect": [[{"tool": "web_answer"}]], "search": false}
+{"id": "tb07", "kind": "tb-mccarthy", "turns": ["Who wrote Blood Meridian?"], "expect": [[{"tool": "search_docs"}]], "search": false}
+{"id": "tb08", "kind": "tb-mccarthy", "turns": ["What happens at the end of The Road?"], "expect": [[{"tool": "search_docs"}]], "search": false}
+{"id": "tb09", "kind": "tb-weather", "turns": ["What's the weather in Davao tomorrow?"], "expect": [[{"tool": "weather"}]], "search": false}
+{"id": "tb10", "kind": "tb-weather", "turns": ["Should I bring an umbrella in Davao tomorrow?"], "expect": [[{"tool": "weather"}]], "search": false}
+{"id": "tb11", "kind": "tb-home", "turns": ["Turn on the lights."], "expect": [[{"intent": "LIGHT_ON", "slot": null}]], "search": false}
+{"id": "tb12", "kind": "tb-home", "turns": ["Pause the music."], "expect": [[{"intent": "PAUSE", "slot": null}]], "search": false}
+{"id": "tb13", "kind": "tb-edge", "turns": ["Who won the 2087 Nobel Prize in physics?"], "expect": [[{"tool": "web_answer"}]], "search": null}
+{"id": "tb14", "kind": "tb-plain", "turns": ["What's seventeen times thirteen?"], "expect": [[]], "search": false}
+{"id": "tb15", "kind": "tb-plain", "turns": ["I'm feeling cold."], "expect": [[]], "search": false}

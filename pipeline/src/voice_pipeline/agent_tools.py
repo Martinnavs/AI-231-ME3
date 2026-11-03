@@ -17,7 +17,7 @@ from typing import Any
 from mcp import StdioServerParameters
 from mcp.client.session_group import StreamableHttpParameters
 from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.schemas.tools_schema import AdapterType, ToolsSchema
 from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.mcp_service import MCPClient
@@ -46,6 +46,22 @@ SAY = {
     "description": "One short sentence said to the user the moment this call starts, saying "
     "what you are doing (like 'Checking the weather.'); never the result.",
 }
+
+
+# With the model's own Google Search the lookup tools are redundant, and a model given both would
+# call the slower one: the server keeps them (the router runs web_answer), the model does not
+# see them
+BUILTIN_SEARCH_REPLACES = frozenset({"web_answer", "wiki_summary"})
+
+
+def with_builtin_search(tools: ToolsSchema) -> ToolsSchema:
+    """`tools` for a model that searches the web itself: no web_answer or wiki_summary, and
+    Gemini's built-in `google_search` next to the function tools (the request then also needs
+    tool_config.include_server_side_tool_invocations, see agent.build_llm)."""
+    kept = [t for t in tools.standard_tools if t.name not in BUILTIN_SEARCH_REPLACES]
+    return ToolsSchema(
+        standard_tools=kept, custom_tools={AdapterType.GEMINI: [{"google_search": {}}]}
+    )
 
 
 def stdio_server(command: list[str], env: dict[str, str] | None = None) -> MCPClient:

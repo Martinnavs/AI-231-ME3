@@ -1,0 +1,6 @@
+{"id": "tb16", "kind": "tb-changing", "turns": ["Who is the current mayor of Cebu City?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb17", "kind": "tb-changing", "turns": ["What is the exchange rate of the dollar to the Philippine peso?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb18", "kind": "tb-changing", "turns": ["Who won the last NBA championship?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb19", "kind": "tb-changing", "turns": ["What is the newest PlayStation console?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb20", "kind": "tb-changing", "turns": ["What is the current price of Bitcoin?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb21", "kind": "tb-changing", "turns": ["Who is the current head coach of the Gilas Pilipinas men's team?"], "expect": [[{"tool": "web_answer"}]], "search": true}

@@ -1,0 +1,6 @@
+{"id": "tb22", "kind": "tb-changing", "turns": ["Who is the current Secretary-General of the United Nations?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb23", "kind": "tb-changing", "turns": ["What is the population of the Philippines right now?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb24", "kind": "tb-changing", "turns": ["Who won the men's singles title at the 2026 French Open?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb25", "kind": "tb-changing", "turns": ["What is the latest version of iOS?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb26", "kind": "tb-changing", "turns": ["What is the current price of crude oil?"], "expect": [[{"tool": "web_answer"}]], "search": true}
+{"id": "tb27", "kind": "tb-changing", "turns": ["Who is the current Speaker of the House of Representatives of the Philippines?"], "expect": [[{"tool": "web_answer"}]], "search": true}

@@ -21,11 +21,26 @@ import statistics
 import time
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
+
+from voice_pipeline import fast_path
 from voice_pipeline.agent import MODEL, Agent, build_llm, close_llm_sessions
-from voice_pipeline.agent_tools import PI_URL, build_tools, runnable, standard_servers
+from voice_pipeline.agent_tools import (
+    BUILTIN_SEARCH_REPLACES,
+    PI_URL,
+    _recorded,
+    build_tools,
+    runnable,
+    standard_servers,
+    with_builtin_search,
+)
+from voice_pipeline.search_count import LEDGER, USD_PER_SEARCH, SearchCounter
 
 ROOT = Path(__file__).resolve().parents[2]
 # A turn counts as finished at the first spoken answer, but the model may still make a call in a
@@ -76,13 +91,21 @@ class Budget:
 
     @staticmethod
     def cost(usage: dict[str, int]) -> float:
+        """Dollars for `usage`; Google Search queries (the model's own searches) are priced at
+        the rate beyond the free allowance, which is the worst case."""
+        searches = usage.get("searches", 0) * USD_PER_SEARCH
         if (
             usage["prompt"] + usage["completion"] > 0
         ):  # all prompt tokens at the full price: an upper bound
             return (
-                usage["prompt"] * USD_PER_M_TOKENS[0] + usage["completion"] * USD_PER_M_TOKENS[1]
-            ) / 1e6
-        return usage["requests"] * USD_PER_REQUEST_HIGH
+                searches
+                + (
+                    usage["prompt"] * USD_PER_M_TOKENS[0]
+                    + usage["completion"] * USD_PER_M_TOKENS[1]
+                )
+                / 1e6
+            )
+        return searches + usage["requests"] * USD_PER_REQUEST_HIGH
 
     def check(self, usage: dict[str, int]) -> float:
         total = self.spent + self.cost(usage)
@@ -153,6 +176,44 @@ def leaked(text: str) -> bool:
     return bool(LEAK.search(text))
 
 
+CANNED_LOOKUP = "It is a well-known thing; here is a short, plain answer."
+
+
+def stub_lookups(tools: ToolsSchema, record: list[dict[str, Any]]) -> ToolsSchema:
+    """Make web_answer and wiki_summary answer with a canned sentence and no network, still
+    recorded as calls: the old prompt's choice of tool is what a dry run measures, not the web."""
+    stubbed = []
+    for tool in tools.standard_tools:
+        if tool.name in BUILTIN_SEARCH_REPLACES:
+
+            async def canned(params: Any) -> None:
+                await params.result_callback(CANNED_LOOKUP)
+
+            plain = {k: v for k, v in tool.properties.items() if k != "say"}
+            tool = _recorded(
+                FunctionSchema(
+                    name=tool.name,
+                    description=tool.description,
+                    properties=plain,
+                    required=tool.required,
+                    handler=canned,
+                ),
+                record,
+            )
+        stubbed.append(tool)
+    return ToolsSchema(standard_tools=stubbed)
+
+
+def lookup_expected(expect: list[dict[str, Any]]) -> bool:
+    """The prompt's expectation includes a web lookup (web_answer or wiki_summary)."""
+    return any(e.get("tool") in BUILTIN_SEARCH_REPLACES for e in expect)
+
+
+def builtin_expect(expect: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The expectation for a model that searches itself: a lookup call is no longer made."""
+    return [e for e in expect if e.get("tool") not in BUILTIN_SEARCH_REPLACES]
+
+
 async def settle(
     record: list[dict[str, Any]], quiet_s: float = SETTLE_S, max_s: float = SETTLE_MAX_S
 ) -> None:
@@ -168,14 +229,24 @@ async def settle(
 
 
 async def run_prompt(
-    agent: Agent, record: list[dict[str, Any]], prompt: dict[str, Any]
+    agent: Agent,
+    record: list[dict[str, Any]],
+    prompt: dict[str, Any],
+    counter: SearchCounter | None = None,
 ) -> list[dict[str, Any]]:
+    """`counter`: the model searches itself, so a lookup call is not expected and the searches it
+    ran are counted per turn. A prompt's `search` (true/false/null) says whether a search is wanted;
+    absent, it is wanted when the expectation has a web lookup."""
     rows = []
     for index, (turn, expect) in enumerate(zip(prompt["turns"], prompt["expect"], strict=True)):
         before = len(record)
+        searched_before = counter.searches if counter is not None else 0
         result = await agent.ask([{"role": "user", "content": turn}], reset=index == 0)
         on_time = len(record) - before
         await settle(record)
+        wanted = prompt.get("search", lookup_expected(expect))
+        if counter is not None:
+            expect = builtin_expect(expect)
         made = record[before:]
         late = len(made) - on_time
         if result["status"] == "ok" and not result["text"] and not made:
@@ -191,11 +262,21 @@ async def run_prompt(
                 **result,
                 **score_turn(made, expect),
                 "leaked": leaked(result["text"]),
+                **(
+                    {"searches": counter.searches - searched_before, "wanted_search": wanted}
+                    if counter is not None
+                    else {}
+                ),
             }
         )
         if result["status"] != "ok":
             break
     return rows
+
+
+def _spent(agent: Agent, counter: SearchCounter | None) -> dict[str, int]:
+    """Requests and tokens so far, plus the searches the model ran for itself."""
+    return {**agent.tap.usage, "searches": counter.searches if counter is not None else 0}
 
 
 def _p50(values: list[float]) -> str:
@@ -220,6 +301,16 @@ def summarize(rows: list[dict[str, Any]]) -> str:
             f"{sum(r['leaked'] for r in ok):>6}{len(group) - len(ok):>5}"
             f"{_p50(tool):>15}{_p50(plain):>15}"
         )
+    if any("searches" in r for r in rows):  # the model searched for itself
+        judged = [r for r in rows if r["status"] == "ok" and r.get("wanted_search") is not None]
+        want = [r for r in judged if r["wanted_search"]]
+        other = [r for r in judged if not r["wanted_search"]]
+        lines.append(
+            f"searches: {sum(r.get('searches', 0) for r in rows)} in "
+            f"{sum(1 for r in rows if r.get('searches'))} of {len(rows)} turns; "
+            f"wanted and searched {sum(1 for r in want if r['searches'])}/{len(want)}; "
+            f"not wanted but searched {sum(1 for r in other if r['searches'])}/{len(other)}"
+        )
     return "\n".join(lines)
 
 
@@ -234,7 +325,12 @@ async def run(
     tool_text: Path | None = None,
     budget: Budget | None = None,
     allow_partial: bool = False,
+    builtin_search: bool = False,
+    stub: bool = False,
+    search_ledger: Path | None = LEDGER,
 ) -> int:
+    """`builtin_search`: the model searches the web itself (its Google Search, counted per turn
+    and priced into the budget); `stub`: web_answer and wiki_summary return a canned sentence."""
     lines = prompts_file.read_text().splitlines()
     prompts = [json.loads(line) for line in lines if line.strip()][:limit]
     out = ROOT / "out/agent_dryrun" / run_id
@@ -244,6 +340,8 @@ async def run(
     tools = await build_tools(record, live=live, servers=servers, optional=optional)
     if tool_text is not None:
         apply_tool_text(tools, json.loads(tool_text.read_text()))
+    if stub:
+        tools = stub_lookups(tools, record)
     prompts, skipped = runnable(prompts, {t.name for t in tools.standard_tools})
     if skipped:
         print(f"skipped (tool not available): {', '.join(skipped)}")
@@ -264,16 +362,30 @@ async def run(
                 "(--allow-partial to run anyway)"
             )
             return 3
-    agent = Agent(build_llm(system_file.read_text(), model=model), tools, usage=True)
+    system = system_file.read_text()
+    counter: SearchCounter | None = None
+    llm = None
+    if builtin_search:  # the model needs the date to know what can have changed
+        system = system.replace(
+            "{today}", f"{datetime.now(ZoneInfo(fast_path.TIMEZONE)):%A, %B %-d, %Y}"
+        )
+        llm = build_llm(system, model=model, builtin_search=True)
+        counter = SearchCounter(search_ledger)
+        counter.attach(llm)
+    agent = Agent(
+        llm or build_llm(system, model=model),
+        with_builtin_search(tools) if builtin_search else tools,
+        usage=True,
+    )
     await agent.start()
     await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
     rows: list[dict[str, Any]] = []
     code, empty = 0, 0
     with (out / "rows.jsonl").open("w") as sink:
         for prompt in prompts:
-            prompt_rows = await run_prompt(agent, record, prompt)
+            prompt_rows = await run_prompt(agent, record, prompt, counter)
             if any(r["status"] != "ok" for r in prompt_rows):
-                prompt_rows = await run_prompt(agent, record, prompt)
+                prompt_rows = await run_prompt(agent, record, prompt, counter)
             for row in prompt_rows:
                 sink.write(json.dumps(row) + "\n")
             rows.extend(prompt_rows)
@@ -287,18 +399,19 @@ async def run(
                 break
             if budget is not None:
                 try:
-                    budget.check(agent.tap.usage)
+                    budget.check(_spent(agent, counter))
                 except BudgetStop as stop:
                     print(f"stopped: {stop}; the rows so far are kept")
                     code = 3
                     break
     await agent.stop()
     await close_llm_sessions()
-    usage = dict(agent.tap.usage)
+    usage = _spent(agent, counter)
     print(
         f"used: {usage['requests']} requests, {usage['prompt']} prompt and "
-        f"{usage['completion']} output tokens, "
-        f"about ${Budget.cost(usage):.3f}"
+        f"{usage['completion']} output tokens"
+        + (f", {usage['searches']} Google searches" if counter is not None else "")
+        + f", about ${Budget.cost(usage):.3f} (searches at the paid rate)"
     )
     if budget is not None:
         budget.commit(run_id, usage)
@@ -337,7 +450,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--tool-text", type=Path, default=None, help="JSON of tool name -> description to try"
     )
+    parser.add_argument(
+        "--builtin-search",
+        action="store_true",
+        help="the model searches the web itself (Gemini's Google Search next to the function "
+        "tools, in place of web_answer); uses the system_agent_search.txt prompt unless --system "
+        "is given; searches are counted and priced at the paid rate in the budget",
+    )
+    parser.add_argument(
+        "--stub-lookups",
+        action="store_true",
+        help="web_answer and wiki_summary return a canned sentence (no network, no searches)",
+    )
+    parser.add_argument(
+        "--search-ledger",
+        type=Path,
+        default=LEDGER,
+        help="JSON-lines ledger of Google searches, shared with the web_answer server",
+    )
     args = parser.parse_args(argv)
+    if args.builtin_search and args.system == ROOT / "config/eval/system_agent.txt":
+        args.system = ROOT / "config/eval/system_agent_search.txt"
     ledger = args.ledger or ROOT / "out/agent_dryrun" / args.run_id / "spend.json"
     return asyncio.run(
         run(
@@ -351,6 +484,9 @@ def main(argv: list[str] | None = None) -> int:
             args.tool_text,
             Budget(args.max_usd, ledger),
             args.allow_partial,
+            args.builtin_search,
+            args.stub_lookups,
+            args.search_ledger,
         )
     )
 

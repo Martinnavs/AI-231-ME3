@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.adapters.schemas.tools_schema import AdapterType, ToolsSchema
 
 from voice_pipeline import question
 from voice_pipeline.agent_tools import (
@@ -18,6 +18,7 @@ from voice_pipeline.agent_tools import (
     pi_device_server,
     runnable,
     standard_servers,
+    with_builtin_search,
 )
 from voice_pipeline.tools.smart_home import INTENTS
 
@@ -150,3 +151,17 @@ async def test_a_lookup_is_spoken_as_it_is_for_a_plain_question() -> None:
 async def test_a_lookup_goes_back_to_the_model_when_the_question_wants_a_decision() -> None:
     properties = await _spoken_result_properties("weather", "Should I bring an umbrella?")
     assert properties is None
+
+
+def _schema(name: str) -> FunctionSchema:
+    return FunctionSchema(name=name, description="d", properties={}, required=[])
+
+
+def test_with_builtin_search_hides_the_lookup_tools_and_adds_google_search() -> None:
+    full = ToolsSchema(
+        standard_tools=[_schema(n) for n in ("smart_home", "weather", "web_answer", "wiki_summary")]
+    )
+    seen = with_builtin_search(full)
+    assert [t.name for t in seen.standard_tools] == ["smart_home", "weather"]
+    assert seen.custom_tools == {AdapterType.GEMINI: [{"google_search": {}}]}
+    assert len(full.standard_tools) == 4  # the server keeps them for the router
