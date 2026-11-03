@@ -27,3 +27,16 @@ current = ""
 def needs_reasoning(question: str) -> bool:
     """True when the question asks for a decision or advice drawn from a result, not the result."""
     return ASKS_FOR_A_DECISION.search(question.replace("’", "'")) is not None
+
+
+ASKS = re.compile(
+    r"^\W*(?:who|whom|whose|what|which|when|where|why|how|is|are|was|were|am|do|does|did|can|"
+    r"could|will|would|shall|should|has|have|had)\b",
+    re.IGNORECASE,
+)
+
+
+def is_question(text: str) -> bool:
+    """A question is asked, not a statement or a command: it ends in "?" or opens with a wh-word
+    or an auxiliary verb."""
+    return text.strip().endswith("?") or ASKS.match(text) is not None

@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from voice_pipeline import fast_path, question
+from voice_pipeline import call_policy, fast_path, question
 from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import (
     FAILURE,
@@ -37,6 +37,14 @@ from voice_pipeline.agent_tools import (
     standard_servers,
     with_builtin_search,
 )
+from voice_pipeline.doc_answer import (
+    DOC_ANSWER_TIMEOUT_S,
+    DocAnswer,
+    Request,
+    gemini_request,
+    passages_of,
+)
+from voice_pipeline.doc_answer import answer as doc_answer
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
 from voice_pipeline.notices import NoticeQueue
 from voice_pipeline.router import (
@@ -71,7 +79,9 @@ class AgentServer:
         tools: Any = None,
         router: LocalRouter | None = None,
         notices: NoticeQueue | None = None,
+        doc_request: Request | None = None,
     ) -> None:
+        self.doc_request = doc_request
         self.router = router
         self.notices = notices
         self.router_lines: dict[str, str] = {}  # reply we spoke -> the router lines behind it
@@ -154,6 +164,78 @@ class AgentServer:
         finally:
             ack.cancel()
 
+    async def lookup(self, tool: str, args: dict[str, Any]) -> Any:
+        """The web lookup, its blip retried once; None when it failed."""
+        result = await self.call_tool(tool, args)
+        if TRANSIENT.search(str(result)):  # lookups are read-only
+            result = await self.call_tool(tool, args)
+        return None if FAILURE.search(str(result)) else result
+
+    async def doc_race(self, user: str) -> tuple[str | None, dict[str, Any]]:
+        """Passages of the documents and one Gemini request, checked (doc_answer.py). Never raises:
+        (the answer or None, the `race` fields)."""
+        started = time.perf_counter()
+        got = DocAnswer("timeout")
+
+        async def ask() -> DocAnswer:
+            try:
+                found = passages_of(await self.call_tool("search_docs", {"query": user}))
+            except Exception:
+                return DocAnswer("error")
+            assert self.doc_request is not None
+            return await doc_answer(self.doc_request, found, user)
+
+        try:
+            got = await asyncio.wait_for(ask(), DOC_ANSWER_TIMEOUT_S)
+        except TimeoutError:
+            pass
+        except Exception:
+            got = DocAnswer("error")
+        fields: dict[str, Any] = {
+            "docs": got.status,
+            "doc_s": round(time.perf_counter() - started, 3),
+        }
+        if got.rejected:
+            fields["rejected"] = got.rejected  # kept so a failed check can be diagnosed later
+        return got.text, fields
+
+    async def raced_lookup(
+        self, tool: str, args: dict[str, Any], user: str, on_tool: Any, race: dict[str, Any]
+    ) -> str | None:
+        """The web lookup and the documents' answer at the same time: the document answer if it
+        passed its checks, else the web result; None if neither is usable. Nothing is spoken here;
+        if neither has decided LOOKUP_ACK_S after the start the client is told a lookup is under
+        way. `race` is filled in."""
+
+        async def announce() -> None:
+            await asyncio.sleep(LOOKUP_ACK_S)
+            await on_tool(tool, False)
+
+        web = asyncio.create_task(self.lookup(tool, args))
+        ack = (
+            asyncio.create_task(announce())
+            if on_tool is not None and tool in ACKED_LOOKUPS
+            else None
+        )
+        try:
+            text, fields = await self.doc_race(user)
+            race.update(fields)
+            if text is not None:
+                race["winner"] = "docs"
+                return text
+            try:
+                result = await web
+            except Exception:
+                result = None
+            race["winner"] = "web" if result is not None else None
+            return None if result is None else str(result)
+        finally:
+            for task in (ack, web):
+                if task is not None:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await task
+
     async def run_routed(
         self,
         routed: Routed,
@@ -175,7 +257,9 @@ class AgentServer:
             claimed = claimed or claim()
             return claimed
 
-        for call in routed.calls:
+        steps = call_policy.plan(routed.calls, routed.user, set(self.tools))
+        for step in steps:
+            call = step.call
             name = call.name
             if name == "none":
                 spoken.append(call.args[0].strip())
@@ -190,21 +274,20 @@ class AgentServer:
                     else f"{text[:-1]} in {zone.split('/')[-1].replace('_', ' ')}."
                 )
             else:
-                home = name in spec.HOME_INTENTS
-                tool = "smart_home" if home else name
-                args = (
-                    {"intent": name, **({"slot": call.args[0]} if call.args else {})}
-                    if home
-                    else spec.to_tool_args(call)
-                )
-                if tool == "wiki_summary" and "web_answer" in self.tools:
-                    # the router was trained on wiki_summary; the web answer replaces it (Wikipedia
-                    # is its fallback), so the trained name keeps working without retraining
-                    asked = routed.user.strip()  # the whole question, unless this turn did more
-                    tool, args = (
-                        "web_answer",
-                        {"query": asked if len(routed.calls) == 1 and asked else args["topic"]},
-                    )
+                home, tool, args = step.home, step.tool, step.args
+                if (
+                    not home
+                    and len(steps) == 1
+                    and tool in call_policy.DOCUMENT_LOOKUPS
+                    and self.doc_request is not None
+                    and "search_docs" in self.tools
+                ):
+                    routed.race = {}
+                    said = await self.raced_lookup(tool, args, routed.user, on_tool, routed.race)
+                    if said is None:
+                        return None
+                    spoken.append(said)
+                    continue
                 if home and not take():
                     return None
                 result = await self.acked_call(tool, args, on_tool, home)
@@ -245,6 +328,7 @@ class AgentServer:
             "routed": True,
             "router_s": routed.seconds,
             "router_lines": routed.lines,
+            **({"race": routed.race} if routed.race else {}),
         }
 
     async def routed_turn(
@@ -267,6 +351,8 @@ class AgentServer:
                 if done is not None:
                     return done
                 routed.reason = "lookup failed or Gemini first"
+                if routed.race:
+                    info["race"] = routed.race
             info["router_reason"] = routed.reason
             return None
 
@@ -402,7 +488,12 @@ async def run(
         router = LocalRouter(router_url, book, router_timeout)
         await router.warm_up()
     queue = NoticeQueue(notices) if notices else None
-    server = AgentServer(agent, record, log, tools if fast or router else None, router, queue)
+    doc_request = None
+    if router and any(t.name == "search_docs" for t in tools.standard_tools):
+        doc_request = await gemini_request(keepalive, ipv4_only)
+    server = AgentServer(
+        agent, record, log, tools if fast or router else None, router, queue, doc_request
+    )
     try:
         async with serve(server.handle, "127.0.0.1", port):
             print(f"agent server on ws://127.0.0.1:{port}, log {log}", flush=True)

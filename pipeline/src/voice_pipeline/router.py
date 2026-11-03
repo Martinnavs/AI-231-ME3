@@ -14,46 +14,20 @@ a turn faster, never lose it.
 from __future__ import annotations
 
 import importlib.util
-import re
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
 from voice_pipeline import fast_path
-from voice_pipeline.question import needs_reasoning
 
 FINETUNE = Path(__file__).resolve().parents[3] / "finetune"
 TIMEOUT_S = 1.5  # the router's p95 is about 0.7 s; a slower answer is not worth waiting for
 HISTORY_PAIRS = 1  # earlier turns shown to the router: the prompt is re-read from the first change
 # (about 100 tokens/s on this CPU), so every extra pair costs about 0.3 s
-CHAT_MAX_WORDS = 5  # a `none|` reply is a pleasantry ("thanks" -> "You're welcome."); a 1B model
-# answers anything longer with an invention, so longer chat turns go to Gemini
-# likewise a long reply: an invented joke is 13 words and a made-up capability speech 18; 10 lets
-# through the trained "That sounds chilly. Want me to warm the room?" (9)
-CHAT_REPLY_MAX_WORDS = 10
-
-
-ECHO_MIN_WORDS = (
-    3  # "Hello." -> "Hello!" is a pleasantry; a longer verbatim repeat is a garbled turn
-)
-
-
-def _words(text: str) -> str:
-    return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
-
-
-def _echoes(user: str, reply: str) -> bool:
-    """The reply just repeats what the user said: the recogniser garbled the turn ("Bucket on Mu.")
-    and the model parroted it, which is no answer."""
-    said, back = _words(user), _words(reply)
-    if len(said.split()) >= ECHO_MIN_WORDS and said in back:
-        return True
-    return len(back.split()) >= ECHO_MIN_WORDS and back in said
 
 
 def _load(name: str, path: Path) -> Any:
@@ -81,7 +55,6 @@ SLOT_SAY = {
     "MESSAGE": "Messaging {}.",
     "CREATE_REMINDER": "Reminder set: {}.",
 }
-INFO_TOOLS = {"weather", "wiki_summary", "get_volume", "set_volume"}  # their result is a sentence
 
 
 @dataclass
@@ -91,6 +64,7 @@ class Routed:
     seconds: float = 0.0
     reason: str | None = None  # None: usable; else why this turn goes to Gemini
     user: str = ""  # what the user said (a lookup is better asked with the whole question)
+    race: dict[str, Any] | None = None  # the documents race of a lookup turn (agent_server.py)
 
 
 class LocalRouter:
@@ -113,34 +87,9 @@ class LocalRouter:
     @staticmethod
     def reason_unusable(calls: list[Any], available: set[str], user: str = "") -> str | None:
         """Why these calls cannot be run here (then Gemini takes the turn), or None."""
-        if not calls:
-            return "empty"
-        for call in calls:
-            name = call.name
-            if name == "escalate":
-                return "escalate"
-            if name == "none":
-                if len(calls) > 1 or not call.args or not call.args[0].strip():
-                    return "unsupported: none"
-                if len(user.split()) > CHAT_MAX_WORDS:
-                    return "chat too long"
-                if len(call.args[0].split()) > CHAT_REPLY_MAX_WORDS:
-                    return "chat reply too long"
-                if _echoes(user, call.args[0]):
-                    return "echo"
-            elif name in spec.HOME_INTENTS:
-                if name == "LIST_REMINDERS" or "smart_home" not in available:
-                    return f"unsupported: {name}"
-            elif name == "get_current_time":
-                try:
-                    ZoneInfo(spec.to_tool_args(call).get("timezone", fast_path.TIMEZONE))
-                except (ZoneInfoNotFoundError, ValueError):
-                    return "unsupported: time zone"
-            elif name not in INFO_TOOLS or name not in available:
-                return f"unsupported: {name}"
-            elif needs_reasoning(user):  # "should I bring an umbrella": a decision, not a forecast
-                return "needs reasoning"
-        return None
+        from voice_pipeline import call_policy
+
+        return call_policy.decide(calls, user, available).reason
 
     async def route(
         self, history: list[tuple[str, str]], user: str, available: set[str] | None = None
