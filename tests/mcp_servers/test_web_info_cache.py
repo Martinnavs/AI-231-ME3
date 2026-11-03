@@ -1,5 +1,7 @@
 """web_info keeps one connection, remembers places and reuses a forecast for ten minutes."""
 
+import asyncio
+
 import httpx
 from fastmcp import Client
 
@@ -33,7 +35,9 @@ class Counting(httpx.MockTransport):
 async def test_a_place_is_looked_up_once_and_a_forecast_reused() -> None:
     now = [1000.0]
     transport = Counting()
-    async with Client(build_server("Quezon City", transport, clock=lambda: now[0])) as client:
+    async with Client(
+        build_server("Quezon City", transport, clock=lambda: now[0], ping_every_s=None)
+    ) as client:
         first = await client.call_tool("weather", {})
         again = await client.call_tool("weather", {"day": "tomorrow"})
         now[0] += FORECAST_TTL_S + 1
@@ -53,7 +57,16 @@ async def test_an_unknown_place_is_not_remembered() -> None:
         return httpx.Response(200, json={"results": []})
 
     transport = httpx.MockTransport(handle)
-    async with Client(build_server("Quezon City", transport)) as client:
+    async with Client(build_server("Quezon City", transport, ping_every_s=None)) as client:
         await client.call_tool("weather", {"place": "Xyzzy"})
         await client.call_tool("weather", {"place": "Xyzzy"})
     assert calls == ["geocoding-api.open-meteo.com"] * 2
+
+
+async def test_both_hosts_are_opened_at_start_and_pinged_while_in_use() -> None:
+    transport = Counting()
+    async with Client(build_server("Quezon City", transport, ping_every_s=0.05)) as client:
+        await client.call_tool("weather", {})
+        await asyncio.sleep(0.3)
+    assert len([h for h in transport.hosts if h.startswith("geocoding")]) >= 3
+    assert len([h for h in transport.hosts if h == "api.open-meteo.com"]) >= 3

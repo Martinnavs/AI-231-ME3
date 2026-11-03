@@ -62,8 +62,9 @@ async def test_the_answer_is_cut_to_two_sentences_and_the_request_is_well_formed
 
 
 async def test_the_best_snippet_is_used_when_there_is_no_answer() -> None:
-    text, _ = await _ask(httpx.Response(200, json={"answer": None, "results": ANSWER["results"]}))
-    assert text == "A snippet."
+    results = [{"content": "Blood Meridian snippet.", "url": "https://example.org"}]
+    text, _ = await _ask(httpx.Response(200, json={"answer": None, "results": results}))
+    assert text == "Blood Meridian snippet."
 
 
 @pytest.mark.parametrize(
@@ -179,5 +180,119 @@ async def test_the_connection_is_kept_open_and_pinged_while_in_use() -> None:
     assert all(r.method == "GET" and "Authorization" not in r.headers for r in pings)
 
 
-def test_the_cache_key_ignores_case_and_punctuation() -> None:
-    assert tavily_search.cache_key("Who won?!") == tavily_search.cache_key("  who   WON ")
+def test_wordings_of_one_question_share_content_words() -> None:
+    words = tavily_search.content_words
+    assert words("When was the EDSA revolution?") == words("the EDSA revolution")
+    assert words("Who won?!") == words("  who   WON ")
+    assert words("What is the Eiffel Tower's height?") == words("Eiffel Tower height")
+
+
+def test_only_close_wordings_count_as_the_same_question() -> None:
+    same, words = tavily_search.same_question, tavily_search.content_words
+    assert same(
+        words("Who won the 2022 FIFA World Cup?"), words("Who won the FIFA World Cup in 2022?")
+    )
+    assert not same(words("Who won the 2022 World Cup?"), words("Who won the 2018 World Cup?"))
+    assert not same(words("Sorry, I mean Sinigang."), words("What is sinigang?"))
+    assert not same(words("Paris"), words("Paris weather"))  # one word each is never "close"
+
+
+class _Slow(httpx.AsyncBaseTransport):
+    """Tavily answers after a delay, so a second call can arrive while the first is running."""
+
+    def __init__(self, delay: float = 0.2) -> None:
+        self.delay, self.searches = delay, 0
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if str(request.url).startswith(tavily_search.TAVILY_URL):
+            self.searches += 1
+            await asyncio.sleep(self.delay)
+            return httpx.Response(200, json=ANSWER)
+        return httpx.Response(404)
+
+
+async def test_a_second_wording_joins_the_search_already_running() -> None:
+    transport = _Slow()
+    async with Client(build_server(transport, "test-key", None)) as client:
+        first, second = await asyncio.gather(
+            client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"}),
+            client.call_tool("web_answer", {"query": "who wrote the novel Blood Meridian"}),
+        )
+    assert transport.searches == 1
+    assert first.structured_content == second.structured_content
+
+
+async def test_a_different_question_is_searched_on_its_own() -> None:
+    transport = _Slow()
+    async with Client(build_server(transport, "test-key", None)) as client:
+        await asyncio.gather(
+            client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"}),
+            client.call_tool("web_answer", {"query": "Who wrote The Road?"}),
+        )
+    assert transport.searches == 2
+
+
+async def test_giving_up_on_a_joined_search_does_not_cancel_it_for_the_others() -> None:
+    transport = _Slow()
+    async with Client(build_server(transport, "test-key", None)) as client:
+        loser = asyncio.ensure_future(
+            client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
+        )
+        await asyncio.sleep(0.05)
+        winner = asyncio.ensure_future(
+            client.call_tool("web_answer", {"query": "who wrote Blood Meridian"})
+        )
+        await asyncio.sleep(0.05)
+        loser.cancel()
+        result = await winner
+    assert "Blood Meridian" in str(result.structured_content["result"])
+    assert transport.searches == 1
+
+
+def _data(answer: str, *snippets: str) -> dict[str, object]:
+    return {"answer": answer, "results": [{"title": "", "content": c, "url": ""} for c in snippets]}
+
+
+def test_a_year_that_no_source_mentions_is_unconfirmed() -> None:
+    answer = "The 1987 prize went to Bednorz and Mueller."
+    data = _data(answer, "Nobel Prize in Physics 1987 winners.")
+    assert tavily_search.unconfirmed("Who won the 2087 Nobel Prize in Physics?", answer, data) == [
+        "2087"
+    ]
+    assert tavily_search.unconfirmed("Who won the 1987 Nobel Prize in Physics?", answer, data) == []
+
+
+def test_a_number_with_commas_is_found_in_either_form() -> None:
+    answer = "It has 1,234 residents."
+    assert tavily_search.unconfirmed("Is the 1234 count right?", answer, _data(answer)) == []
+    assert tavily_search.unconfirmed("Is the 1,234 count right?", "1234 people", _data("x")) == []
+
+
+def test_a_name_is_checked_with_some_tolerance_for_spelling() -> None:
+    answer = "Émile Nouguier and Gustave Eiffel designed it."
+    data = _data(answer, "Maurice Koechlin helped.")
+    assert tavily_search.unconfirmed("Who was Gustave Eiffel's partner?", answer, data) == []
+    assert tavily_search.unconfirmed("Did Emile Nouguier help?", answer, data) == []  # accent
+    assert tavily_search.unconfirmed("Did Thomas Edison help?", answer, data) == [
+        "Thomas",
+        "Edison",
+    ]
+
+
+def test_the_first_word_and_pronouns_are_not_taken_for_names() -> None:
+    answer = "Paris is the capital of France."
+    assert tavily_search.unconfirmed("Who knows? I think Paris is.", answer, _data(answer)) == []
+
+
+async def test_an_unconfirmed_year_is_said_so_and_the_hedge_is_cached() -> None:
+    seen: list[httpx.Request] = []
+    ask = {"query": "Who won the 2087 Blood Meridian prize?"}
+    async with Client(
+        build_server(_transport(httpx.Response(200, json=ANSWER), seen), "test-key", None)
+    ) as client:
+        first = await client.call_tool("web_answer", ask)
+        again = await client.call_tool("web_answer", ask)
+    text = str(first.structured_content["result"])
+    assert text.startswith("I couldn't confirm 2087 in what I found. The closest result says: ")
+    assert "Blood Meridian" in text and first.structured_content == again.structured_content
+    assert len(seen) == 1
