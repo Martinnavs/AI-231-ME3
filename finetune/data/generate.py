@@ -239,9 +239,20 @@ def s_pi(rng: random.Random) -> Example:
     text = rng.choice(
         [
             "how is the speaker doing",
-            "what's the pi temperature",
             "is the speaker connected",
             "how much memory does the pi have left",
+            "what's the pi temperature",
+            "how hot is the speaker",
+            "how hot is the pi",
+            "what is the temperature of the pi",
+            "pi temperature",
+            "what's the cpu temperature",
+            "is the speaker online",
+            "how long has the speaker been on",
+            "what's the speaker's uptime",
+            "how much memory is free on the speaker",
+            "check the speaker status",
+            "is the pi running okay",
         ]
     )
     return ex("pi", f"pi:{text}", text, [line("device_status")], phonebook(rng))
@@ -495,6 +506,29 @@ def s_now_variants(rng: random.Random) -> Example:
     return ex("home", f"now:{text}", text, [base["target"]], base["phonebook"])
 
 
+def s_arithmetic(rng: random.Random) -> Example:
+    """Spoken arithmetic: reasoning for the hosted model. Digits or number words; never a home action."""
+    template = rng.choice(B.ARITH_TEMPLATES)
+    a, b = rng.randint(2, 99), rng.randint(2, 99)
+    if "divide" in template:
+        b = rng.randint(2, 12)
+        a = b * rng.randint(2, 40)
+    root = rng.randint(2, 15)
+
+    def say(n: int) -> str:
+        return words(n) if n < 100 and rng.random() < 0.4 else str(n)
+
+    text = template.format(
+        a=say(a),
+        b=say(b),
+        p=say(rng.choice([5, 10, 15, 20, 25, 30, 40, 50, 75])),
+        n=say(rng.choice([40, 80, 120, 200, 240, 360, 500, 1000])),
+        sq=say(root * root),
+        c=say(rng.randint(2, 9)),
+    )
+    return ex("arith", f"arith:{text}", text, [line("escalate", "reasoning")], phonebook(rng))
+
+
 MIX: list[tuple[float, Callable[[random.Random], Example]]] = [
     (14, s_noslot),
     (14, s_slot),
@@ -504,7 +538,7 @@ MIX: list[tuple[float, Callable[[random.Random], Example]]] = [
     (2, s_convert),
     (5, s_weather),
     (5, s_wiki),
-    (4, s_pi),
+    (6, s_pi),
     (3, s_chat),
     (3, s_ask),
     (5, s_defer),
@@ -522,6 +556,7 @@ MIX: list[tuple[float, Callable[[random.Random], Example]]] = [
     (5, s_web_answer),
     (2, s_settled),
     (3, s_now_variants),
+    (5, s_arithmetic),
 ]
 
 

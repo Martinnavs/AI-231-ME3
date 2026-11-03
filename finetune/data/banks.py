@@ -90,6 +90,13 @@ DURATIONS = [
     "3 minutes",
     "25 minutes",
     "1 minute",
+    "12 minutes",
+    "8 minutes",
+    "7 minutes",
+    "2 minutes",
+    "40 seconds",
+    "50 minutes",
+    "3 hours",
 ]
 TASKS = [
     "call the dentist",
@@ -133,6 +140,10 @@ SLOT_TEMPLATES = {
         "start a {slot} timer",
         "count down {slot}",
         "time me for {slot}",
+        "timer for {slot}",
+        "set a {slot} timer",
+        "give me a {slot} timer",
+        "can you time {slot}",
     ],
     "ALARM": ["wake me up at {slot}", "set an alarm for {slot}", "alarm at {slot}", "i need an alarm at {slot}"],
     "CREATE_REMINDER": [
@@ -802,4 +813,38 @@ TIME_NOW = [
     "what's the time at the moment",
     "tell me the time right now",
     "what is today's time",
+]
+
+
+# --- arithmetic (ticket 02): spoken sums are reasoning for the hosted model, never a timer or another home action
+ARITH_TEMPLATES = [  # {a} {b} operands, {p} a percent, {n} a base, {sq} a perfect square
+    "what's {a} times {b}",
+    "what is {a} plus {b}",
+    "what is {a} minus {b}",
+    "{a} plus {b}",
+    "{a} minus {b}",
+    "{a} times {b}",
+    "{a} multiplied by {b}",
+    "{a} divided by {b}",
+    "what is {a} divided by {b}",
+    "divide {a} by {b}",
+    "add {a} and {b}",
+    "subtract {b} from {a}",
+    "multiply {a} by {b}",
+    "how much is {a} plus {b}",
+    "how much is {a} times {b}",
+    "how much is {a} minus {b}",
+    "calculate {a} times {b}",
+    "what do you get if you add {a} and {b}",
+    "what is {p} percent of {n}",
+    "how much is {p} percent of {n}",
+    "{p} percent of {n}",
+    "how much is {a} squared",
+    "what is {a} squared",
+    "what is {a} to the power of two",
+    "what's the square root of {sq}",
+    "square root of {sq}",
+    "what is the cube of {c}",
+    "what is half of {n}",
+    "what's double {a}",
 ]

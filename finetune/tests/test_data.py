@@ -129,3 +129,33 @@ def test_settled_facts_stay_a_topic_lookup():
 def test_web_answer_has_a_weight_comparable_to_wiki():
     weights = {m.__name__: w for w, m in G.MIX}
     assert 0.5 <= weights["s_web_answer"] / weights["s_wiki"] <= 2
+
+
+def test_arithmetic_is_reasoning_never_a_home_action():
+    rng = random.Random(4)
+    users = set()
+    for _ in range(400):
+        e = G.s_arithmetic(rng)
+        assert e["target"] == "escalate|reasoning", (e["user"], e["target"])
+        users.add(e["user"])
+    assert len(users) > 150  # digits, number words and many operations
+
+
+def test_arithmetic_and_pi_status_in_the_generated_data(data):
+    arith = [r for rows in data.values() for r in rows if r["kind"] == "arith"]
+    assert arith and all(T.parse_line(r["target"]).name == "escalate" for r in arith)
+    for rows in data.values():
+        for r in rows:
+            for ln in r["target"].splitlines():
+                if T.parse_line(ln).name == "TIMER":
+                    assert any(u in ln for u in ("second", "minute", "hour")), ln  # a duration, never a bare sum
+
+
+def test_pi_temperature_is_device_status_not_a_lookup():
+    rng = random.Random(5)
+    seen = set()
+    for _ in range(400):
+        e = G.s_pi(rng)
+        if e["target"] == "device_status":
+            seen.add(e["user"])
+    assert "what's the pi temperature" in seen and len(seen) >= 8
