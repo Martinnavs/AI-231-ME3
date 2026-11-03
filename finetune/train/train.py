@@ -45,6 +45,12 @@ def main() -> None:
     ap.add_argument("--full", action="store_true")
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--resume", action="store_true", help="continue from the latest checkpoint in --out")
+    ap.add_argument("--teacher", help="distil from this base model (needs --teacher-adapter); same tokenizer required")
+    ap.add_argument("--teacher-adapter", type=Path, help="LoRA adapter directory merged into --teacher")
+    ap.add_argument(
+        "--kd-alpha", type=float, default=0.5, help="weight of the teacher KL; the rest is gold cross-entropy"
+    )
+    ap.add_argument("--kd-temp", type=float, default=2.0)
     ap.add_argument("--eval-n", type=int, default=300, help="dev examples for the generation exact-match")
     a = ap.parse_args()
 
@@ -79,6 +85,15 @@ def main() -> None:
         )
         model.print_trainable_parameters()
 
+    teacher = None
+    if a.teacher:
+        from peft import PeftModel
+
+        teacher = AutoModelForCausalLM.from_pretrained(a.teacher, torch_dtype=torch.bfloat16)
+        teacher = PeftModel.from_pretrained(teacher, str(a.teacher_adapter)).merge_and_unload().cuda().eval()
+        for prm in teacher.parameters():
+            prm.requires_grad_(False)
+
     class Data(torch.utils.data.Dataset):
         def __init__(self, items):
             self.items = items
@@ -112,7 +127,27 @@ def main() -> None:
         report_to=[],
         remove_unused_columns=False,
     )
-    trainer = Trainer(
+
+    class KDTrainer(Trainer):
+        """Loss on the target tokens only: alpha * KL(teacher || student) at temperature T, plus gold cross-entropy."""
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            import torch.nn.functional as F
+
+            labels = inputs["labels"][:, 1:]
+            mask = labels != U.IGNORE
+            out = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+            student = out.logits[:, :-1][mask].float()
+            ce = F.cross_entropy(student, labels[mask])
+            with torch.no_grad():
+                t_out = teacher(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+                target = t_out.logits[:, :-1][mask].float()
+            t = a.kd_temp
+            kd = F.kl_div(F.log_softmax(student / t, -1), F.softmax(target / t, -1), reduction="batchmean") * t * t
+            loss = a.kd_alpha * kd + (1 - a.kd_alpha) * ce
+            return (loss, out) if return_outputs else loss
+
+    trainer = (KDTrainer if teacher is not None else Trainer)(
         model=model,
         args=args,
         train_dataset=Data(encoded["train"]),
