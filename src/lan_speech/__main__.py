@@ -88,6 +88,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="with --stt-model parakeet: hotwords only, skip the name repair ladder",
     )
+    ap.add_argument(
+        "--repair-only",
+        default="",
+        help="with --stt-model parakeet: comma-separated name categories used for the repair "
+        "step but not as hotwords (e.g. doc, for a long list of document names)",
+    )
     ap.add_argument("--stt-threads", type=int, default=2, help="Sherpa STT threads (default: 2)")
     ap.add_argument(
         "--comma-pause",
@@ -148,6 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 pad_tail_s=args.pad_tail,
                 early_decode_s=args.early_decode_ms / 1000 if args.early_decode_ms > 0 else None,
                 repair=not args.no_repair,
+                repair_only=frozenset(c for c in args.repair_only.split(",") if c),
             )
         else:
             stt = SherpaSTTEngine(

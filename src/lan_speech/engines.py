@@ -242,11 +242,21 @@ _KITTEN_BIG = re.compile(r"(?<![\w:.,$])(\$?)(\d{1,3}(?:,\d{3})+|\d{4,})(\.\d+)?
 _SCALES = re.compile(r"\b(thousand|million) (?=\w)")
 
 
+# Words Kitten mispronounces -> a spelling it speaks correctly, picked by round trip through
+# Parakeet without hotwords (2026-11-04): EDSA was heard as "Adiasur"/"Andisa", Duterte as "Dudert".
+KITTEN_RESPELLINGS = {"EDSA": "Ed sah", "Duterte": "Du-tair-tay"}
+_KITTEN_RESPELL = re.compile(
+    r"\b(" + "|".join(re.escape(w) for w in KITTEN_RESPELLINGS) + r")\b", re.IGNORECASE
+)
+_KITTEN_RESPELL_BY_LOWER = {w.lower(): r for w, r in KITTEN_RESPELLINGS.items()}
+
+
 def big_number_words(match: re.Match[str], say_number: Callable[[int], str]) -> str:
     """Words for a number of 1,000 or more, in the form Kitten reads back correctly (round trip
     through Parakeet, 2026-11-04): a comma after each scale word, a fraction rounded away
     ("eight thousand, eight hundred forty-nine" for 8,848.86), and billions as "one point four
-    billion" (spelled out, "one billion four hundred million" is spoken as a trillion)."""
+    billion" (spelled out, "one billion four hundred million" is spoken as a trillion), and "and"
+    instead of the comma when only 1-99 follows the thousands (29,004: 7 of 200 wrong -> 0)."""
     value = float(match[2].replace(",", "") + (match[3] or ""))
     unit = " dollars" if match[1] else ""
     if value >= 1e9:
@@ -254,7 +264,10 @@ def big_number_words(match: re.Match[str], say_number: Callable[[int], str]) -> 
         tenths = f"{billions:.2f}".split(".")[1].rstrip("0")
         point = " point " + " ".join(say_number(int(d)) for d in tenths) if tenths else ""
         return f"{say_number(int(billions))}{point} billion{unit}"
-    words = say_number(round(value)).replace(" and ", " ")
+    whole = round(value)
+    words = say_number(whole).replace(" and ", " ")
+    if whole < 1_000_000 and 0 < whole % 1000 < 100:  # "thousand, four" is heard as "thousand 4"
+        return _SCALES.sub(r"\1 and ", words) + unit
     return _SCALES.sub(r"\1, ", words) + unit
 
 
@@ -271,9 +284,11 @@ def kitten_text(
     into "person s" (read "person ess"). Keep case, apostrophes and punctuation instead; say years
     as years ("nineteen thirty-three"), AM/PM as letters (its time expander turns them into the
     word "am"; "ay em" is spoken as "I M", "A M" as the letters), dates with an ordinal day, and
-    big numbers in the form it reads back correctly (`big_number_words`). The number steps need
+    big numbers in the form it reads back correctly (`big_number_words`), and respell the words in
+    `KITTEN_RESPELLINGS`. The number steps need
     `say_number` / `say_ordinal` (num2words) and are skipped without them.
     """
+    text = _KITTEN_RESPELL.sub(lambda m: _KITTEN_RESPELL_BY_LOWER[m[1].lower()], text)
     text = _KITTEN_RANGE.sub(" to ", text)
     if say_ordinal is not None:
         text = _KITTEN_DATE.sub(lambda m: f"{m[1]} {say_ordinal(int(m[2]))}", text)

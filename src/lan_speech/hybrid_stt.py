@@ -27,7 +27,7 @@ from typing import Any
 import numpy as np
 
 from lan_speech.engines import SherpaSTTEngine, STTDecodeResult, STTStream
-from lan_speech.hotwords import write_hotwords, write_vocab
+from lan_speech.hotwords import hotword_names, write_hotwords, write_vocab
 from lan_speech.models import PARAKEET_DIR
 from lan_speech.pause import NoiseFloor, PauseDetector
 from lan_speech.transcript_repair import (
@@ -302,6 +302,7 @@ class ParakeetHybridSTTEngine:
         early_decode_s: float | None = None,
         repair: bool = True,
         repair_cfg: RepairConfig | None = None,
+        repair_only: frozenset[str] = frozenset(),
     ) -> None:
         models = Path(models_dir)
         self._kroko = SherpaSTTEngine(
@@ -312,7 +313,7 @@ class ParakeetHybridSTTEngine:
         )
         self._transcribe = ParakeetTranscriber(
             models / PARAKEET_DIR,
-            [e.name for e in entities],
+            hotword_names(entities, repair_only),
             threads=parakeet_threads,
             hotword_score=hotword_score,
         )
