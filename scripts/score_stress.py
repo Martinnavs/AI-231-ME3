@@ -15,6 +15,7 @@ from __future__ import annotations
 import difflib
 import glob
 import json
+import os
 import re
 import statistics as st
 import sys
@@ -22,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "docs/stress/stress-batch-v2.jsonl"
+SCRIPT = Path(os.environ.get("STRESS_SCRIPT") or ROOT / "docs/stress/stress-batch-v2.jsonl")
 
 
 def norm(text: str) -> str:
@@ -155,6 +156,13 @@ def main() -> int:
             fails.append(f"called {sorted(set(it['tools_forbid']) & names)}")
         if it.get("min_calls") and ncalls < it["min_calls"]:
             fails.append(f"{ncalls} calls, wanted {it['min_calls']}")
+        race = (a or {}).get("race") or {}
+        if race:
+            notes.append(
+                f"race {race.get('winner')} (docs {race.get('docs')}, {race.get('doc_s')}s)"
+            )
+        if it.get("race_winner") and race.get("winner") != it["race_winner"]:
+            fails.append(f"race winner {race.get('winner')}, wanted {it['race_winner']}")
         if it.get("text_re") and not re.search(it["text_re"], text):
             fails.append(f"reply lacks /{it['text_re']}/")
         if it.get("text_not_re") and re.search(it["text_not_re"], text):
@@ -236,7 +244,7 @@ def main() -> int:
         print(f"{iid:>2} {v:7} {label:46}  {note}")
     c = {
         v: sum(1 for x in results if x[1] == v)
-        for v in ("PASS", "PASS*", "FAIL", "FAIL*", "NOT RUN")
+        for v in ("PASS", "PASS*", "FAIL", "FAIL*", "NOT RUN", "SKIP")
     }
     print(
         f"\n{c['PASS']} pass, {c['PASS*']} known issues now fixed, {c['FAIL']} fail, {c['FAIL*']} known issues still present, {c['NOT RUN']} not run, {c['SKIP']} skipped  (of {len(results)})"
