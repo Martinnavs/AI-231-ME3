@@ -55,3 +55,17 @@ def test_batches_are_right_padded_with_ignored_labels():
 def test_exact_match_needs_the_whole_reply():
     assert U.exact_match(["A\nB", "A"], ["A\nB", "A\nB"]) == 0.5
     assert U.exact_match([], []) == 0.0
+
+
+def test_topk_kl_equals_the_full_kl_when_k_is_the_whole_vocabulary_and_is_close_for_a_peaked_teacher():
+    import torch
+    import torch.nn.functional as F
+
+    g = torch.Generator().manual_seed(0)
+    student = torch.randn(6, 50, generator=g)
+    teacher = torch.randn(6, 50, generator=g) * 4  # a peaked teacher
+    exact = F.kl_div(F.log_softmax(student / 2, -1), F.softmax(teacher / 2, -1), reduction="batchmean") * 4
+    vals, idx = teacher.topk(50, -1)
+    assert torch.allclose(U.topk_kl(student, vals, idx, 2.0), exact, atol=1e-5)
+    vals, idx = teacher.topk(20, -1)
+    assert abs(float(U.topk_kl(student, vals, idx, 2.0)) - float(exact)) < 0.15 * float(exact)

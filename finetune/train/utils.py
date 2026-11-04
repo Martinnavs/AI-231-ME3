@@ -42,3 +42,17 @@ def exact_match(predictions: list[str], targets: list[str]) -> float:
     if not targets:
         return 0.0
     return sum(p.strip() == t.strip() for p, t in zip(predictions, targets, strict=True)) / len(targets)
+
+
+def topk_kl(student_logits, teacher_vals, teacher_idx, temp: float):
+    """KL(teacher || student) at temperature `temp`, with the teacher known only at its top-k logits per position.
+
+    student_logits [N, V]; teacher_vals / teacher_idx [N, k] (the teacher's k largest logits and their token ids).
+    The teacher distribution is renormalised over those k tokens; the student's log-probability is taken over the
+    full vocabulary. With k = V this is the exact `F.kl_div(..., reduction="batchmean") * temp**2`.
+    """
+    import torch.nn.functional as F
+
+    t_logp = F.log_softmax(teacher_vals.float() / temp, -1)
+    s_logp = F.log_softmax(student_logits.float() / temp, -1).gather(-1, teacher_idx.long())
+    return (t_logp.exp() * (t_logp - s_logp)).sum(-1).mean() * temp * temp

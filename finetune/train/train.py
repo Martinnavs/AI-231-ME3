@@ -48,6 +48,11 @@ def main() -> None:
     ap.add_argument("--teacher", help="distil from this base model (needs --teacher-adapter); same tokenizer required")
     ap.add_argument("--teacher-adapter", type=Path, help="LoRA adapter directory merged into --teacher")
     ap.add_argument(
+        "--teacher-cache",
+        type=Path,
+        help="top-k teacher logits from scripts/cache_teacher_logits.py: distil without loading the teacher",
+    )
+    ap.add_argument(
         "--kd-alpha", type=float, default=0.5, help="weight of the teacher KL; the rest is gold cross-entropy"
     )
     ap.add_argument("--kd-temp", type=float, default=2.0)
@@ -69,7 +74,7 @@ def main() -> None:
     for split in ("train", "dev"):
         rows = load_rows(a.data / f"{split}.jsonl", limit)
         enc = [U.encode_example(tok, r["messages"], a.max_len) for r in rows]
-        encoded[split] = [e for e in enc if e is not None]
+        encoded[split] = [{**e, "id": r["id"]} for r, e in zip(rows, enc, strict=True) if e is not None]
         print(
             f"{split}: {len(encoded[split])} examples ({len(rows) - len(encoded[split])} dropped as too long)",
             flush=True,
@@ -85,6 +90,14 @@ def main() -> None:
         )
         model.print_trainable_parameters()
 
+    cache = None
+    if a.teacher_cache:
+        if a.teacher:
+            sys.exit("use either --teacher (live) or --teacher-cache, not both")
+        cache = torch.load(a.teacher_cache)["entries"]
+        missing = [e["id"] for rows_ in encoded.values() for e in rows_ if e["id"] not in cache]
+        if missing:
+            sys.exit(f"{len(missing)} examples have no cached teacher logits (first: {missing[0]}); rebuild the cache")
     teacher = None
     if a.teacher:
         from peft import PeftModel
@@ -106,7 +119,11 @@ def main() -> None:
 
     def collate(features):
         batch = U.pad_batch(features, tok.pad_token_id)
-        return {k: torch.tensor(v) for k, v in batch.items()}
+        out = {k: torch.tensor(v) for k, v in batch.items()}
+        if cache is not None:  # the teacher rows in the same order as the masked student rows (batch, then position)
+            out["t_vals"] = torch.cat([cache[f["id"]][0] for f in features])
+            out["t_idx"] = torch.cat([cache[f["id"]][1] for f in features])
+        return out
 
     args = TrainingArguments(
         output_dir=str(a.out),
@@ -139,15 +156,18 @@ def main() -> None:
             out = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
             student = out.logits[:, :-1][mask].float()
             ce = F.cross_entropy(student, labels[mask])
-            with torch.no_grad():
-                t_out = teacher(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
-                target = t_out.logits[:, :-1][mask].float()
             t = a.kd_temp
-            kd = F.kl_div(F.log_softmax(student / t, -1), F.softmax(target / t, -1), reduction="batchmean") * t * t
+            if cache is not None:
+                kd = U.topk_kl(student, inputs["t_vals"], inputs["t_idx"], t)
+            else:
+                with torch.no_grad():
+                    t_out = teacher(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+                    target = t_out.logits[:, :-1][mask].float()
+                kd = F.kl_div(F.log_softmax(student / t, -1), F.softmax(target / t, -1), reduction="batchmean") * t * t
             loss = a.kd_alpha * kd + (1 - a.kd_alpha) * ce
             return (loss, out) if return_outputs else loss
 
-    trainer = (KDTrainer if teacher is not None else Trainer)(
+    trainer = (KDTrainer if teacher is not None or cache is not None else Trainer)(
         model=model,
         args=args,
         train_dataset=Data(encoded["train"]),
