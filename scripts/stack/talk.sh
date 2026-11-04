@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# THE LIVE LOOP in the foreground (needs the microphone): laptop mic -> speech server -> agent server -> Kitten -> Pi speaker.
+# Variables: NOTE, SPEECH_PORT (default PORT_SPEECH), TALK_ARGS (extra doc_chat flags), DRY=1
+source "$(dirname "$0")/lib.sh"
+load_env
+need_token
+cd "$STACK_REPO" || exit 1
+RUN=out/sessions/stack-$(date +%m%d-%H%M)
+mkdir -p "$STACK_DIR"; [ "$DRY" = 1 ] || echo "$RUN" >"$STACK_DIR/last_session"
+# shellcheck disable=SC2086
+run uv run --group laptop python -W ignore -u -m doc_chat --mic --llm agent --no-docs --slot "doc+term?" --stream \
+  --server "ws://$LAPTOP_IP:${SPEECH_PORT:-$PORT_SPEECH}" --play-remote "ws://$PI_V4:$PORT_PI_SPEAKER" --vad both --vad-confidence 0.5 \
+  --silero-kofn 7/10 --level-kofn 3/8 --barge-echo-quantile 0.95 --barge-echo-window 60 --barge-echo-margin 1.2 \
+  --barge-echo-prior 0.8 --trace-guard --history 4 --max-words 90 --aec --duck-db -15 --strip-echo-prefix \
+  --barge-warmup-s 1.0 --barge-min-bar 0.06 --fillers --record "$RUN" --note "${NOTE:-stack: router ${ROUTER_MODEL:-?}, laptop mic, Pi speaker}" ${TALK_ARGS:-}

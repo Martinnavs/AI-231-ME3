@@ -50,6 +50,25 @@ export LAN_SPEECH_TOKEN=$(cat ~/.config/lan_speech_token)
 
 Say "goodbye" to stop. `kill -USR1 <pid>` prints where every asyncio task is waiting, and the status line every 2 s shows the phase and the microphone peak.
 
+## Pi setup in one command
+
+For the laptop-microphone / Pi-loudspeaker stack (`docs/PI-REMOTE-SPEAKER.md`). Nothing about the Pi is hard-coded: `make pi-detect` finds it and writes `config/pi.env` (gitignored; `config/pi.env.example` shows the keys).
+
+| Command | Where | What |
+|---|---|---|
+| `make pi-detect` | laptop | cable interface and `169.254.x.x` address; finds the Pi (`ip neigh`, `ping -6 ff02::1%IF`, last known addresses); ssh with the key; compares 12-character token hash prefixes (never the token); reads the speaker's sound-card name (`CD002-AUDIO`, not a card number); checks the repo and `.venv` on the Pi. Read-only on the Pi. A failure names the step, gives a fix, exits non-zero and writes nothing. |
+| `make up` | laptop | detects the Pi first if `config/pi.env` is missing or older than `PI_ENV_MAX_AGE_MIN` (120); starts router, speech server, Pi speaker and device tools (ssh), then the agent server. Stops at the first problem. Parts: `up-laptop`, `up-pi`, `restart-agent`. |
+| `make talk` | laptop | the live loop in the foreground (needs the microphone) |
+| `make status` | laptop | read-only; `PI_LOGS=1` adds the Pi logs and temperature |
+| `make down` | laptop | stops what `up` started: laptop services by PID file (`out/stack/pids`), Pi services by their PID files |
+| `make pi-env` | laptop | copies `config/pi.env` to the Pi's repo |
+| `make pi-clips` | laptop | regenerates `tests/fixtures/pi_echo` (deterministic) and rsyncs it to the Pi; the clips are small and tracked, so `git pull` on the Pi also works |
+| `make pi-check` | **on the Pi** | `config/pi.env` loads, venv, token file mode 600, speaker present, the six clips; lists everything missing |
+
+`DRY=1` prints the commands and runs nothing (`make up DRY=1`). Settings are overridable like `make up ROUTER_MODEL=router-350m-kd-s0 ENTITIES=config/entities-docs.json KITTEN_VOICE=Jasper`; see the top of the `Makefile`. Logs are in `out/stack/logs/`.
+
+First time on a fresh Pi: get the repo and `scripts/stack/` there (git pull), then `make pi-detect pi-env` on the laptop and `make pi-check` on the Pi. Optional, so the Pi services start at boot: `deploy/install-pi.sh` on the Pi installs the user units `deploy/systemd/pi-speaker.service` and `pi-device-mcp.service` (they read `config/pi.env` through `EnvironmentFile` and the token from `~/.config/lan_speech_token`); start them with `make up PI_START=systemd`. The ssh host key is pinned in `config/pi_known_hosts` on first contact (delete it if the Pi is reinstalled).
+
 ## Things that would otherwise cost an hour
 
 | Symptom | Cause | What the bridge does |
