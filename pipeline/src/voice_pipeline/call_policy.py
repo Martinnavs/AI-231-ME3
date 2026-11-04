@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from voice_pipeline import fast_path
+from voice_pipeline import device_say, fast_path
 from voice_pipeline.question import is_question, needs_reasoning
 from voice_pipeline.router import spec
 
@@ -26,7 +26,10 @@ CHAT_REPLY_MAX_WORDS = 10
 ECHO_MIN_WORDS = (
     3  # "Hello." -> "Hello!" is a pleasantry; a longer verbatim repeat is a garbled turn
 )
-INFO_TOOLS = {"weather", "wiki_summary", "web_answer", "get_volume", "set_volume", "device_status"}
+INFO_TOOLS = {"weather", "wiki_summary", "web_answer", "get_volume", "set_volume"}
+# The router's device_status calls were mostly wrong (a ping or a volume change answered with the
+# Pi's status); re-enable only after the retrained router passes its Pi checks.
+ROUTER_DEVICE_STATUS = False
 DOCUMENT_LOOKUPS = {"web_answer", "wiki_summary"}  # the lookups that race the documents
 
 
@@ -183,6 +186,145 @@ def _alarm_time(text: str) -> bool:
 TIME_CHECKS: dict[str, Callable[[str], bool]] = {"TIMER": is_duration, "ALARM": _alarm_time}
 
 
+_PI_WORDS = re.compile(r"\b(pi|pie|raspberry|speaker|device)\b")
+_NOT_STATUS = re.compile(
+    r"\b(volume|percent|louder|quieter|ping|latency|network|internet|set|change|make|turn|put)\b"
+)
+
+
+def device_question(user: str) -> bool:
+    """The user asks the Pi or speaker for a status topic (not a volume, ping or other command)."""
+    asked = _words(user)
+    return (
+        _PI_WORDS.search(asked) is not None
+        and any(pattern.search(asked) for pattern in device_say.TOPICS.values())
+        and _NOT_STATUS.search(asked) is None
+    )
+
+
+_STOP = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "of",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "and",
+        "or",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "do",
+        "does",
+        "did",
+        "what",
+        "who",
+        "whom",
+        "whose",
+        "which",
+        "when",
+        "where",
+        "why",
+        "how",
+        "it",
+        "its",
+        "this",
+        "that",
+        "these",
+        "those",
+        "there",
+        "here",
+        "i",
+        "me",
+        "my",
+        "you",
+        "your",
+        "we",
+        "our",
+        "they",
+        "their",
+        "he",
+        "she",
+        "his",
+        "her",
+        "him",
+        "with",
+        "about",
+        "from",
+        "by",
+        "as",
+        "so",
+        "not",
+        "no",
+        "yes",
+        "please",
+        "can",
+        "could",
+        "would",
+        "should",
+        "will",
+        "tell",
+        "say",
+        "give",
+        "get",
+        "let",
+        "know",
+        "any",
+        "some",
+    ]
+)
+
+
+def _content(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _STOP}
+
+
+def _lookup_asked(user: str, argument: str) -> bool:
+    return is_question(user) or bool(_content(user) & _content(argument))
+
+
+def _numbers(text: str) -> set[int]:
+    """Every integer in the text, digits or number words ("six thirty" -> 6, 30; "twenty eight"
+    -> 28, 20, 8; "6:30am" -> 6, 30)."""
+    tokens = re.findall(r"\d+|[a-z]+", text.lower().replace("-", " "))
+    found: set[int] = set()
+    for i, token in enumerate(tokens):
+        if token.isdigit():
+            found.add(int(token))
+        elif token in _ONES:
+            found.add(_ONES.index(token))
+        elif token in _TENS:
+            tens = (_TENS.index(token) + 2) * 10
+            found.add(tens)
+            if i + 1 < len(tokens) and tokens[i + 1] in _ONES[1:10]:
+                found.add(tens + _ONES.index(tokens[i + 1]))
+    return found
+
+
+_FRACTION_UNIT = re.compile(
+    r"\b(a|an|half|quarter)\s+(?:(?:a|an)\s+)?(second|minute|hour|sec|min|hr)s?\b"
+)
+NUMERIC_SLOTS = {"TIMER", "ALARM", "BRIGHTNESS", "TEMPERATURE"}
+
+
+def slot_from_user(slot: str, user: str, durational: bool) -> bool:
+    """Every number of the slot was said in this turn (not carried over from the history); a
+    duration with no number needs "a / an / half / quarter" plus a unit in the user's words."""
+    wanted = _numbers(slot)
+    if wanted:
+        return wanted <= _numbers(user)
+    if durational and is_duration(slot):
+        return _FRACTION_UNIT.search(user.lower()) is not None
+    return True
+
+
 def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
     if not calls:
         return "empty"
@@ -207,22 +349,38 @@ def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
             check = TIME_CHECKS.get(name)
             if check is not None and not check(call.args[0] if call.args else ""):
                 return f"unsupported: {name} value"
+            if name in NUMERIC_SLOTS and not slot_from_user(
+                call.args[0] if call.args else "", user, name in TIME_CHECKS
+            ):
+                return f"slot not in the user's words: {name}"
         elif name == "get_current_time":
             try:
                 ZoneInfo(spec.to_tool_args(call).get("timezone", fast_path.TIMEZONE))
             except (ZoneInfoNotFoundError, ValueError):
                 return "unsupported: time zone"
+        elif name == "device_status" and ROUTER_DEVICE_STATUS and "device_status" in available:
+            if not device_question(user):
+                return "unsupported: device_status"
         elif name not in INFO_TOOLS or name not in available:
             return f"unsupported: {name}"
         elif needs_reasoning(user):  # "should I bring an umbrella": a decision, not a forecast
             return "needs reasoning"
+        elif name in DOCUMENT_LOOKUPS and not _lookup_asked(
+            user, call.args[0] if call.args else ""
+        ):
+            return "not a question"  # a statement is not looked up
+        elif name == "set_volume" and not slot_from_user(
+            call.args[0] if call.args else "", user, False
+        ):
+            return "slot not in the user's words: set_volume"
     return None
 
 
 def plan(calls: list[Any], user: str, available: set[str]) -> list[Planned]:
     """The tool and arguments each call runs with. The router was trained on `wiki_summary`; the
-    web answer replaces it (Wikipedia is its fallback). A lookup that is the turn's only call asks
-    the whole question, which finds more than the router's topic."""
+    web answer replaces it (Wikipedia is its fallback). A swapped lookup that is the turn's only
+    call asks the whole question, which finds more than the router's topic; a `web_answer` keeps
+    the router's own question (it resolved the follow-up's context from the history)."""
     out: list[Planned] = []
     asked = user.strip()
     for call in calls:
@@ -236,9 +394,10 @@ def plan(calls: list[Any], user: str, available: set[str]) -> list[Planned]:
         tool = call.name
         args = spec.to_tool_args(call) if tool in spec.BY_NAME else {}
         if tool == "wiki_summary" and "web_answer" in available:
-            tool, args = "web_answer", {"query": args["topic"]}
-        if tool == "web_answer" and len(calls) == 1 and asked and "query" in args:
-            args = {**args, "query": asked}
+            topic = args.get("topic", "").strip()
+            tool, args = "web_answer", {"query": asked if len(calls) == 1 and asked else topic}
+        if tool == "web_answer":
+            args = {"query": str(args.get("query", "")).strip() or asked}
         out.append(Planned(call, tool, args))
     return out
 

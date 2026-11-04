@@ -57,7 +57,7 @@ def make(
     return server, web, docs, asked
 
 
-def routed(text: str = "web_answer|truck") -> Routed:
+def routed(text: str = "web_answer|who sold the truck?") -> Routed:
     return Routed(spec.parse_output(text), text, 0.1, None, USER)
 
 
@@ -160,7 +160,7 @@ async def test_no_search_docs_no_race(tmp_path):
 async def test_no_race_for_a_mixed_turn(tmp_path):
     server, *_ = make(tmp_path)
     server.tools["smart_home"] = Tool("smart_home", {"ok": True})
-    done, said = await run(server, routed("web_answer|truck\nLIGHT_ON"))
+    done, said = await run(server, routed("web_answer|who sold the truck?\nLIGHT_ON"))
     assert "race" not in done and WEB in said[0]
 
 
@@ -225,3 +225,17 @@ async def test_device_status_without_usable_numbers_goes_to_gemini(tmp_path):
     r = Routed(spec.parse_output("device_status"), "device_status", 0.1, None, "how is the pi?")
     done, said = await run(server, r)
     assert done is None and said == []
+
+
+async def test_the_routers_question_reaches_the_lookup_and_the_documents(tmp_path):
+    server, web, docs, _ = make(tmp_path)
+    r = Routed(
+        spec.parse_output("web_answer|Who sold the truck in 2022?"),
+        "x",
+        0.1,
+        None,
+        "and who sold it then?",
+    )
+    await run(server, r)
+    assert web.calls == [{"query": "Who sold the truck in 2022?"}]
+    assert docs.calls == [{"query": "Who sold the truck in 2022?"}]
