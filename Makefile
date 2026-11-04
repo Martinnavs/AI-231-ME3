@@ -1,4 +1,60 @@
-.PHONY: check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all
+.DEFAULT_GOAL := help
+.PHONY: help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
+        pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env
+
+help: ## List documented targets
+	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:[^#]*## /\t/' | sort | awk -F'\t' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+# Pi + laptop stack: settings. Override on the command line, e.g. make up ROUTER_MODEL=router-350m-kd-s0 DRY=1
+ROUTER_MODEL ?= router-350m-kd-web2-s0-unverified
+ROUTER_THREADS ?= 3
+GGUF_TOOLS ?= $(HOME)/work/gguf-tools
+ENTITIES ?= config/entities.json
+KITTEN_VOICE ?= Jasper
+KITTEN_SITE ?= $(HOME)/work/tts-bakeoff/venv/lib/python3.12/site-packages
+SPEECH_ARGS ?=
+AGENT_ARGS ?=
+TALK_ARGS ?=
+NOTE ?=
+PI_START ?= ssh
+PI_RUN_SECONDS ?= 7200
+PI_ENV_MAX_AGE_MIN ?= 120
+DRY ?= 0
+export ROUTER_MODEL ROUTER_THREADS GGUF_TOOLS ENTITIES KITTEN_VOICE KITTEN_SITE SPEECH_ARGS AGENT_ARGS TALK_ARGS NOTE PI_START PI_RUN_SECONDS PI_ENV_MAX_AGE_MIN DRY
+# pi-detect also takes PI_USER, PI_KEY, PI_REPO, PI_AUDIO_DEVICE, PI_AUDIO_PATTERN on the command line (exported by make).
+
+pi-detect: ## (laptop) find the Pi on the cable, write config/pi.env; read-only on the Pi
+	scripts/stack/pi_detect.sh
+
+up: ## (laptop) router, speech server, Pi speaker and device tools, agent server; detects the Pi first if needed
+	scripts/stack/up.sh all
+
+up-laptop: ## (laptop) router, speech server, agent server only
+	scripts/stack/up.sh laptop
+
+up-pi: ## (laptop) start only the Pi speaker and device tools over ssh
+	scripts/stack/up.sh pi
+
+restart-agent: ## (laptop) restart only the agent server (after the Pi tools came up)
+	scripts/stack/up.sh agent
+
+down: ## (laptop) stop what make up started: laptop by PID file, then the Pi services
+	scripts/stack/down.sh all
+
+status: ## (laptop) read-only: cable, Pi ping, ports. PI_LOGS=1 adds the Pi logs and temperature
+	scripts/stack/status.sh $(if $(PI_LOGS),pi)
+
+talk: ## (laptop) the live loop in the foreground; needs the microphone
+	scripts/stack/talk.sh
+
+pi-check: ## (run ON the Pi) config/pi.env, venv, token mode, audio device, the six clips
+	scripts/stack/pi_check.sh
+
+pi-clips: ## (laptop) regenerate tests/fixtures/pi_echo and rsync it to the Pi
+	scripts/stack/pi_clips.sh
+
+pi-env: ## (laptop) copy config/pi.env to the Pi's repo
+	scripts/stack/pi_env.sh
 
 # Root project: speech side (lan_speech, doc_chat, audio_engine, bench, voice_agent).
 check:

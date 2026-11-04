@@ -18,3 +18,7 @@ out/stt_compare/
 # recorded voice clips (the owner's voice)
 bench/mic_hard/
 bench/mic_heldout/
+config/pi.env
+config/pi.env.*
+!config/pi.env.example
+config/pi_known_hosts

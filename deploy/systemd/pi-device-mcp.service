@@ -1,0 +1,15 @@
+[Unit]
+Description=Pi device tools (scripts/pi_device_mcp.py) for the laptop voice stack
+After=network-online.target sound.target
+Wants=network-online.target
+ConditionPathExists=%h/.config/lan_speech_token
+
+[Service]
+# @REPO@ is filled in by deploy/install-pi.sh.
+EnvironmentFile=@REPO@/config/pi.env
+ExecStart=@REPO@/scripts/stack/pi_service.sh device
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
