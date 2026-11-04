@@ -17,6 +17,7 @@ Mix (plan section 2): single turn about 60%, multi-turn with history 20%, two in
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import random
@@ -108,8 +109,25 @@ def spoken_slot(name: str, slot: str, rng: random.Random) -> str:
 
 
 # ------------------------------------------------------------------------------------------ scenarios
+_FORCED_BOOK: dict[str, str] | None = None
+
+
 def phonebook(rng: random.Random) -> dict[str, str]:
+    if _FORCED_BOOK is not None:  # a history and its final turn share one phonebook
+        return dict(_FORCED_BOOK)
     return dict(rng.sample(B.CONTACT_NAMES, rng.randint(4, 7)))
+
+
+@contextlib.contextmanager
+def shared_book(rng: random.Random):
+    """Every maker called inside uses this one phonebook, so earlier turns and the final turn agree."""
+    global _FORCED_BOOK
+    book = phonebook(rng)
+    _FORCED_BOOK = book
+    try:
+        yield book
+    finally:
+        _FORCED_BOOK = None
 
 
 def line(name: str, *args: str) -> str:
@@ -529,6 +547,242 @@ def s_arithmetic(rng: random.Random) -> Example:
     return ex("arith", f"arith:{text}", text, [line("escalate", "reasoning")], phonebook(rng))
 
 
+# ------------------------------------------------------------------------------------------ ticket 03: history
+SLOT_ACTIONS = {"TEMPERATURE", "TIMER", "ALARM", "BRIGHTNESS", "set_volume"}
+
+
+def pairs_of(e: Example) -> list[tuple[str, str]]:
+    """An example as the (user, assistant) exchanges it leaves in a history."""
+    return [*e["history"], (e["user"], e["target"])]
+
+
+def last_name(pairs: list[tuple[str, str]]) -> str:
+    return T.parse_line(pairs[-1][1].splitlines()[-1]).name
+
+
+def slot_action(rng: random.Random) -> Example:
+    for _ in range(60):
+        e = s_slot(rng)
+        if T.parse_line(e["target"]).name in SLOT_ACTIONS:
+            break
+    return e
+
+
+def earlier_exchanges(rng: random.Random, slot_last: bool = False) -> list[tuple[str, str]]:
+    """1-3 earlier turns of any kind; with slot_last the last one is a slot action (a number was just set)."""
+    n = rng.choices([1, 2, 3], [5, 3, 2])[0]
+    pairs: list[tuple[str, str]] = []
+    for i in range(n):
+        if slot_last and i == n - 1:
+            maker = rng.choice([slot_action, slot_action, s_ask_follow_up, lambda r: pi_turn(r, "set")])
+        else:
+            maker = rng.choices([m for _, m in HISTORY_MAKERS], [w for w, _ in HISTORY_MAKERS])[0]
+        pairs += pairs_of(maker(rng))
+    return pairs
+
+
+def s_topic_switch(rng: random.Random) -> Example:
+    """An independent request after an earlier action: the target is what the request has without any history."""
+    with shared_book(rng) as book:
+        for _ in range(60):
+            pairs = earlier_exchanges(rng, slot_last=rng.random() < 0.55)
+            final = rng.choices([m for _, m in SWITCH_FINALS], [w for w, _ in SWITCH_FINALS])[0](rng)
+            if final["user"] in {u for u, _ in pairs} or final["target"] == pairs[-1][1].splitlines()[-1]:
+                continue
+            if last_name(pairs) in SLOT_ACTIONS and T.parse_line(final["target"].splitlines()[0]).name == last_name(
+                pairs
+            ):
+                continue
+            break
+    return ex("switch", f"switch:{final['key']}", final["user"], [final["target"]], book, pairs)
+
+
+def s_ack_after_anything(rng: random.Random) -> Example:
+    """A pleasantry or a dismissal after any history is a short reply; as the answer to a question it stays a call."""
+    with shared_book(rng) as book:
+        if rng.random() < 0.2:
+            e = s_ask_follow_up(rng)
+            prefix = rng.choice(B.ACK_PREFIXES)
+            return ex(
+                "ack-answer",
+                f"ackanswer:{prefix}:{e['key']}",
+                f"{prefix} {e['user']}",
+                [e["target"]],
+                book,
+                e["history"],
+            )
+        phrase, tone = rng.choice(B.ACKS)
+        if tone == "dismiss" and rng.random() < 0.35:
+            asked = s_ask(rng)
+            pairs = pairs_of(asked)
+        else:
+            pairs = earlier_exchanges(rng)
+    reply = rng.choice(B.ACK_REPLIES[tone])
+    return ex("ack", f"ack:{phrase}:{pairs[-1][0]}", phrase, [line("none", reply)], book, pairs)
+
+
+def s_action_question(rng: random.Random) -> Example:
+    """A question about something already done is not a request to do it."""
+    with shared_book(rng) as book:
+        name = rng.choice(list(book) if rng.random() < 0.75 else B.NOT_IN_BOOK)
+        text = rng.choice(B.ACTION_QUESTIONS).format(n=name)
+        pairs = earlier_exchanges(rng) if rng.random() < 0.5 else []
+    return ex("actionq", f"actionq:{text}", text, [line("escalate", "other")], book, pairs)
+
+
+GARBLE_VOCAB = sorted({w for g in B.GARBLES for w in g.split()})
+
+
+def s_garble(rng: random.Random) -> Example:
+    """A fragment with no intent: ask the user to repeat, never guess a command."""
+    if rng.random() < 0.5:
+        text = rng.choice(B.GARBLES)
+    else:
+        text = " ".join(rng.choice(GARBLE_VOCAB) for _ in range(rng.randint(1, 3)))
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.4 else []
+    return ex("garble", f"garble:{text}", text, [line("none", B.GARBLE_REPLY)], book, pairs)
+
+
+def s_short_command(rng: random.Random) -> Example:
+    """Contrast for the garbles: a real command of one to three words stays a command."""
+    shorts = [(n, t) for n, texts in B.NO_SLOT.items() for t in texts if len(t.split()) <= 3]
+    name, text = rng.choice(shorts)
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.3 else []
+    return ex("short-command", f"short:{text}", text, [line(name)], book, pairs)
+
+
+def pi_turn(rng: random.Random, kind: str | None = None) -> Example:
+    """One turn about the speaker's Pi: set the volume, read it, health, or the network (hosted model)."""
+    kind = kind or rng.choice(["set", "set", "get", "status", "status", "network"])
+    alias = rng.choice(B.PI_ALIASES)
+    speaker = rng.choice(["the speaker", f"the {alias}", f"the {alias} speaker"])
+    if kind == "set":
+        n = rng.randrange(10, 101, 5)
+        thing = rng.choice(
+            ["the speaker", "the volume", "the speaker volume", f"the {alias}'s volume", f"{alias} volume"]
+        )
+        text = rng.choice(B.PI_SET).format(t=thing, n=spoken_number(n, rng))
+        return ex("pi-contrast", f"pic:{text}", text, [line("set_volume", str(n))], phonebook(rng))
+    if kind == "get":
+        text = rng.choice(B.PI_GET).format(t=speaker)
+        return ex("pi-contrast", f"pic:{text}", text, [line("get_volume")], phonebook(rng))
+    if kind == "status":
+        text = rng.choice(B.PI_STATUS + B.PI_STATUS_RAW).format(t=speaker, a=alias)
+        return ex("pi-contrast", f"pic:{text}", text, [line("device_status")], phonebook(rng))
+    text = rng.choice(B.PI_NETWORK).format(t=speaker)
+    return ex("pi-contrast", f"pic:{text}", text, [line("escalate", "tools")], phonebook(rng))
+
+
+def s_pi_contrast(rng: random.Random) -> Example:
+    """The three Pi tools and the network request stay apart, alone and after other Pi or home turns."""
+    with shared_book(rng) as book:
+        roll = rng.random()
+        if roll < 0.35:
+            pairs: list[tuple[str, str]] = []
+            final = pi_turn(rng)
+        elif roll < 0.5:  # a status question, then a set: the set must not be read as status
+            pairs = pairs_of(pi_turn(rng, "status"))
+            final = pi_turn(rng, "set")
+        elif roll < 0.6:  # the same set again and again
+            pairs = pairs_of(pi_turn(rng, "set")) + pairs_of(pi_turn(rng, "set"))
+            final = pi_turn(rng, "set")
+        elif roll < 0.8:  # some Pi turns, then any Pi turn
+            pairs = []
+            for _ in range(rng.randint(1, 3)):
+                pairs += pairs_of(pi_turn(rng))
+            final = pi_turn(rng)
+        else:  # home turns, then a Pi turn
+            pairs = earlier_exchanges(rng, slot_last=rng.random() < 0.5)
+            final = pi_turn(rng)
+    return ex("pi-contrast", final["key"], final["user"], [final["target"]], book, pairs)
+
+
+def delegate_request(rng: random.Random, family: str) -> tuple[str, str]:
+    """(what the user says, the escalate reason) for a request that belongs to the hosted model's delegate tools."""
+    if family == "build":
+        return rng.choice(B.DELEGATE_BUILD).format(thing=rng.choice(B.DELEGATE_THINGS)), "code"
+    if family == "run":
+        text = rng.choice(B.DELEGATE_RUN).format(cmd=rng.choice(B.DELEGATE_COMMANDS), what=rng.choice(B.DELEGATE_WHAT))
+        return text, "tools"
+    if family == "status":
+        return rng.choice(B.DELEGATE_STATUS).format(job=rng.choice(B.DELEGATE_JOBS)), "tools"
+    if family == "workflow":
+        return rng.choice(B.DELEGATE_WORKFLOW).format(cmd=rng.choice(B.DELEGATE_COMMANDS)), "workflow"
+    return rng.choice(B.DELEGATE_NO_JOB), "tools"
+
+
+def s_delegate_request(rng: random.Random) -> Example:
+    """Build, run, check or cancel a job: the hosted model's delegate tools, never a lookup or a home call."""
+    family = rng.choices(["build", "run", "status", "workflow", "no-job"], [3, 3, 3, 1, 3])[0]
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.35 else []
+        if family == "no-job":  # nothing is named: only the earlier request says what "it" is
+            text, reason = delegate_request(rng, rng.choice(["build", "run", "status"]))
+            pairs += [(text, line("escalate", reason))]
+        text, reason = delegate_request(rng, family)
+    return ex("delegate", f"delegate:{text}", text, [line("escalate", reason)], book, pairs)
+
+
+def s_status_words_web(rng: random.Random) -> Example:
+    """Contrast for the delegate seed: a real-world fact that says status, results or done is still a lookup."""
+    text, question = rng.choice(B.WEB_STATUS_WORDS)
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.3 else []
+    return ex("web-contrast", f"webstatus:{text}", text, [line("web_answer", question)], book, pairs)
+
+
+def s_statement(rng: random.Random) -> Example:
+    """A reaction that is neither a question nor a command gets a short remark, not a lookup or a repeated call."""
+    text = rng.choice(B.STATEMENTS)
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.85 else []
+    reply = rng.choice(B.STATEMENT_REPLIES)
+    return ex(
+        "statement", f"statement:{text}:{pairs[-1][0] if pairs else ''}", text, [line("none", reply)], book, pairs
+    )
+
+
+def s_statement_contrast(rng: random.Random) -> Example:
+    """Contrast: a bare noun phrase or wh- query without a question mark is still a lookup, after any history."""
+    text, tool, arg = rng.choice(B.STATEMENT_CONTRAST)
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.7 else []
+    return ex("statement-contrast", f"stcontrast:{text}", text, [line(tool, arg)], book, pairs)
+
+
+HISTORY_MAKERS: list[tuple[float, Callable[[random.Random], Example]]] = [
+    (3, s_noslot),
+    (3, s_slot),
+    (2, s_contact),
+    (2, s_weather),
+    (2, s_time),
+    (2, s_web_answer),
+    (1, s_wiki),
+    (1, s_chat),
+    (2, s_defer),
+    (1, s_arithmetic),
+    (2, s_pi),
+    (2, s_ask_follow_up),
+]
+SWITCH_FINALS: list[tuple[float, Callable[[random.Random], Example]]] = [
+    (3, s_noslot),
+    (3, s_slot),
+    (3, s_contact),
+    (3, s_contact_missing),
+    (2, s_time),
+    (2, s_weather),
+    (2, s_web_answer),
+    (1, s_settled),
+    (1, s_arithmetic),
+    (2, s_defer),
+    (3, s_ask),
+    (1, s_ask_more),
+    (1, s_chat),
+    (2, s_pi),
+]
+
 MIX: list[tuple[float, Callable[[random.Random], Example]]] = [
     (14, s_noslot),
     (14, s_slot),
@@ -557,6 +811,16 @@ MIX: list[tuple[float, Callable[[random.Random], Example]]] = [
     (2, s_settled),
     (3, s_now_variants),
     (5, s_arithmetic),
+    (8, s_topic_switch),
+    (3, s_ack_after_anything),
+    (3, s_action_question),
+    (2, s_garble),
+    (1.5, s_short_command),
+    (6, s_pi_contrast),
+    (4, s_delegate_request),
+    (1.5, s_status_words_web),
+    (3, s_statement),
+    (1.5, s_statement_contrast),
 ]
 
 

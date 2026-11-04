@@ -159,3 +159,170 @@ def test_pi_temperature_is_device_status_not_a_lookup():
         if e["target"] == "device_status":
             seen.add(e["user"])
     assert "what's the pi temperature" in seen and len(seen) >= 8
+
+
+# ------------------------------------------------------------------------------------------ ticket 03
+NEW_KINDS = {
+    "switch": G.s_topic_switch,
+    "ack": G.s_ack_after_anything,
+    "actionq": G.s_action_question,
+    "garble": G.s_garble,
+    "pi-contrast": G.s_pi_contrast,
+    "delegate": G.s_delegate_request,
+    "statement": G.s_statement,
+}
+CORPUS_NAMES = [  # the sample corpus's author, novels and characters: never in the data (handled in the harness)
+    "mccarthy", "cormac", "blood meridian", "suttree", "the road", "judge holden", "outer dark", "orchard keeper",
+    "child of god", "border trilogy", "pretty horses", "no country for old men", "chigurh", "stella maris",
+]  # fmt: skip
+NUMBER_WORDS = {G.words(n): n for n in range(101)}
+
+
+def draw(maker, n: int = 300, seed: int = 3) -> list[dict]:
+    rng = random.Random(seed)
+    return [maker(rng) for _ in range(n)]
+
+
+def call_names(target: str) -> list[str]:
+    return [T.parse_line(ln).name for ln in target.splitlines()]
+
+
+def without_contact(target: str) -> str:
+    """A relation alias ("my friend") names a different contact in each phonebook: compare the verb only."""
+    parsed = T.parse_line(target)
+    return parsed.name if parsed.name in ("CALL", "MESSAGE") else target
+
+
+def test_topic_switch_final_turn_has_the_target_it_has_without_history():
+    singles: dict[str, set[str]] = {}
+    for _, maker in G.SWITCH_FINALS:
+        for e in draw(maker, 1500, seed=11):
+            singles.setdefault(e["user"], set()).add(without_contact(e["target"]))
+    switches = draw(G.s_topic_switch, 600)
+    checked = [e for e in switches if e["user"] in singles]
+    assert len(checked) > 100
+    for e in checked:
+        assert without_contact(e["target"]) in singles[e["user"]], e["user"]
+    assert all(e["history"] for e in switches)
+
+
+def test_topic_switch_never_repeats_or_varies_the_last_call():
+    switches = draw(G.s_topic_switch, 800)
+    slot_last = 0
+    for e in switches:
+        last_user, last_target = e["history"][-1]
+        assert e["target"] != last_target.splitlines()[-1]
+        assert e["user"] != last_user
+        if call_names(last_target)[-1] in G.SLOT_ACTIONS:
+            slot_last += 1
+            assert call_names(e["target"])[0] != call_names(last_target)[-1]
+    assert slot_last > 200  # a large share of the histories end in a slot action
+    book = [e for e in switches if e["kind"] == "switch" and "is not in the phonebook" in e["target"]]
+    assert book  # the final turn can be a contact that is not in the phonebook
+
+
+def test_a_history_and_its_final_turn_share_one_phonebook():
+    for e in draw(G.s_topic_switch, 300):
+        for name in e["target"].splitlines():
+            parsed = T.parse_line(name)
+            if parsed.name in ("CALL", "MESSAGE"):
+                assert parsed.args[0] in e["phonebook"]
+
+
+@pytest.mark.parametrize("maker", [G.s_ack_after_anything, G.s_statement])
+def test_pleasantries_and_statements_get_a_short_reply_never_a_call_or_lookup(maker):
+    seen = 0
+    for e in draw(maker, 500):
+        if e["kind"] not in ("ack", "statement"):
+            continue  # the "okay, 20 minutes" contrast keeps its follow-up call
+        seen += 1
+        parsed = T.parse_line(e["target"])
+        assert parsed.name == "none" and len(parsed.args[0].split()) <= 6, e["target"]
+    assert seen > 200
+
+
+def test_okay_as_an_answer_to_the_question_just_asked_stays_a_call():
+    answers = [e for e in draw(G.s_ack_after_anything, 600) if e["kind"] == "ack-answer"]
+    assert answers
+    for e in answers:
+        assert call_names(e["target"])[0] in ("TIMER", "ALARM", "CALL", "MESSAGE")
+        assert e["history"][-1][1].startswith("none|")
+
+
+def test_statement_contrast_lookups_stay_lookups():
+    for e in draw(G.s_statement_contrast, 200):
+        assert call_names(e["target"])[0] in ("wiki_summary", "web_answer")
+
+
+def test_action_questions_are_not_calls():
+    for e in draw(G.s_action_question, 300):
+        assert e["target"] == "escalate|other"
+
+
+def test_garbles_get_the_fixed_phrase_and_never_contain_an_intent_word():
+    garbles = draw(G.s_garble, 500)
+    for e in garbles:
+        assert e["target"] == "none|Sorry, I didn't catch that."
+        assert not set(e["user"].lower().split()) & set(G.B.GARBLE_FORBIDDEN), e["user"]
+    for e in draw(G.s_short_command, 200):  # contrast: short real commands stay commands
+        assert call_names(e["target"])[0] in G.B.NO_SLOT and len(e["user"].split()) <= 3
+
+
+def spoken_percent(text: str) -> set[int]:
+    tokens = text.lower().replace("%", " percent").split()
+    before = tokens[: tokens.index("percent")]
+    out = set()
+    for k in (1, 2, 3):
+        cand = " ".join(before[-k:])
+        if cand.isdigit():
+            out.add(int(cand))
+        if cand in NUMBER_WORDS:
+            out.add(NUMBER_WORDS[cand])
+    return out
+
+
+def test_pi_contrast_keeps_the_three_tools_and_the_network_request_apart():
+    examples = draw(G.s_pi_contrast, 1500)
+    seen = set()
+    for e in examples:
+        name = call_names(e["target"])[0]
+        seen.add(name)
+        words_ = set(e["user"].lower().replace("%", " percent").split())
+        if name == "device_status":
+            assert not words_ & {"volume", "percent", "ping", "latency", "loud"}, e["user"]
+        if "percent" in words_:
+            assert name == "set_volume", e["user"]
+            assert int(T.parse_line(e["target"]).args[0]) in spoken_percent(e["user"]), e["user"]
+        if name == "escalate":
+            assert e["target"] == "escalate|tools"
+    assert seen == {"set_volume", "get_volume", "device_status", "escalate"}
+    for tool in ("set_volume", "get_volume", "device_status"):  # the "pie" mishearing appears in every kind of turn
+        assert any("pie" in e["user"] and call_names(e["target"])[0] == tool for e in examples), tool
+    assert any(  # a set after a status question
+        call_names(e["target"])[0] == "set_volume" and call_names(e["history"][-1][1])[0] == "device_status"
+        for e in examples
+        if e["history"]
+    )
+
+
+def test_delegate_requests_escalate_and_status_words_about_the_world_stay_lookups():
+    for e in draw(G.s_delegate_request, 500):
+        assert call_names(e["target"]) == ["escalate"]
+        assert T.parse_line(e["target"]).args[0] in ("code", "tools", "workflow")
+    no_job = [e for e in draw(G.s_delegate_request, 800) if e["user"] in G.B.DELEGATE_NO_JOB]
+    assert no_job and all(e["history"] and call_names(e["history"][-1][1]) == ["escalate"] for e in no_job)
+    for e in draw(G.s_status_words_web, 100):
+        assert call_names(e["target"]) == ["web_answer"]
+
+
+@pytest.mark.parametrize("kind", sorted(NEW_KINDS))
+def test_new_seeds_hold_no_corpus_names(kind):
+    for e in draw(NEW_KINDS[kind], 400):
+        text = " ".join([e["user"], e["target"], *(u + " " + t for u, t in e["history"])]).lower()
+        assert not any(name in text for name in CORPUS_NAMES), text
+
+
+def test_new_seeds_appear_in_the_mix_with_the_intended_weights():
+    weights = {m.__name__: w for w, m in G.MIX}
+    assert weights["s_topic_switch"] == 8 and weights["s_pi_contrast"] == 6 and weights["s_delegate_request"] == 4
+    assert weights["s_garble"] <= 2 and weights["s_statement"] == 3

@@ -848,3 +848,243 @@ ARITH_TEMPLATES = [  # {a} {b} operands, {p} a percent, {n} a base, {sq} a perfe
     "what is half of {n}",
     "what's double {a}",
 ]
+
+# --- ticket 03: history, acknowledgements, action questions, garbles, Pi contrast, delegate requests, statements
+ACKS = [  # (what the user says, kind): "ok" is a pleasantry, "dismiss" cancels what was asked
+    ("okay", "ok"),
+    ("alright", "ok"),
+    ("fine", "ok"),
+    ("all good", "ok"),
+    ("sounds good", "ok"),
+    ("that's alright", "ok"),
+    ("no worries", "ok"),
+    ("okay then", "ok"),
+    ("never mind", "dismiss"),
+    ("forget it", "dismiss"),
+    ("no that's fine", "dismiss"),
+    ("don't worry about it", "dismiss"),
+    ("it doesn't matter", "dismiss"),
+    ("skip it", "dismiss"),
+    ("leave it", "dismiss"),
+    ("ok thanks anyway", "dismiss"),
+]
+ACK_REPLIES = {
+    "ok": ["Okay.", "Alright.", "Sure.", "Got it.", "Okay then."],
+    "dismiss": ["No problem.", "Okay, never mind.", "Alright.", "Okay.", "Sure, no problem."],
+}
+ACK_PREFIXES = ["okay,", "alright,", "okay so", "sure,", "yes,"]  # "okay, 20 minutes": the answer, still a call
+
+ACTION_QUESTIONS = [  # {n} a contact name, {x} a home thing that was done
+    "have you called {n} yet",
+    "did you call {n}",
+    "have you texted {n} yet",
+    "did you message {n}",
+    "did you send the message to {n}",
+    "has {n} been called",
+    "did you set the timer",
+    "did you set the alarm",
+    "have you set the alarm yet",
+    "is the alarm set",
+    "is the timer running",
+    "did the timer start",
+    "did the lights turn on",
+    "did the lights go off",
+    "are the lights on",
+    "are the lights off yet",
+    "did you turn the music on",
+    "did you pause the music",
+    "was the reminder saved",
+    "did you change the temperature",
+    "is the thermostat set",
+]
+
+GARBLES = [  # 1-3 word fragments with no recognisable intent
+    "bucket on mu",
+    "purple window banana",
+    "fork the sandwich",
+    "tall river in",
+    "green the of",
+    "table in sky",
+    "mm hmm what",
+    "lantern horse",
+    "uh the the",
+    "pencil ladle",
+    "carpet is",
+    "orange spoon ledger",
+    "wind over under",
+    "ladder and",
+    "ka ka bin",
+    "so the um",
+    "door cheese",
+    "rubber moon",
+    "blue umbrella are",
+    "what the in",
+    "mango slate",
+    "hat bus the",
+    "bridge of tea",
+    "sand wind cup",
+    "turnip",
+    "clip on bell",
+]
+GARBLE_REPLY = "Sorry, I didn't catch that."
+GARBLE_FORBIDDEN = {  # words that carry an intent: a garble must never contain one
+    "light", "lights", "timer", "alarm", "call", "text", "message", "weather", "volume", "music", "play",
+    "pause", "stop", "next", "skip", "louder", "quieter", "temperature", "brightness", "remind", "reminder",
+    "time", "colour", "color", "speaker", "pi", "warmer", "cooler", "hot", "cold",
+}  # fmt: skip
+
+PI_ALIASES = ["pi", "pi", "pi", "pie", "raspberry pie", "raspberry pi"]  # the recogniser hears "pie"
+PI_SET = [  # {t} the thing ("the speaker", "the volume", "the pi's volume"), {n} the number, as said
+    "set {t} to {n} percent",
+    "change {t} to {n} percent",
+    "make {t} {n} percent",
+    "put {t} at {n} percent",
+    "can you set {t} to {n} percent",
+    "{t} to {n} percent please",
+    "i want {t} at {n} percent",
+]
+PI_GET = [
+    "how loud is {t}",
+    "what volume is {t} at",
+    "what's the volume on {t}",
+    "what level is {t} on",
+    "how high is {t} turned up",
+]
+PI_STATUS = [
+    "how is {t} doing",
+    "is {t} connected",
+    "is {t} plugged in",
+    "what's the temperature of {t}",
+    "how hot is {t}",
+    "how much memory does {t} have left",
+    "how long has {t} been running",
+    "is {t} okay",
+    "check on {t}",
+    "give me the status of {t}",
+]
+PI_STATUS_RAW = [  # {a} the alias the recogniser may hear
+    "what's the {a} temperature",
+    "{a} temperature",
+    "how's the {a}",
+    "{a} uptime",
+    "how much memory is left on the {a}",
+]
+PI_NETWORK = [  # the router has no network tool: hosted model
+    "run ping and give me the latency",
+    "ping the speaker and tell me how long it takes",
+    "what's the latency to {t}",
+    "check the internet connection",
+    "check the internet",
+    "how fast is the connection on {t}",
+    "what is my connection speed",
+    "is the wifi any good right now",
+    "test the network speed",
+    "check the network latency",
+]
+
+DELEGATE_JOBS = ["job", "build", "task", "background job", "download", "report", "render", "backup"]
+DELEGATE_THINGS = [
+    "tic tac toe game", "snake game", "calculator app", "landing page", "todo app", "python script",
+    "web scraper", "chess game", "budget spreadsheet script", "weather dashboard", "quiz game", "countdown website",
+]  # fmt: skip
+DELEGATE_COMMANDS = [
+    "the unit tests", "the backup script", "a disk usage check", "the linter", "the build script",
+    "the data cleaning script", "the nightly export", "the benchmark",
+]  # fmt: skip
+DELEGATE_WHAT = [
+    "how many fail", "when it finishes", "what it prints", "how long it took", "the biggest result",
+    "if anything breaks", "the summary",
+]  # fmt: skip
+DELEGATE_BUILD = [  # -> escalate|code
+    "create a {thing} in the background",
+    "write me a {thing}",
+    "build a {thing}",
+    "can you make a {thing} for me",
+    "i want you to code a {thing}",
+    "start building a {thing} and let me know",
+    "make a {thing} in the background",
+]
+DELEGATE_RUN = [  # -> escalate|tools
+    "run {cmd} in the sandbox and tell me {what}",
+    "run {cmd} in the background and tell me {what}",
+    "kick off {cmd} and tell me {what}",
+    "start {cmd} in the sandbox",
+    "run {cmd} in the background",
+]
+DELEGATE_STATUS = [  # {job} names the job -> escalate|tools
+    "check the status of my {job}",
+    "how is my {job} going",
+    "is my {job} finished",
+    "what's the progress on the {job}",
+    "any update on the {job}",
+    "cancel my {job}",
+    "cancel the {job}",
+    "what did the {job} find",
+]
+DELEGATE_NO_JOB = [  # no job named, only meaningful after a delegate request -> escalate|tools
+    "is it done yet",
+    "are the results ready",
+    "what did it find",
+    "did it finish",
+    "how is it going",
+    "cancel that job",
+    "any news on it",
+    "is it ready yet",
+]
+DELEGATE_WORKFLOW = [  # -> escalate|workflow
+    "set up a pipeline that runs {cmd}, collects the output and emails me a summary",
+    "run {cmd}, fix whatever fails, then run it again and report back",
+    "do a multi step job: run {cmd}, then compare with yesterday and write me a report",
+]
+WEB_STATUS_WORDS = [  # real-world current facts that use status / results / done: still web_answer
+    ("what is the status of the philippine peso this week", "What is the status of the Philippine peso this week?"),
+    ("are the election results in yet", "Are the election results in yet?"),
+    ("have the exam results been released", "Have the national exam results been released yet?"),
+    ("is the new bridge finished yet", "Is the new Cebu bridge finished yet?"),
+    ("what are the latest football results", "What are the latest football results?"),
+    ("what's the status of the flight to cebu", "What is the status of the flight to Cebu right now?"),
+    ("is the road work on edsa done", "Is the road work on EDSA done yet?"),
+    ("did the senate vote results come out", "Have the Senate vote results come out yet?"),
+    ("what is the current status of the typhoon", "What is the current status of the typhoon?"),
+    ("are the basketball finals results out", "Are the basketball finals results out yet?"),
+]
+
+STATEMENTS = [  # neither a question nor a command
+    "huh that's new",
+    "oh nice",
+    "that's a lot",
+    "makes sense",
+    "good to know",
+    "oh wow",
+    "hm okay then",
+    "cool cool",
+    "that's wild",
+    "i didn't know that",
+    "so it's already out",
+    "ah that explains it",
+    "right right",
+    "oh really",
+    "that's pretty high",
+    "wow that was quick",
+    "so that's how it is",
+    "yeah that figures",
+    "ah that's the one",
+    "well that's something",
+]
+STATEMENT_REPLIES = ["Right.", "Glad that helps.", "Okay.", "Yes, it is.", "Sure.", "Happy to help.", "Indeed."]
+STATEMENT_CONTRAST = [  # noun phrases and wh- queries without a question mark stay lookups: (said, tool, argument)
+    ("tallest mountain in the world", "wiki_summary", "Tallest mountain in the world"),
+    ("largest ocean on earth", "wiki_summary", "Pacific Ocean"),
+    (
+        "who is the current president of the philippines",
+        "web_answer",
+        "Who is the current President of the Philippines?",
+    ),
+    ("who won the last world cup", "web_answer", "Who won the last World Cup?"),
+    ("latest iphone model", "web_answer", "What is the latest iPhone model?"),
+    ("price of gold today", "web_answer", "What is the price of gold today?"),
+    ("capital of australia", "wiki_summary", "Canberra"),
+    ("longest river in africa", "wiki_summary", "Nile"),
+    ("current prime minister of japan", "web_answer", "Who is the current Prime Minister of Japan?"),
+    ("tell me about the great barrier reef", "wiki_summary", "Great Barrier Reef"),
+]

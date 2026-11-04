@@ -4,7 +4,7 @@
 
 The teacher labels by logits, so extra prompts need no new targets; the second seed only adds wording and
 slot combinations. dev and test are copied from the first directory, and any extra example whose user text
-appears in them is dropped so the distilled student is never trained on a held-out prompt.
+appears in them (same history and same final turn) is dropped so the distilled student is never trained on a held-out prompt.
 """
 
 from __future__ import annotations
@@ -16,7 +16,9 @@ from pathlib import Path
 
 
 def user_text(row: dict) -> str:
-    return row["messages"][-2]["content"].strip().lower()
+    """The whole prompt (earlier turns and the final user turn), not the phonebook: a short reply such as "okay"
+    is held out only after the same history, so it does not drop every other history that ends the same way."""
+    return " | ".join(m["content"].strip().lower() for m in row["messages"][1:-1])
 
 
 def rows(path: Path) -> list[dict]:
