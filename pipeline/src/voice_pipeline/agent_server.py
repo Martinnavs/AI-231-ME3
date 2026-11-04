@@ -284,7 +284,8 @@ class AgentServer:
                     and "search_docs" in self.tools
                 ):
                     routed.race = {}
-                    said = await self.raced_lookup(tool, args, routed.user, on_tool, routed.race)
+                    asked = args.get("query") or args.get("topic") or routed.user
+                    said = await self.raced_lookup(tool, args, asked, on_tool, routed.race)
                     if said is None:
                         return None
                     spoken.append(said)
