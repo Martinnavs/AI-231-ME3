@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import sys
 import time
 import tomllib
@@ -24,7 +25,7 @@ import httpx
 from fastmcp import FastMCP
 
 from doc_chat.qwen import _read_secret_file, normalize_base_url
-from voice_agent.agent.jobs import CANCELLED, DONE, ERROR, RUNNING, JobTable, spoken
+from voice_agent.agent.jobs import CANCELLED, DONE, ERROR, RUNNING, Job, JobTable, spoken
 from voice_agent.agent.mcp_clients import McpClientManager
 from voice_agent.agent.subagent import Ledger, Limits, Model, RunResult, run_task
 from voice_agent.config import McpServerSpec
@@ -38,7 +39,15 @@ REASONS = {
     "cost_limit": "it cost too much",
     "budget": "the delegate budget is used up",
 }
+STOPWORDS = frozenset(
+    {"the", "and", "for", "with", "that", "this", "from", "into", "make", "write", "build"}
+    | {"please", "task", "job", "one", "about", "using", "a", "an", "of", "to", "in", "on"}
+)
 Runner = Callable[[str, Model, str, Path, str], Awaitable[RunResult]]
+
+
+def content_words(text: str) -> set[str]:
+    return {word for word in re.findall(r"[a-z0-9]+", text.lower()) if word not in STOPWORDS}
 
 
 def expand(path: str) -> Path:
@@ -153,11 +162,33 @@ class Delegator:
         return {
             "job": job.id,
             "status": "started",
-            "message": "It is running in the background; the result is announced when it is done.",
+            "message": (
+                "It is running in the background; the result is announced when it is done. "
+                "Do not say how long it will take."
+            ),
         }
 
+    def resolve(self, job: str) -> Job | None:
+        """Empty -> newest; a known id; else a description match (newest wins); else newest."""
+        job = job.strip()
+        if not job:
+            return self.table.latest()
+        if job in self.table.jobs:
+            return self.table.jobs[job]
+        newest_first = list(reversed(self.table.jobs.values()))
+        wanted = job.lower()
+        for candidate in newest_first:
+            if wanted in candidate.task.lower():
+                return candidate
+        words, best, best_shared = content_words(job), None, 1
+        for candidate in newest_first:
+            shared = len(words & content_words(candidate.task))
+            if shared > best_shared:
+                best, best_shared = candidate, shared
+        return best or self.table.latest()
+
     def status(self, job: str = "") -> dict[str, Any]:
-        found = self.table.jobs.get(job) if job else self.table.latest()
+        found = self.resolve(job)
         if found is None:
             return {"status": "none", "message": "There are no delegated tasks."}
         seconds = round((found.finished or time.time()) - found.started)
@@ -170,12 +201,12 @@ class Delegator:
         }
 
     def cancel(self, job: str = "") -> dict[str, Any]:
-        found = self.table.jobs.get(job) if job else self.table.latest()
+        found = self.resolve(job)
         if found is None or found.status != RUNNING or found.id not in self.tasks:
             return {"status": "none", "message": "There is no running task to stop."}
         self.tasks[found.id].cancel()
         self.table.finish(found.id, CANCELLED)
-        return {"job": found.id, "status": CANCELLED}
+        return {"job": found.id, "status": CANCELLED, "task": found.task[:120]}
 
 
 def build_server(delegator: Delegator) -> FastMCP:
@@ -188,17 +219,28 @@ def build_server(delegator: Delegator) -> FastMCP:
             "problem with code, audit this machine, analyse files or data. Write `task` as the "
             "complete request with every detail it needs; it cannot ask questions. A quick task "
             "returns its result; otherwise it returns 'started' and the result is announced "
-            "later. Never use it for simple questions, home commands, the weather or the time."
+            "later; never say how long it will take. Never use it for simple questions, home "
+            "commands, the weather or the time."
         )
     )
     async def delegate(task: str) -> dict[str, Any]:
         return await delegator.delegate(task)
 
-    @server.tool(description="How the latest delegated task is going, or the one named by `job`.")
+    @server.tool(
+        description=(
+            "How the latest delegated task is going. `job` may be an id or a few words of its "
+            "description; the reply names the task it found."
+        )
+    )
     def delegate_status(job: str = "") -> dict[str, Any]:
         return delegator.status(job)
 
-    @server.tool(description="Stop the latest delegated task, or the one named by `job`.")
+    @server.tool(
+        description=(
+            "Stop the latest delegated task. `job` may be an id or a few words of its "
+            "description; the reply names the task it stopped."
+        )
+    )
     def delegate_cancel(job: str = "") -> dict[str, Any]:
         return delegator.cancel(job)
 

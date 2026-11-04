@@ -150,6 +150,51 @@ def hedged(missing: list[str], answer: str) -> str:
     return f"I couldn't confirm {what} in what I found. The closest result says: {answer}"
 
 
+ONES = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+TEENS = ("ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+         "eighteen", "nineteen")  # fmt: skip
+TENS = ("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+CENTURIES = {"seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20}
+_SEP = r"[\s-]+"
+
+
+def _low(suffix: str) -> str:
+    return (
+        rf"(?:(?P<tens{suffix}>{'|'.join(TENS)})(?:{_SEP}(?P<ones{suffix}>{'|'.join(ONES)}))?"
+        rf"|(?P<teen{suffix}>{'|'.join(TEENS)}))"
+    )
+
+
+_SPOKEN_YEAR = re.compile(
+    rf"\b(?:(?P<century>{'|'.join(CENTURIES)}){_SEP}"
+    rf"(?:(?:oh|zero){_SEP}(?P<digit>{'|'.join(ONES)})|{_low('_c')})"
+    rf"|two{_SEP}thousand(?:{_SEP}and)?{_SEP}(?:{_low('_t')}|(?P<small>{'|'.join(ONES)})))\b",
+    re.IGNORECASE,
+)
+
+
+def spoken_years_to_digits(query: str) -> str:
+    """Year-shaped number words as digits ("twenty eighty seven" -> "2087"); the rest unchanged."""
+
+    def value(m: re.Match[str]) -> str:
+        suffix = "_c" if m["century"] else "_t"
+        tens, ones, teen, digit, small = (
+            (m[g] or "").lower()
+            for g in (f"tens{suffix}", f"ones{suffix}", f"teen{suffix}", "digit", "small")
+        )
+        if tens:
+            low = (TENS.index(tens) + 2) * 10 + (ONES.index(ones) + 1 if ones else 0)
+        elif teen:
+            low = 10 + TEENS.index(teen)
+        else:
+            low = ONES.index(digit or small) + 1
+        if m["century"]:
+            return f"{CENTURIES[m['century'].lower()]}{low:02d}"
+        return str(2000 + low)
+
+    return _SPOKEN_YEAR.sub(value, query)
+
+
 def build_server(
     transport: httpx.AsyncBaseTransport | None = None,
     key: str | None = None,
@@ -213,6 +258,7 @@ def build_server(
         )
     )
     async def web_answer(query: str) -> str:
+        query = spoken_years_to_digits(query)
         http = client()
         last_use[0] = clock()
         wanted = content_words(query)

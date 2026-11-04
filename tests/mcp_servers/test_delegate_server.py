@@ -230,3 +230,73 @@ async def test_the_wait_comes_from_the_config_and_jobs_are_capped(tmp_path: Path
     release.set()
     await asyncio.gather(*delegator.tasks.values())
     assert (await delegator.delegate("quick"))["status"] == DONE
+
+
+def table_with(tmp_path: Path, tasks: list[str]) -> Delegator:
+    async def never(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        return RunResult()
+
+    delegator = make(tmp_path, never)
+    for text in tasks:
+        job = delegator.table.create(text, "haiku")
+        delegator.table.finish(job.id, DONE, f"Finished {job.id}.")
+    return delegator
+
+
+TASKS = [
+    "Write a pottery shop landing page",
+    "Sort the invoices in a spreadsheet",
+    "Write a pottery quiz game",
+]
+
+
+def test_status_resolves_empty_to_newest_and_an_id_to_that_job(tmp_path: Path) -> None:
+    delegator = table_with(tmp_path, TASKS)
+    assert delegator.status()["job"] == "job3"
+    out = delegator.status("job1")
+    assert out["job"] == "job1" and out["task"] == TASKS[0]
+
+
+def test_status_matches_a_description_substring_and_picks_the_newest(tmp_path: Path) -> None:
+    delegator = table_with(tmp_path, TASKS)
+    assert delegator.status("Pottery")["job"] == "job3"
+    assert delegator.status("invoices")["job"] == "job2"
+
+
+def test_status_matches_by_shared_words_and_falls_back_to_newest(tmp_path: Path) -> None:
+    delegator = table_with(tmp_path, TASKS)
+    assert delegator.status("the landing page for the pottery shop")["job"] == "job1"
+    assert delegator.status("zebra migration")["job"] == "job3"
+    assert delegator.status("pottery")["job"] == "job3"
+
+
+def test_status_with_no_jobs_says_none(tmp_path: Path) -> None:
+    assert table_with(tmp_path, []).status("anything")["status"] == "none"
+
+
+async def test_cancel_resolves_a_description(tmp_path: Path) -> None:
+    async def forever(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        await asyncio.sleep(60)
+        return RunResult()
+
+    delegator = make(tmp_path, forever)
+    await delegator.delegate("Sort the invoices in a spreadsheet", wait_s=0.01)
+    await delegator.delegate("Write a pottery quiz game", wait_s=0.01)
+    out = delegator.cancel("the invoices spreadsheet")
+    assert out["job"] == "job1" and out["status"] == CANCELLED and "invoices" in out["task"]
+    assert delegator.table.jobs["job2"].status == "running"
+    for worker in delegator.tasks.values():
+        worker.cancel()
+    await asyncio.gather(*delegator.tasks.values(), return_exceptions=True)
+
+
+async def test_the_started_message_forbids_a_duration(tmp_path: Path) -> None:
+    async def forever(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        await asyncio.sleep(60)
+        return RunResult()
+
+    delegator = make(tmp_path, forever)
+    out = await delegator.delegate("x", wait_s=0.01)
+    assert "Do not say how long" in out["message"]
+    delegator.tasks["job1"].cancel()
+    await asyncio.gather(*delegator.tasks.values(), return_exceptions=True)

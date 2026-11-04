@@ -296,3 +296,77 @@ async def test_an_unconfirmed_year_is_said_so_and_the_hedge_is_cached() -> None:
     assert text.startswith("I couldn't confirm 2087 in what I found. The closest result says: ")
     assert "Blood Meridian" in text and first.structured_content == again.structured_content
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize(
+    ("spoken_form", "digits"),
+    [
+        ("who won the twenty eighty seven Nobel Prize", "who won the 2087 Nobel Prize"),
+        ("twenty twenty-six", "2026"),
+        ("nineteen eighty six", "1986"),
+        ("twenty eighteen", "2018"),
+        ("eighteen sixty five", "1865"),
+        ("twenty ten", "2010"),
+        ("nineteen ninety", "1990"),
+        ("twenty oh five", "2005"),
+        ("nineteen zero eight", "1908"),
+        ("two thousand five", "2005"),
+        ("two thousand and twenty", "2020"),
+        ("two thousand twenty three", "2023"),
+        ("two thousand and eleven", "2011"),
+        ("who won in Twenty Twenty Six?", "who won in 2026?"),
+        ("twenty twenty-six people", "2026 people"),
+    ],
+)
+def test_spoken_years_become_digits(spoken_form: str, digits: str) -> None:
+    assert tavily_search.spoken_years_to_digits(spoken_form) == digits
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "twenty one pilots",
+        "one direction",
+        "seven eleven",
+        "twenty percent",
+        "nineteen people",
+        "three hundred",
+        "a hundred and twenty",
+        "two thousand",
+        "two thousand and",
+        "the nineteen eighties",
+        "who won the 2087 Nobel Prize",
+    ],
+)
+def test_other_number_words_are_left_alone(text: str) -> None:
+    assert tavily_search.spoken_years_to_digits(text) == text
+
+
+async def test_the_normalised_year_is_the_cache_key_and_the_searched_question() -> None:
+    seen: list[httpx.Request] = []
+    async with Client(
+        build_server(_transport(httpx.Response(200, json=ANSWER), seen), "test-key", None)
+    ) as client:
+        await client.call_tool("web_answer", {"query": "Who won the twenty eighty seven Prize?"})
+        await client.call_tool("web_answer", {"query": "Who won the 2087 Prize?"})
+    calls = [r for r in seen if str(r.url).startswith(tavily_search.TAVILY_URL)]
+    assert len(calls) == 1
+    assert json.loads(calls[0].content)["query"] == "Who won the 2087 Prize?"
+
+
+async def test_the_gemini_request_uses_the_normalised_question() -> None:
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        reply = {"candidates": [{"content": {"parts": [{"text": "Not yet awarded."}]}}]}
+        return httpx.Response(200, json=reply)
+
+    server = build_server(
+        httpx.MockTransport(handle), "k", None, grounding=True, gemini_key="fake-gemini",
+        ledger=tavily_search.gemini_grounding.Ledger(None),
+    )  # fmt: skip
+    async with Client(server) as client:
+        await client.call_tool("web_answer", {"query": "who won the twenty eighty seven prize"})
+    text = json.loads(seen[0].content)["contents"][0]["parts"][0]["text"]
+    assert text == "who won the 2087 prize"
