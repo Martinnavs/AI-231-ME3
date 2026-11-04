@@ -28,6 +28,15 @@ def write_hotwords(names: list[str], score: float, out: Path) -> None:
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def hotword_names(entities: list[Entity], repair_only: frozenset[str] = frozenset()) -> list[str]:
+    """Names to bias Parakeet toward: all of them except those in a ``repair_only`` category.
+
+    A long list of document names as hotwords can cost other sentences a word ("Old Men" ->
+    "Old Man", measured 2026-11-04); such names still go to the repair step.
+    """
+    return [e.name for e in entities if e.category not in repair_only]
+
+
 def load_entities(path: Path) -> list[Entity]:
     """Names to bias toward and repair against.
 
