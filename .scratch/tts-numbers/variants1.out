@@ -1,0 +1,18 @@
+== AM spellings (want AM/am)
+ay em (current)  | It's 9.58 IM. | Alarm set for 6.30 am tomorrow.
+A M              | It's 9.58 a.m. | Alarm set for 6.30am tomorrow.
+a m              | It's 9.58 a.m. | Alarm set for 6.30am tomorrow.
+A.M.             | It's 9.58 IM. | Alarm set for 6.30 am. Tomorrow.
+ei em            | It's 9.58 IM. | Alarm set for 6.30 am tomorrow.
+eh em            | It's 9.58 a.m. | Alarm set for 6.30am tomorrow.
+A-M              | It's 9.58 a.m. | Alarm set for 6.30am tomorrow.
+ae em            | It's 9.58 AEM. | Alarm set for 6.30 AEM tomorrow.
+Ay Em            | It's 9.58 IM. | Alarm set for 6.30 am tomorrow.
+A, M             | It's 958 A.M. | Alarm set for 6.30 a.m. tomorrow.
+
+== number formats (want the digits back)
+  [plain] 29032: heard 'The value is 2932 meters.'
+  [plain] 1400000000: heard 'The value is 1,400,000,000,000 meters.'
+  [comma] 1400000000: heard 'The value is 1,400,000,000,000 meters.'
+  [and] 1400000000: heard 'The value is 1,400,000,000,000 meters.'
+score (of 11): {'plain': 9, 'comma': 10, 'and': 10}

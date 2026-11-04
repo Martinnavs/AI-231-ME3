@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from lan_speech.engines import KITTEN_TARGET_RMS_DBFS, kitten_text, match_level
 
@@ -39,4 +40,79 @@ def test_chunks_of_different_loudness_end_up_the_same() -> None:
 
 
 def test_kitten_text_still_importable_here() -> None:
-    assert kitten_text("It's 6:25 AM.", lambda t: t, lambda n: str(n)).endswith("ay em.")
+    assert kitten_text("It's 6:25 AM.", lambda t: t, lambda n: str(n)).endswith("A M.")
+
+
+WORDS = {
+    8849: "eight thousand, eight hundred and forty-nine",
+    3932: "three thousand, nine hundred and thirty-two",
+    250000: "two hundred and fifty thousand",
+    1234567: "one million, two hundred and thirty-four thousand, five hundred and sixty-seven",
+    1: "one",
+    3: "three",
+    4: "four",
+    7: "seven",
+}
+ORDINALS = {4: "fourth", 13: "thirteenth", 1: "first"}
+
+
+def say(text: str) -> str:
+    return kitten_text(
+        text, lambda t: t, lambda n: f"year{n}", lambda n: WORDS[n], lambda n: ORDINALS[n]
+    )
+
+
+def test_am_is_spelled_so_it_is_not_read_as_i_m() -> None:
+    assert "ay em" not in say("It's 9:58 AM.")
+    assert say("It's 9:58 AM.").endswith("A M.") and say("At 7 PM.").endswith("pee em.")
+
+
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        ("It is 8,848.86 meters.", "It is eight thousand, eight hundred forty-nine meters."),
+        ("It is 8849 m high.", "It is eight thousand, eight hundred forty-nine m high."),
+        ("Gold is 3,931.67 USD.", "Gold is three thousand, nine hundred thirty-two dollars."),
+        ("Gold is $3,932.", "Gold is three thousand, nine hundred thirty-two dollars."),
+        ("Up to 250,000 people.", "Up to two hundred fifty thousand people."),
+        (
+            "It has 1,234,567 votes.",
+            "It has one million, two hundred thirty-four thousand, five hundred sixty-seven votes.",
+        ),
+    ],
+)
+def test_big_numbers_get_commas_and_lose_their_fraction(text: str, said: str) -> None:
+    assert say(text) == said
+
+
+def test_billions_are_said_as_a_decimal_of_billions() -> None:
+    out = kitten_text(
+        "It has 1,400,000,000 people.",
+        lambda t: t,
+        str,
+        lambda n: {1: "one", 4: "four"}[n],
+        lambda n: "",
+    )
+    assert out == "It has one point four billion people."
+
+
+def test_small_numbers_times_and_decimals_are_left_to_the_cleaner() -> None:
+    assert say("It is 1.7 gigabytes at 9:58.") == "It is 1.7 gigabytes at 9:58."
+    assert say("74 percent of 21 people") == "74 percent of 21 people"
+
+
+def test_date_with_an_ordinal_day_and_the_year_before_a_comma() -> None:
+    assert say("On November 4, 2026, it rained.") == "On November fourth, year2026, it rained."
+    assert say("Born in 1933, he left.") == "Born in year1933, he left."
+    assert say("June 13, 2023") == "June thirteenth, year2023"
+
+
+def test_a_score_or_range_reads_as_to() -> None:
+    assert (
+        say("A 3–3 draw, won 4–7.") == "A 3 to 3 draw, won 4 to 7."
+    )  # the cleaner says the digits
+
+
+def test_the_number_steps_are_skipped_without_the_helpers() -> None:
+    text = "It is 8,848.86 m on June 13."
+    assert kitten_text(text, lambda t: t, str) == text

@@ -230,24 +230,61 @@ def match_level(wav: Any, target_db: float = KITTEN_TARGET_RMS_DBFS) -> Any:
 
 
 _KITTEN_YEAR = re.compile(
-    r"(?<![\d$,.])(1[1-9]\d\d|20\d\d)(?![\d,]|\.\d|\s?(?:%|percent|degrees|km|kilometers|meters|minutes|kg))"
+    r"(?<![\d$,.])(1[1-9]\d\d|20\d\d)(?!\d|,\d|\.\d|\s?(?:%|percent|degrees|km|kilometers|meters|minutes|kg))"
 )
 _KITTEN_AMPM = re.compile(r"\b([AP])\.?M\b")
+_MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
+_KITTEN_DATE = re.compile(rf"\b({_MONTHS})\s+(\d{{1,2}})(?:st|nd|rd|th)?\b(?![\d:])")
+_KITTEN_RANGE = re.compile(
+    r"(?<=\d)\s?\u2013\s?(?=\d)"
+)  # a score or range: "3\u20133", "22\u201325"
+_KITTEN_BIG = re.compile(r"(?<![\w:.,$])(\$?)(\d{1,3}(?:,\d{3})+|\d{4,})(\.\d+)?(?![\w:]|,\d|\.\d)")
+_SCALES = re.compile(r"\b(thousand|million) (?=\w)")
 
 
-def kitten_text(text: str, cleaner: Any, year_words: Callable[[int], str]) -> str:
+def big_number_words(match: re.Match[str], say_number: Callable[[int], str]) -> str:
+    """Words for a number of 1,000 or more, in the form Kitten reads back correctly (round trip
+    through Parakeet, 2026-11-04): a comma after each scale word, a fraction rounded away
+    ("eight thousand, eight hundred forty-nine" for 8,848.86), and billions as "one point four
+    billion" (spelled out, "one billion four hundred million" is spoken as a trillion)."""
+    value = float(match[2].replace(",", "") + (match[3] or ""))
+    unit = " dollars" if match[1] else ""
+    if value >= 1e9:
+        billions = round(value / 1e9, 2)
+        tenths = f"{billions:.2f}".split(".")[1].rstrip("0")
+        point = " point " + " ".join(say_number(int(d)) for d in tenths) if tenths else ""
+        return f"{say_number(int(billions))}{point} billion{unit}"
+    words = say_number(round(value)).replace(" and ", " ")
+    return _SCALES.sub(r"\1, ", words) + unit
+
+
+def kitten_text(
+    text: str,
+    cleaner: Any,
+    year_words: Callable[[int], str],
+    say_number: Callable[[int], str] | None = None,
+    say_ordinal: Callable[[int], str] | None = None,
+) -> str:
     """Prepare reply text for Kitten.
 
     Its default cleaner lowercases everything, drops commas and periods, and turns "person's"
     into "person s" (read "person ess"). Keep case, apostrophes and punctuation instead; say years
-    as years ("nineteen thirty-three") and AM/PM as letters (its time expander turns them into the
-    word "am").
+    as years ("nineteen thirty-three"), AM/PM as letters (its time expander turns them into the
+    word "am"; "ay em" is spoken as "I M", "A M" as the letters), dates with an ordinal day, and
+    big numbers in the form it reads back correctly (`big_number_words`). The number steps need
+    `say_number` / `say_ordinal` (num2words) and are skipped without them.
     """
+    text = _KITTEN_RANGE.sub(" to ", text)
+    if say_ordinal is not None:
+        text = _KITTEN_DATE.sub(lambda m: f"{m[1]} {say_ordinal(int(m[2]))}", text)
     text = _KITTEN_YEAR.sub(lambda m: year_words(int(m[1])), text)
-    text = _KITTEN_AMPM.sub(lambda m: "ay em" if m[1] == "A" else "pee em", text)
+    text = _KITTEN_AMPM.sub(lambda m: "A M" if m[1] == "A" else "pee em", text)
+    if say_number is not None:
+        text = _KITTEN_BIG.sub(lambda m: big_number_words(m, say_number), text)
+    text = re.sub(r"\bUSD\b", "dollars", text)
     out = str(cleaner(text))
     return re.sub(
-        r"(\w)(ay em|pee em)\b", r"\1 \2", out
+        r"(\w)(A M|pee em)\b", r"\1 \2", out
     )  # the time expander eats the space before it
 
 
@@ -295,7 +332,11 @@ class KittenTTSEngine:
         self._cleaner = TextPreprocessor(
             lowercase=False, expand_contractions=False, remove_punctuation=False
         )
-        self._year_words: Callable[[int], str] = lambda n: str(num2words(n, to="year"))
+        self._year_words: Callable[[int], str] = lambda n: str(num2words(n, to="year")).replace(
+            " and ", " "
+        )
+        self._say_number: Callable[[int], str] = lambda n: str(num2words(n))
+        self._say_ordinal: Callable[[int], str] = lambda n: str(num2words(n, to="ordinal"))
 
     @property
     def name(self) -> str:
@@ -319,7 +360,9 @@ class KittenTTSEngine:
         inner = self._model.model
         known = {*inner.voice_aliases, *inner.available_voices}
         name = voice if voice in known else self._default_voice
-        spoken = kitten_text(text, self._cleaner, self._year_words)
+        spoken = kitten_text(
+            text, self._cleaner, self._year_words, self._say_number, self._say_ordinal
+        )
         wav = np.asarray(inner.generate(spoken, voice=name, clean_text=False))
         clipped = match_level(np.clip(wav.squeeze(), -1.0, 1.0))
         voiced = np.flatnonzero(np.abs(clipped) > _TRIM_THRESHOLD)

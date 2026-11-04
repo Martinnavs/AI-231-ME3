@@ -1,0 +1,31 @@
+== PM spellings
+  pee em  | It is 11.04 p.m. in Tokyo. | Alarm set for 7 p.m. tomorrow.
+  P M     | It is 11.04pm in Tokyo. | Alarm set for 7pm tomorrow.
+  p m     | It is 11.04pm in Tokyo. | Alarm set for 7pm tomorrow.
+
+== billions (want 1.4 billion = 1,400,000,000)
+  one billion four hundred million   | The population is 1,400,000,000,000 people.
+  one point four billion             | The population is 1.4 billion people.
+  1.4 billion digits                 | The population is 1.4 billion people.
+  seven point nine billion           | The world has 7.9 billion people.
+  three hundred forty million        | The country has 340 million people.
+
+== decimals
+  8,848.86 words+point           | It is 8,848.86 meters tall.
+  rounded 8,849                  | It is 8,849 meters tall.
+  29,031.7 words+point           | That is 29,31.7 feet.
+  rounded 29,032                 | That is 29,032 feet.
+  3,931.67 words+point           | Gold is$3,931.67.
+  3,931 dollars and 67 cents     | Gold is$3,931.67.
+  1.7                            | It has 1.7 GB.
+  0.35                           | The ratio is 0.35.
+  12.5 percent                   | The rate is 12.5%.
+
+== dates (want June 13, 2023 / November 4, 2026)
+  current style              | He died on June 13, 2023.
+  ordinal+comma              | He died on June 13, 2023.
+  ordinal no year comma      | He died on June 13, 2023.
+  Nov 4 2026 ordinal         | Today is Wednesday, November 4th, 2026.
+  Oct 1 2024 ordinal         | He has served since October 1, 2024.
+  year two thousand five     | It was published in 2005.
+  year two thousand and five | It was published in 2005.
