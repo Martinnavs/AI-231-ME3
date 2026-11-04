@@ -4,8 +4,10 @@
     python3 scripts/score_stress.py [out/sessions/<session>] [agent_server log jsonl]
 
 With no arguments it takes the newest session and the newest agent-server log. Your turns are matched to
-the script by order and wording (the recogniser mishears things, so the match is fuzzy); turns that match
-nothing are listed as extras, and script lines never matched are "not run". Per item it checks the route
+the script by wording alone (best text match over the whole script, threshold 0.6, each turn and line used
+once, ties by order), so out-of-order and repeated lines score. The recogniser mishears things, so the
+match is fuzzy; turns that match nothing are listed as extras with their route and reply, and script lines
+never matched are "not run". Per item it checks the route
 (router / Gemini / fast path), the tools called, words in the spoken reply, the time to first sound, and
 for interruptions the cut-off time and what happened next.
 """
@@ -32,6 +34,117 @@ def norm(text: str) -> str:
 
 def ratio(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, norm(a), norm(b)).ratio()
+
+
+_ONES = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+]
+_TENS = ["twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+_SCALES = {"thousand": 1000, "million": 1_000_000}
+# greetings and thanks may be repeated back (the same set as call_policy.SOCIAL)
+SOCIAL = frozenset(
+    [
+        "hello",
+        "hi",
+        "hey",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "good night",
+        "goodbye",
+        "bye",
+        "thanks",
+        "thank you",
+    ]
+)
+
+
+def _number_value(words: list[str]) -> int | None:
+    """ "one hundred sixty eight" -> 168; None when the words are not one number."""
+    total, cur, seen = 0, 0, False
+    for w in words:
+        if w == "and":
+            continue
+        if w in _ONES:
+            if cur % 100 and not (cur % 10 == 0 and cur % 100 >= 20 and 0 < _ONES.index(w) < 10):
+                return None
+            cur += _ONES.index(w)
+        elif w in _TENS:
+            if cur % 100:
+                return None
+            cur += 10 * (_TENS.index(w) + 2)
+        elif w == "hundred" and seen:
+            cur = (cur or 1) * 100 if cur < 100 else cur * 100
+        elif w in _SCALES and seen:
+            total += (cur or 1) * _SCALES[w]
+            cur = 0
+        else:
+            return None
+        seen = True
+    return total + cur if seen else None
+
+
+def digits_for_words(text: str) -> str:
+    """Spoken numbers written as digits ("one hundred sixty-eight" -> "168"); other words are kept."""
+    tokens = re.findall(r"[A-Za-z']+|\d[\d,.:]*|[^\sA-Za-z\d]", text.replace("-", " "))
+    out: list[str] = []
+    i = 0
+    numeric = {*_ONES, *_TENS, "hundred", *_SCALES}
+    while i < len(tokens):
+        if tokens[i].lower() in numeric:
+            j, best, best_j = i, None, i
+            while j < len(tokens) and tokens[j].lower() in numeric | {"and"}:
+                j += 1
+                if tokens[j - 1].lower() != "and":
+                    v = _number_value([t.lower() for t in tokens[i:j]])
+                    if v is not None:
+                        best, best_j = v, j
+            if best is not None:
+                out.append(str(best))
+                i = best_j
+                continue
+        out.append(tokens[i])
+        i += 1
+    return " ".join(out)
+
+
+def match_turns(
+    questions: list[str], lines: list[str], threshold: float = 0.6
+) -> tuple[dict[int, int], list[int]]:
+    """Turn index -> line index by best text match over all lines; each used once, ties by order."""
+    pairs = []
+    for i, q in enumerate(questions):
+        for j, line in enumerate(lines):
+            s = ratio(q, line)
+            if s >= threshold:
+                pairs.append((-s, j, i))
+    pairs.sort()
+    turn_of: dict[int, int] = {}
+    used: set[int] = set()
+    for _, j, i in pairs:
+        if j not in turn_of and i not in used:
+            turn_of[j] = i
+            used.add(i)
+    return turn_of, [i for i in range(len(questions)) if i not in used]
 
 
 def load(path: Path) -> list[dict[str, Any]]:
@@ -89,22 +202,8 @@ def main() -> int:
         if it.get("interrupt"):
             seq.append((it["id"], "follow", it["interrupt"]["say"]))
 
-    # match session rows to the script, in order, looking a few lines ahead
-    match: dict[tuple[int, str], int] = {}
-    extras: list[int] = []
-    pos = 0
-    for i, r in enumerate(rows):
-        q = r.get("question") or ""
-        best, best_j = 0.0, -1
-        for j in range(pos, min(pos + 14, len(seq))):
-            s = ratio(q, seq[j][2])
-            if s > best:
-                best, best_j = s, j
-        if best >= 0.62:
-            match[(seq[best_j][0], seq[best_j][1])] = i
-            pos = best_j + 1
-        else:
-            extras.append(i)
+    turn_of, extras = match_turns([r.get("question") or "" for r in rows], [x[2] for x in seq])
+    match = {(seq[j][0], seq[j][1]): i for j, i in turn_of.items()}
 
     # agent-server request for each session row: matched from the end backwards, so requests that came
     # before the session (warm-ups, test questions) cannot be paired with it
@@ -163,7 +262,12 @@ def main() -> int:
             )
         if it.get("race_winner") and race.get("winner") != it["race_winner"]:
             fails.append(f"race winner {race.get('winner')}, wanted {it['race_winner']}")
-        if it.get("text_re") and not re.search(it["text_re"], text):
+        text_num = digits_for_words(text)
+        if (
+            it.get("text_re")
+            and not re.search(it["text_re"], text)
+            and not re.search(it["text_re"], text_num)
+        ):
             fails.append(f"reply lacks /{it['text_re']}/")
         if it.get("text_not_re") and re.search(it["text_not_re"], text):
             fails.append(f"reply matches /{it['text_not_re']}/")
@@ -172,10 +276,13 @@ def main() -> int:
         heard, said = norm(r.get("question") or ""), norm(text)
         if (
             len(heard.split()) >= 3
+            and heard not in SOCIAL
             and said
             and difflib.SequenceMatcher(None, heard, said).ratio() >= 0.8
         ):
             fails.append("PARROTED the (garbled) turn back as its reply")
+        if it.get("max_words") and words > it["max_words"]:
+            fails.append(f"{words} words, wanted at most {it['max_words']}")
         if it.get("max_ms") and snd and snd > it["max_ms"]:
             fails.append(f"slow {snd / 1000:.2f}s > {it['max_ms'] / 1000:.1f}s")
         if it.get("faster_than") and snd and first_sound.get(it["faster_than"]):
@@ -255,8 +362,11 @@ def main() -> int:
         print("\nturns that matched no script line (repeats, retries, mis-hearings):")
         for j in extras:
             r = rows[j]
+            a = a_of.get(j)
             print(
-                f"   turn {r.get('turn')}: {(r.get('question') or '')[:60]!r}  interrupted={r.get('interrupted')} words={r.get('answer_words')}"
+                f"   turn {r.get('turn')}: {(r.get('question') or '')[:60]!r}  {route_of(a) if a else 'no agent row'}"
+                f"  interrupted={r.get('interrupted')} words={r.get('answer_words')}"
+                f"  reply: {((a or {}).get('text') or '')[:90]!r}"
             )
 
     print("\nlatency, end of speech to first sound (non-interrupted, answered turns):")

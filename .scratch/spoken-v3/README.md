@@ -15,6 +15,8 @@ Script: `docs/stress/spoken-test-v3.md` (39 turns, ~20 min). Nothing here is com
    Say the lines of the script in order. Ctrl-C ends the session.
 6. `.scratch/spoken-v3/down.sh pi` : stops everything by PID, laptop and Pi.
 
+Note: up.sh and agent_restart.sh no longer pass `--notices ''`; the agent server reads the default `~/.local/state/voice_agent/delegate/notices.jsonl`, so a finished delegate job is announced on the next turn's reply.
+
 ## Logs (where each thing ends up)
 | What | Where |
 |---|---|
