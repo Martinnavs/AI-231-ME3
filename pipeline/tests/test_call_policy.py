@@ -135,3 +135,26 @@ def test_is_question():
     assert is_question("Did he write it")
     assert not is_question("I like the road")
     assert not is_question("turn on the light")
+
+
+def test_device_status_is_usable_when_the_pi_tools_are_there():
+    assert reason("device_status", "what's the pi temperature", ALL | {"device_status"}) is None
+    assert reason("device_status", "what's the pi temperature") == "unsupported: device_status"
+
+
+@pytest.mark.parametrize(
+    ("user", "reply", "parrot"),
+    [
+        ("Wind storm.", "Wind storm.", True),  # a stop word the recogniser garbled
+        ("Oh", "Oh!", True),
+        ("Good morning.", "Good morning!", False),  # a pleasantry answered with itself
+        ("Hello.", "Hello!", False),
+        ("Thank you.", "Thank you!", False),
+        ("Hello, good morning.", "Good morning!", False),
+        ("Bucket on Mu.", "Bucket on Mu.", True),
+        ("thanks", "You're welcome.", False),
+    ],
+)
+def test_parroted_chat_reply(user, reply, parrot):
+    got = reason(f"none|{reply}", user)
+    assert (got == "echo") is parrot

@@ -37,6 +37,7 @@ from voice_pipeline.agent_tools import (
     standard_servers,
     with_builtin_search,
 )
+from voice_pipeline.device_say import device_sentence
 from voice_pipeline.doc_answer import (
     DOC_ANSWER_TIMEOUT_S,
     DocAnswer,
@@ -309,6 +310,11 @@ class AgentServer:
                             fast_path.spoken_result(fast_path.Match(tool, args, None), result)
                         )
                         break
+                elif tool == "device_status":
+                    said = device_sentence(result, routed.user)
+                    if said is None:
+                        return None
+                    spoken.append(said)
                 else:
                     spoken.append(str(result))
         if not take():

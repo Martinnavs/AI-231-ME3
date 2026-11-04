@@ -26,7 +26,7 @@ CHAT_REPLY_MAX_WORDS = 10
 ECHO_MIN_WORDS = (
     3  # "Hello." -> "Hello!" is a pleasantry; a longer verbatim repeat is a garbled turn
 )
-INFO_TOOLS = {"weather", "wiki_summary", "web_answer", "get_volume", "set_volume"}
+INFO_TOOLS = {"weather", "wiki_summary", "web_answer", "get_volume", "set_volume", "device_status"}
 DOCUMENT_LOOKUPS = {"web_answer", "wiki_summary"}  # the lookups that race the documents
 
 
@@ -50,10 +50,30 @@ def _words(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
 
 
+# a pleasantry is answered with itself ("Good morning." -> "Good morning!")
+SOCIAL = frozenset(
+    {
+        "hello",
+        "hi",
+        "hey",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "good night",
+        "goodbye",
+        "bye",
+        "thanks",
+        "thank you",
+    }
+)
+
+
 def _echoes(user: str, reply: str) -> bool:
-    """The reply just repeats what the user said: the recogniser garbled the turn ("Bucket on Mu.")
-    and the model parroted it, which is no answer."""
+    """The reply just repeats what the user said: the recogniser garbled the turn ("Bucket on Mu.",
+    a stop word heard as "Wind storm.") and the model parroted it, which is no answer."""
     said, back = _words(user), _words(reply)
+    if said and said == back and said not in SOCIAL:
+        return True
     if len(said.split()) >= ECHO_MIN_WORDS and said in back:
         return True
     return len(back.split()) >= ECHO_MIN_WORDS and back in said

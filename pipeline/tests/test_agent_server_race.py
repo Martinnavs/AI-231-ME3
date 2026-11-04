@@ -192,3 +192,36 @@ async def test_no_ack_after_docs_answer(tmp_path, monkeypatch):
     done, said = await run(server, on_tool=on_tool)
     await asyncio.sleep(0.2)
     assert acks == [] and said == ["Billy Ray sold the truck."]
+
+
+STATUS_JSON = json.dumps(
+    {
+        "cpu_temperature_c": 54.5,
+        "uptime_minutes": 22,
+        "free_memory_mb": 1730,
+        "speaker_connected": True,
+    }
+)
+
+
+def with_device(tmp_path: Path, result: Any) -> AgentServer:
+    server, *_ = make(tmp_path, with_docs=False)
+    server.tools["device_status"] = Tool("device_status", result)
+    return server
+
+
+async def test_device_status_is_said_as_a_sentence(tmp_path):
+    server = with_device(tmp_path, STATUS_JSON)
+    r = Routed(
+        spec.parse_output("device_status"), "device_status", 0.1, None, "what's the pi temperature?"
+    )
+    done, said = await run(server, r)
+    assert said == ["The Pi is at 54 degrees Celsius."]
+    assert done["routed"] is True
+
+
+async def test_device_status_without_usable_numbers_goes_to_gemini(tmp_path):
+    server = with_device(tmp_path, "{}")
+    r = Routed(spec.parse_output("device_status"), "device_status", 0.1, None, "how is the pi?")
+    done, said = await run(server, r)
+    assert done is None and said == []
