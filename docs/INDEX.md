@@ -31,6 +31,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `SESSION-2026-10-29.md` | the 350M router, the Kitten voice (with level matching and its text path), Tavily web search over MCP, the echo guard's minimum bar, router robustness fixes: decisions, evidence, how to bring it all up, what is open |
 | `STRESS-TEST.md` | the 33-turn spoken stress script (`docs/stress/`), its scorer (`scripts/score_stress.py`) and the first full result: latency by route, interruptions, echo gate, seven bugs found |
 | `ROUTER-WEB-AND-DOCS-RACE.md` | the router's web lookups (cluster tickets 01/02, kd-web2 candidate), the documents-vs-web race in the harness, measurements and a latency estimate (2026-11-03) |
+| `PROGRESS-2026-11-04.md` | what landed on 2026-11-04 (laptop tickets A-F, spoken tests, one-command Pi and laptop start), what is open |
 | `../finetune/README.md` | start here on the cluster: the router fine-tuning project (contract, evaluation sets, baselines, tasks, rules); code in `finetune/` |
 
 ## Speech and the test client
