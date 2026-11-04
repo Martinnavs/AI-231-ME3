@@ -140,3 +140,12 @@ names and phrasings; the laptop tests with different ones.
 
 ## Execution Log
 (append dated entries below; never rewrite earlier ones)
+
+### 2026-11-04 (cluster)
+Bottom line: retrained; the history regression is fixed on everything measured here. Not run: GGUF, OnIt set, pack, the laptop's fresh sets.
+- Data: seven seeds as in the ticket (topic switch, ack, action question, garble + short-command contrast, Pi contrast, delegate request + status-words contrast, statement + noun-phrase contrast); phonebook shared by history and final turn; 58 tests pass, ruff clean. Wordings are my own; the quoted laptop cases and the ticket's example phrases were not copied (ack/statement lists use other phrasings for most).
+- Counts seed 0 before->after: train 11777->14044, dev 1209->1434, test 1191->1446. Seed 1: train 15137->18025, dev 1357->1585, test 1506->1803. Merged distillation train 23016->31068 (merge now holds out the whole prompt).
+- Teacher h1b-lora-web3-s0 (GPU 4, 97 min): dev subset 93.7%; hand-written held-out 70/70, 0/40 repeats, so the cause is the data, not the student (the ticket-02 student: 49/70, 4/40 repeats).
+- Student kd-350m-web3-s0 (GPU 7, 53 min, Mamba kernels + cached top-128 teacher logits, see README): subset 95.0% (ticket 02: 96.3% on its older dev, so not like for like); full new dev 98.7% with reply wording free for ack/statement (94.7% strict); the ticket-02 student on the same dev: 88.8% (87.0% strict); old kinds 98.4% vs 97.9%; held-out 70/70; web_answer 60/0/0 (4 false positives before); arithmetic 0 to a home action; timers 80/80.
+- Adapter: martinnavs/granite-4.0-h-350m-router-kd-web3-s0-unverified (private). Spend $0. Not pushed.
+- Deviations to review: kernels venv and cached top-128 teacher logits (approximation, 99.06% mass) instead of the live teacher; ack/statement reply wording is random so strict exact is capped; the held-out cases are mine.

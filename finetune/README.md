@@ -169,6 +169,35 @@ Both students on the **new** dev split (1209, generator templates, so optimistic
 
 Remaining Pi misses are all "is the pi running okay" phrasings going to `escalate|tools`. Adapter (private, unverified): `martinnavs/granite-4.0-h-350m-router-kd-web2-s0-unverified`. The laptop acceptance (OnIt >= 75/77, pack >= 78/92, no arithmetic to a home intent) is still open.
 
+## Cluster session 2026-11-04 (ticket 03): an independent request after an action is independent
+
+One seed, dev and hand-written held-out cases only (the OnIt set and pack were **not** run; the laptop converts the adapter). New data (`s_topic_switch`, `s_ack_after_anything`, `s_action_question`, `s_garble` + `s_short_command`, `s_pi_contrast`, `s_delegate_request` + `s_status_words_web`, `s_statement` + `s_statement_contrast`): an earlier action in the history no longer makes the model repeat or vary it. Counts for seed 0 (before -> after): train 11777 -> 14044, dev 1209 -> 1434, test 1191 -> 1446; seed 1: train 15137 -> 18025, dev 1357 -> 1585, test 1506 -> 1803; merged distillation train 23016 -> 31068.
+
+| | 1B teacher | 350M student (kd-web3-s0) | ticket-02 student (kd-web2-s0) |
+| --- | --- | --- | --- |
+| Dev 300-example subset, strict | 93.7% | 95.0% | (96.3% on the old, easier dev) |
+| Full new dev (1434), strict exact | not run | 1358 (94.7%) | 1248 (87.0%) |
+| Full new dev, reply wording free for `ack` / `statement` | not run | 1416 (98.7%) | 1274 (88.8%) |
+| Old kinds only (1003 examples) | not run | 987 (98.4%) | 982 (97.9%) |
+| Held-out, 70 hand-written cases | 70/70 | 70/70 | 49/70 |
+| Multi-turn replies that reuse the previous call | 0/40 | 0/40 | 4/40 |
+| `web_answer` tp / fp / fn on dev | not run | 60 / 0 / 0 | 60 / 4 / 0 |
+| Arithmetic to a home action; timer exact | not run | 0; 80/80 | 0; 80/80 |
+
+`ack` and `statement` replies are drawn at random from a short list, so the same phrase has several correct targets and strict exact match cannot reach 100% on them (13/36 and 9/44 here). Right behaviour (a one-line `none|` reply of at most 6 words) is 36/36 and 44/44. Fix in the next data round: make the reply a fixed function of the phrase. The other dev misses are old data quirks: `install this random script...` goes to `escalate|tools` where the label is `other` (9), an ambiguous alias such as "my brother" (4), a capitalisation difference in one web question (3).
+
+Speed: the student took 53 minutes (2.0 s/step) instead of about 2.7 hours (6.6 s/step) with two changes. (1) The Mamba kernels (`causal-conv1d`, `mamba-ssm`) in a separate venv, `finetune/.venv-kernels` (uv, torch 2.8.0+cu128, `--no-deps` installs so torch is not replaced; the main `.venv` is unchanged). (2) `scripts/cache_teacher_logits.py` runs the teacher once (8 minutes for 32,502 examples) and keeps its top-128 logits at the reply tokens; `train.py --teacher-cache` then distils without loading the teacher. The top-128 logits cover 99.06% of the teacher's probability mass at T=2 on average (worst position 36%), so the KL is a close approximation, not the exact full-vocabulary one. The teacher was trained with the old recipe (no kernels).
+
+```bash
+python3 scripts/merge_distill_data.py data/generated data/generated-s1 data/distill
+GPU=4 bash train/run.sh start h1b-lora-web3-s0 --model ibm-granite/granite-4.0-h-1b --data data/generated --out runs/h1b-lora-web3-s0 --seed 0 --batch 4 --accum 16
+CUDA_VISIBLE_DEVICES=7 .venv-kernels/bin/python scripts/cache_teacher_logits.py --teacher ibm-granite/granite-4.0-h-1b --teacher-adapter runs/h1b-lora-web3-s0/final --data data/distill --out data/distill/teacher_top128.pt
+CUDA_VISIBLE_DEVICES=7 .venv-kernels/bin/python train/train.py --model ibm-granite/granite-4.0-h-350m --data data/distill --out runs/kd-350m-web3-s0 --seed 0 --batch 8 --accum 8 --teacher-cache data/distill/teacher_top128.pt
+CUDA_VISIBLE_DEVICES=7 .venv-kernels/bin/python eval/ticket03_check.py --model ibm-granite/granite-4.0-h-350m --adapter runs/kd-350m-web3-s0/final heldout   # or: dev
+```
+
+`merge_distill_data.py` now holds out the whole prompt (history and final turn), not only the last user text, so a short reply such as "okay" is held out only after the same history. Adapter (private, unverified): `martinnavs/granite-4.0-h-350m-router-kd-web3-s0-unverified`. Laptop acceptance (OnIt >= 75/77, pack >= 78/92, earlier fresh sets unchanged, 30 fresh multi-turn cases with 0 repeats, fresh Pi / delegate / statement sets) is still open. The held-out cases are mine, written after seeing the data banks, so they are optimistic.
+
 ## Rules that apply here (the owner's standing agreements)
 
 - Never read or print API keys (`~/.secrets/*`, `.env`, any `*key*` file); code reads them at run time and prints only OK or failure.
