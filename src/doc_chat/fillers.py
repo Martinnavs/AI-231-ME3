@@ -3,7 +3,11 @@
 Three moments in a turn, measured from when the transcript is ready (the agent starts then,
 ~1.0-1.3 s after the user stops): `stall` (no answer yet at `stall_s`, 1.2 s: fast answers get no
 filler), `notice` (still nothing at `notice_s`, once, honest) and `giveup` (nothing at
-`giveup_s`: the turn is dropped with an apology). A timed line never starts until the previous
+`giveup_s`: the turn is dropped with an apology). That cap is for a turn from which nothing came
+back. Once the agent shows progress (a tool call, its `say`, or text) the early notice is replaced
+by one at `progress_notice_s` and the cap moves to `progress_giveup_s` (per tool in
+`progress_giveup_by_tool`); once text has started nothing is timed and the turn is never dropped.
+A timed line never starts until the previous
 filler has finished playing and `gap_s` of silence has passed, so lines never run together.
 A tool call that arrives before anything was said plays that tool's line instead of a stall.
 At most one stall-or-tool line per turn; none once the real answer has started. Each set
@@ -37,6 +41,11 @@ class Fillers:
         self.notice_s = float(timing.get("notice_s", 2.5))
         self.giveup_s = float(timing.get("giveup_s", 8.0))
         self.gap_s = float(timing.get("gap_s", 0.0))  # silence left after a filler finishes playing
+        self.progress_notice_s = float(timing.get("progress_notice_s", 15.0))
+        self.progress_giveup_s = float(timing.get("progress_giveup_s", 20.0))
+        self.progress_giveup_by_tool = {
+            str(k): float(v) for k, v in config.get("progress_giveup_by_tool", {}).items()
+        }
         self.sets: dict[str, deque[str]] = {
             "stall": deque(config["stall"]),
             "notice": deque(config["notice"]),
@@ -80,37 +89,58 @@ class TurnFillers:
     answered: bool = False  # the real answer has started
     filled: bool = False  # a stall or tool line has played
     noticed: bool = False
+    progress: bool = False  # a tool call, a `say` or text came back from the agent
+    text_started: bool = False
+    tool_caps: list[float] = field(default_factory=list)  # per-tool give-up caps seen this turn
     say_pending: bool = False  # the model's `say` was announced but its audio has not started
     say_until: float = 0.0  # perf_counter after which a missing `say` is no longer waited for
     played: list[str] = field(default_factory=list)
 
-    def next_at(self) -> float | None:
-        """When the next timed line is due (None once the answer has started)."""
-        if self.answered:
+    def giveup_at(self) -> float:
+        """The cap on this turn: `giveup_s` with nothing back, the progress cap once the agent has
+        shown progress."""
+        if not self.progress:
+            return self.fillers.giveup_s
+        return min([self.fillers.progress_giveup_s, *self.tool_caps])
+
+    def _phase(self) -> tuple[str, float] | None:
+        """The next timed line and when it is due, or None when nothing more is timed."""
+        if self.answered or self.text_started:
             return None
         if not self.filled:
-            return self.fillers.stall_s
+            return "stall", self.fillers.stall_s
         if not self.noticed:
-            return self.fillers.notice_s
-        return self.fillers.giveup_s
+            at = self.fillers.progress_notice_s if self.progress else self.fillers.notice_s
+            if at < self.giveup_at():
+                return "notice", at
+        return "giveup", self.giveup_at()
+
+    def next_at(self) -> float | None:
+        """When the next timed line is due (None once the answer has started)."""
+        phase = self._phase()
+        return None if phase is None else phase[1]
 
     def due(self, elapsed: float) -> str | None:
         """The kind to play now ("stall", "notice", "giveup"), or None; marks it used."""
-        at = self.next_at()
-        if at is None or elapsed < at:
+        phase = self._phase()
+        if phase is None or elapsed < phase[1]:
             return None
-        if not self.filled:
+        kind = phase[0]
+        if kind == "stall":
             self.filled = True
-            return "stall"
-        if not self.noticed:
+        elif kind == "notice":
             self.noticed = True
-            return "notice"
-        self.answered = True  # nothing more after giving up
-        return "giveup"
+        else:
+            self.answered = True  # nothing more after giving up
+        return kind
 
     def tool(self, name: str, said: bool = False) -> str | None:
         """The kind to play when a tool call arrives, or None (something was said already, or the
         model's own sentence for the call is on its way: `said`)."""
+        self.progress = True
+        cap = self.fillers.progress_giveup_by_tool.get(name)
+        if cap is not None:
+            self.tool_caps.append(cap)
         if self.answered or self.filled:
             return None
         if said:  # timed lines then follow the `say`: they wait for it to finish and a gap
@@ -121,8 +151,11 @@ class TurnFillers:
         return f"tool:{name}"
 
     def text_arrived(self) -> None:
-        """The agent's answer text has started: its audio is imminent, so no stall line."""
+        """The agent's answer text has started: its audio is imminent, so no stall line, and the
+        turn is never given up."""
         self.filled = True
+        self.progress = True
+        self.text_started = True
 
 
 def strip_fillers(text: str, lines: list[str]) -> str:

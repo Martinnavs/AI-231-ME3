@@ -47,9 +47,10 @@ async def test_a_finished_job_is_spoken_after_the_next_answer_once(tmp_path: Pat
     with path.open("a") as sink:
         sink.write(json.dumps({"job": "job1", "text": "The site is ready."}) + "\n")
     assert await _turn(url) == [
+        # the notice starts with a space, so it does not run into the answer ("on.Update")
         {"text": "Lights "},
         {"text": "on."},
-        {"text": "Update on your earlier request: The site is ready.", "flush": True},
+        {"text": " Update on your earlier request: The site is ready.", "flush": True},
         {"done": True},
     ]
     assert await _turn(url) == [{"text": "Lights "}, {"text": "on."}, {"done": True}]
