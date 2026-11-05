@@ -41,7 +41,8 @@ SYSTEM = (
     "angry_birds), never with spaces or hyphens. Write a large file in parts: create it with a "
     "first write_file of the first part, then add the rest with further calls (append with bash "
     "or edit_file), or split the program into several smaller files; one tool call must stay "
-    "under about 6000 words of code."
+    "under about 6000 words of code. Keep a simple game small: one self-contained file of about "
+    "250 lines at most, drawn with plain shapes, no images or sound files."
 )
 
 
