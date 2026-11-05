@@ -12,9 +12,9 @@ listed name and applies a repair ladder:
 5. REPROMPT  nothing usable: "Sorry, I didn't catch that."
 
 Matching is phonetic (a small rule-based grapheme-to-sound pass, then a weighted edit distance
-that treats b/p, d/t, f/p, vowels etc. as cheap substitutions), pure Python with no
-dependencies. Thresholds live in :class:`RepairConfig` and are meant to be tuned on recordings
-(``scripts/stt_repair_eval.py``).
+that treats b/p, d/t, f/p, vowels etc. as cheap substitutions), pure Python by default, with an
+optional numba kernel for the name search (``phonetic_numba``; the same numbers). Thresholds live
+in :class:`RepairConfig` and are meant to be tuned on recordings (``scripts/stt_repair_eval.py``).
 """
 
 from __future__ import annotations
@@ -22,6 +22,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
+
+import numpy as np
+
+from lan_speech import phonetic_numba
 
 
 class Risk(Enum):
@@ -158,6 +162,19 @@ def _gap(ch: str) -> float:
     return 0.3 if ch in "hwy" else 1.0
 
 
+_SUB = np.array([[_sub(chr(a), chr(b)) for b in range(128)] for a in range(128)])
+_GAP = np.array([_gap(chr(a)) for a in range(128)])
+
+
+def _codes(sound: str) -> np.ndarray:
+    return np.frombuffer(sound.encode("ascii", "replace"), dtype=np.uint8).astype(np.int32)
+
+
+def warm_up() -> None:
+    """Pay the numba compile now (server start), not on the first spoken turn."""
+    phonetic_numba.warm_up()
+
+
 def phonetic_distance(a: str, b: str) -> float:
     """Weighted edit distance between two phoneme strings, scaled to 0 (same) .. ~1."""
     if not a or not b:
@@ -212,6 +229,10 @@ class EntityMatcher:
         self.known = known_words
         self._entities = entities
         self._sounds = [phonemes(e.name) for e in entities]
+        self._fast = phonetic_numba.AVAILABLE
+        if self._fast:  # every name's phoneme codes as one integer array, once
+            self._codes = _codes("".join(self._sounds))
+            self._offsets = np.cumsum([0, *map(len, self._sounds)]).astype(np.int64)
         self._exact = {" ".join(_norm_words(e.name)) for e in entities}
 
     @property
@@ -226,6 +247,12 @@ class EntityMatcher:
         sound = phonemes(span)
         if len(sound) < 3:
             return []
+        if self._fast:
+            out = np.empty(len(self._entities))
+            phonetic_numba.distances(_codes(sound), self._codes, self._offsets, _SUB, _GAP, out)
+            kept = np.flatnonzero(out >= 0.0)
+            best = kept[np.argsort(out[kept], kind="stable")[:limit]]
+            return [(float(out[i]), self._entities[i]) for i in best]
         scored: list[tuple[float, Entity]] = []
         for ent, es in zip(self._entities, self._sounds, strict=True):
             if abs(len(es) - len(sound)) > max(1, int(0.25 * max(len(es), len(sound)))):
@@ -471,15 +498,33 @@ def infer_context(text: str) -> tuple[str | None, Risk]:
     return None, Risk.LOW
 
 
+class MatcherSet(dict[str, EntityMatcher]):
+    """The per-category matchers, plus the matchers of category combinations built on first use."""
+
+    def combined(self, kinds: list[str]) -> EntityMatcher:
+        key = "+".join(kinds)
+        if key not in self._combos:
+            self._combos[key] = EntityMatcher(
+                [e for k in kinds for e in self[k].entities], known_words=self[kinds[0]].known
+            )
+        return self._combos[key]
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self._combos: dict[str, EntityMatcher] = {}
+
+
 def build_matchers(
     entities: list[Entity], known_words: frozenset[str] = frozenset()
 ) -> dict[str, EntityMatcher]:
     """One matcher per entity category: repair only searches the names the agent expects."""
     cats = sorted({e.category for e in entities if e.category})
-    return {
-        c: EntityMatcher([e for e in entities if e.category == c], known_words=known_words)
-        for c in cats
-    }
+    return MatcherSet(
+        {
+            c: EntityMatcher([e for e in entities if e.category == c], known_words=known_words)
+            for c in cats
+        }
+    )
 
 
 def repair_text(
@@ -504,9 +549,13 @@ def repair_text(
         matcher = matchers[kinds[0]]
         expected: str | None = None if optional else kinds[0]
     else:
-        matcher = EntityMatcher(
-            [e for k in kinds for e in matchers[k].entities], known_words=matchers[kinds[0]].known
-        )
+        if isinstance(matchers, MatcherSet):
+            matcher = matchers.combined(kinds)
+        else:
+            matcher = EntityMatcher(
+                [e for k in kinds for e in matchers[k].entities],
+                known_words=matchers[kinds[0]].known,
+            )
         expected = None
     return repair(
         [Word(w) for w in text.split()], matcher, risk=risk, expected_category=expected, cfg=cfg
