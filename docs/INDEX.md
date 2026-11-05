@@ -7,6 +7,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | File | What it is |
 |---|---|
 | `HANDOFF.md` | the map: state, findings, decisions, open questions, next actions, working agreements |
+| `ARCHITECTURE.md` | the voice agent as deployed on 2026-11-05: topology and ports, lifecycle (`make pi-detect`, `up`, `talk`, `down`), one turn end to end, every component with its settings, state on disk, measured numbers against the industry, security, config table, differences from older docs |
 | `PI-TEST-PLAN.md` | runbook for the Raspberry Pi echo test (what to run, how to read it, what each outcome means) |
 | `PI-RESULTS.md` | what the Pi echo test showed (split mic/speaker, with and without software AEC), and what it did not |
 | `PI-BRIDGE.md` | the Pi microphone and speaker with the laptop's STT and TTS over a cable: how to run it, Pi setup in one command (`make pi-detect`, `make up`), the traps hit, and the measured latency (2.0 s to sound) |
