@@ -54,7 +54,7 @@ def test_a_tool_call_before_the_stall_replaces_it() -> None:
     turn = TurnFillers(_ready())
     assert turn.tool("weather") == "tool:weather"
     assert turn.tool("weather") is None  # one per turn
-    assert turn.next_at() == 2.5  # the notice is still due if the answer is slow
+    assert turn.next_at() == 15.0  # progress shown: the one notice moves to 15 s
 
 
 def test_nothing_plays_once_the_answer_has_started() -> None:
@@ -102,3 +102,43 @@ def test_arrived_text_skips_the_stall_and_a_said_tool_defers_it() -> None:
     turn = TurnFillers(f)
     turn.text_arrived()
     assert turn.due(1.5) is None
+
+
+def _real() -> TurnFillers:
+    return TurnFillers(Fillers.load())
+
+
+def test_with_nothing_back_the_turn_is_given_up_at_8_s() -> None:
+    turn = _real()
+    assert turn.due(1.8) == "stall" and turn.due(2.5) == "notice"
+    assert turn.due(7.9) is None and turn.due(8.0) == "giveup"
+
+
+def test_a_tool_event_at_2_s_moves_the_notice_to_15_s_and_the_give_up_to_20_s() -> None:
+    turn = _real()
+    assert turn.due(1.8) == "stall"
+    turn.tool("web_answer")  # at 2 s
+    assert turn.due(2.6) is None and turn.due(8.0) is None  # no early notice, no give-up
+    assert turn.due(14.9) is None and turn.due(15.0) == "notice"
+    assert turn.due(19.9) is None and turn.due(20.0) == "giveup"
+
+
+def test_only_one_notice_when_progress_comes_after_it() -> None:
+    turn = _real()
+    assert turn.due(1.8) == "stall" and turn.due(2.5) == "notice"
+    turn.tool("weather", said=True)  # at 3 s
+    assert turn.due(15.0) is None and turn.due(19.9) is None and turn.due(20.0) == "giveup"
+
+
+def test_a_delegate_start_has_its_own_shorter_cap() -> None:
+    turn = _real()
+    turn.tool("delegate")
+    assert turn.next_at() == 12.0 and turn.due(12.0) == "giveup"  # the 15 s notice never comes
+
+
+def test_once_text_has_started_the_turn_is_never_given_up() -> None:
+    turn = _real()
+    assert turn.due(1.8) == "stall"
+    turn.text_arrived()  # at 5 s, audio not yet playing
+    assert turn.next_at() is None
+    assert all(turn.due(t) is None for t in (8.0, 15.0, 20.0, 60.0))

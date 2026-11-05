@@ -148,3 +148,85 @@ async def test_each_filler_is_logged_with_when_it_starts_and_how_long_it_is() ->
     first, second = s._filler_log
     assert first["kind"] == "stall" and 0.95 < first["start_s"] < 1.1 and first["len_s"] == 0.5
     assert second["start_s"] > first["start_s"] + 0.45
+
+
+SCALED = {
+    **CONFIG,
+    "timing": {
+        "stall_s": 0.1,
+        "notice_s": 0.125,
+        "giveup_s": 0.4,
+        "progress_notice_s": 0.75,
+        "progress_giveup_s": 1.0,
+    },
+}  # the real 1.8 / 2.5 / 8 / 15 / 20 s divided by 20
+
+
+def _scaled() -> tuple[Session, list[bytes]]:
+    s, pushed = _with_fillers()
+    s.fillers = Fillers(SCALED)
+    s.fillers.audio = {line: line.encode() for line in s.fillers.lines()}
+    s._turn_fillers = TurnFillers(s.fillers)
+    s._loop = asyncio.get_running_loop()
+    return s, pushed
+
+
+async def test_nothing_from_the_agent_gives_up_at_8_s_scaled() -> None:
+    import time
+
+    s, _pushed = _scaled()
+    t0 = time.perf_counter()
+    assert await asyncio.wait_for(s._filler_timer(t0), timeout=3) == "giveup"
+    assert 0.38 < time.perf_counter() - t0 < 0.6
+
+
+async def test_a_tool_event_early_defers_the_notice_and_the_give_up_scaled() -> None:
+    import time
+
+    s, pushed = _scaled()
+    t0 = time.perf_counter()
+    timer = asyncio.create_task(s._filler_timer(t0))
+    await asyncio.sleep(0.1)
+    s.on_agent_event({"event": "tool", "name": "web_answer"})  # at "2 s"
+    await asyncio.sleep(0.6)  # past the plain give-up
+    assert not timer.done()
+    assert pushed == [b"One moment."] or pushed == [b"Mm, one moment."]  # the tool line only
+    await asyncio.sleep(0.2)  # the notice at 0.75
+    assert not timer.done() and len(pushed) == 2 and pushed[1].startswith(b"Sorry, this")
+    assert await asyncio.wait_for(timer, timeout=2) == "giveup"
+    assert time.perf_counter() - t0 >= 0.99
+
+
+async def test_started_text_is_never_cancelled_scaled() -> None:
+    import time
+
+    s, pushed = _scaled()
+    timer = asyncio.create_task(s._filler_timer(time.perf_counter()))
+    await asyncio.sleep(0.05)
+    s.on_agent_event({"event": "text"})
+    await asyncio.sleep(1.3)  # past every cap
+    assert not timer.done() and pushed == []
+    timer.cancel()
+
+
+async def test_a_progress_turn_survives_respond_to_the_end() -> None:
+    s, client = session()
+    s.fillers = Fillers(SCALED)
+    s.fillers.audio = {line: line.encode() for line in s.fillers.lines()}
+    played: list[str] = []
+
+    async def handle(idx: int, heard: Any) -> None:
+        s.on_agent_event({"event": "tool", "name": "device_status"})
+        await asyncio.sleep(0.7)  # slower than the plain give-up, faster than the progress cap
+
+    async def play_pcm(text: str, pcm: bytes) -> None:
+        played.append(text)
+
+    s.handle = handle  # type: ignore[method-assign]
+    s.play_pcm = play_pcm  # type: ignore[method-assign]
+    import dataclasses
+    import time
+
+    heard = dataclasses.replace(turn("how hot is the pi"), t_final=time.perf_counter())
+    assert await asyncio.wait_for(s.respond(1, heard), timeout=5) is None
+    assert played == [] and client.tts_cancels == 0

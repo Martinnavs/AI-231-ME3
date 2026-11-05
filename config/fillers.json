@@ -3,7 +3,12 @@
     "stall_s": 1.8,
     "notice_s": 2.5,
     "giveup_s": 8.0,
+    "progress_notice_s": 15.0,
+    "progress_giveup_s": 20.0,
     "gap_s": 1.5
+  },
+  "progress_giveup_by_tool": {
+    "delegate": 12.0
   },
   "stall": [
     "Mm, one moment.",

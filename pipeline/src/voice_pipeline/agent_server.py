@@ -423,7 +423,7 @@ class AgentServer:
             if not cancelled and result["status"] == "ok" and self.notices is not None:
                 said = self.notices.pop()
                 for text in said:
-                    await on_say(f"Update on your earlier request: {text}")
+                    await on_say(f" Update on your earlier request: {text}")
             if not cancelled:
                 reply = {"done": True} if result["status"] == "ok" else {"error": "timeout"}
                 try:

@@ -332,6 +332,7 @@ class Session:
                 self._filler_free_at = max(now, self._filler_free_at) + len(pcm) / 2 / rate
                 if self._turn_fillers is not None:
                     self._turn_fillers.say_pending = False
+                    self._turn_fillers.progress = True
             elif self._answer_started is None:
                 self._answer_started = now
             if cue:
@@ -385,7 +386,7 @@ class Session:
             await asyncio.sleep(max(0.0, t_final + at - time.perf_counter()))
             while turn.say_pending and time.perf_counter() < turn.say_until:
                 await asyncio.sleep(0.05)  # a `say` is on its way: the lines follow it
-            if at < turn.fillers.giveup_s:  # the give-up is a hard cap; the rest wait their turn
+            if at < turn.giveup_at():  # the give-up is a hard cap; the rest wait their turn
                 await asyncio.sleep(
                     max(0.0, self._filler_free_at + turn.fillers.gap_s - time.perf_counter())
                 )
@@ -437,6 +438,7 @@ class Session:
                 "question": heard.text,
                 "answer_words": 0,
                 "gave_up": True,
+                "progress": bool(self._turn_fillers and self._turn_fillers.progress),
                 "fillers": list(self._filler_lines) or None,
                 "filler_log": list(self._filler_log) or None,
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
