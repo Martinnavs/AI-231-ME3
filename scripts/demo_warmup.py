@@ -124,7 +124,9 @@ async def ask(url: str, prompt: str) -> tuple[float, float, str]:
     start = time.perf_counter()
     first = 0.0
     text = ""
-    async with connect(url, open_timeout=10) as ws:
+    token = os.environ.get("LAN_SPEECH_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    async with connect(url, open_timeout=10, additional_headers=headers) as ws:
         await ws.send(json.dumps({"messages": [{"role": "user", "content": prompt}]}))
         while True:
             event: dict[str, Any] = json.loads(await asyncio.wait_for(ws.recv(), 30))

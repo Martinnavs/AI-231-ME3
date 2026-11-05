@@ -2,6 +2,7 @@
 # up.sh [all|laptop|pi|agent]: router, speech server, Pi tools, agent server (in that order, so the agent sees the Pi tools).
 #   all = everything   laptop = router + speech + agent, no Pi   pi = Pi speaker and device tools only
 #   agent = (re)start only the agent server
+# The router (--api-key-file), the speech server and the agent server all require the session token (the delegate sandbox shares loopback).
 # Variables (make passes them): ROUTER_MODEL ROUTER_THREADS GGUF_TOOLS ENTITIES KITTEN_VOICE KITTEN_SITE SPEECH_ARGS AGENT_ARGS
 #   PI_START=ssh|systemd  PI_RUN_SECONDS  DRY=1 (print the commands only)
 source "$(dirname "$0")/lib.sh"
@@ -41,11 +42,12 @@ router_health() { curl -sf "http://127.0.0.1:$PORT_ROUTER/health" >/dev/null; }
 
 start_router() {
   check_free "$PORT_ROUTER"
+  need_token
   local g=$GGUF_TOOLS model=$GGUF_TOOLS/models/$ROUTER_MODEL/gguf/router-Q4_K_M.gguf
   [ "$DRY" = 1 ] || [ -f "$model" ] || die "router model not found: $model (ROUTER_MODEL=$ROUTER_MODEL)"
   echo "router model: $ROUTER_MODEL   cable address: $LAPTOP_IP"
   LD_LIBRARY_PATH=$g/llama.cpp/build/bin bg router "$LOGS/router.log" "$g/llama.cpp/build/bin/llama-server" --jinja -c 8192 -np 1 -fa on \
-    -t "$ROUTER_THREADS" -tb "$ROUTER_THREADS" -m "$model" --port "$PORT_ROUTER"
+    -t "$ROUTER_THREADS" -tb "$ROUTER_THREADS" -m "$model" --port "$PORT_ROUTER" --api-key-file "$TOKEN_FILE"
   wait_for router "$LOGS/router.log" 60 router_health
 }
 start_speech() {
@@ -60,7 +62,8 @@ start_speech() {
 start_agent() {
   need_token
   # shellcheck disable=SC2086
-  (cd pipeline && bg agent "$LOGS/agent.log" uv run python -m voice_pipeline.agent_server --ipv4 --hedge -1 \
+  say_dry "agent environment: PI_DEVICE_URL=http://$PI_V4:$PORT_PI_DEVICE/mcp"
+  (cd pipeline && PI_DEVICE_URL="http://$PI_V4:$PORT_PI_DEVICE/mcp" bg agent "$LOGS/agent.log" uv run python -m voice_pipeline.agent_server --ipv4 --hedge -1 \
     --router-url "http://127.0.0.1:$PORT_ROUTER" ${AGENT_ARGS:-})
   agent_ready() { grep -q "agent server on" "$LOGS/agent.log"; }
   wait_for "agent server" "$LOGS/agent.log" 120 agent_ready

@@ -33,6 +33,7 @@ from voice_pipeline import fast_path
 from voice_pipeline.agent import MODEL, Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import (
     BUILTIN_SEARCH_REPLACES,
+    IDLE_DELEGATE_TOOLS,
     PI_URL,
     _recorded,
     build_tools,
@@ -328,6 +329,7 @@ async def run(
     builtin_search: bool = False,
     stub: bool = False,
     search_ledger: Path | None = LEDGER,
+    hide_idle_delegate: bool = False,
 ) -> int:
     """`builtin_search`: the model searches the web itself (its Google Search, counted per turn
     and priced into the budget); `stub`: web_answer and wiki_summary return a canned sentence."""
@@ -377,6 +379,8 @@ async def run(
         with_builtin_search(tools) if builtin_search else tools,
         usage=True,
     )
+    if hide_idle_delegate:  # no delegated job exists in a dry run
+        agent.hide(IDLE_DELEGATE_TOOLS)
     await agent.start()
     await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
     rows: list[dict[str, Any]] = []
@@ -463,6 +467,11 @@ def main(argv: list[str] | None = None) -> int:
         help="web_answer and wiki_summary return a canned sentence (no network, no searches)",
     )
     parser.add_argument(
+        "--hide-idle-delegate",
+        action="store_true",
+        help="do not offer delegate_status and delegate_cancel (no job exists in a dry run)",
+    )
+    parser.add_argument(
         "--search-ledger",
         type=Path,
         default=LEDGER,
@@ -487,6 +496,7 @@ def main(argv: list[str] | None = None) -> int:
             args.builtin_search,
             args.stub_lookups,
             args.search_ledger,
+            args.hide_idle_delegate,
         )
     )
 

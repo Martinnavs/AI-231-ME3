@@ -15,7 +15,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import hmac
 import json
+import logging
+import os
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -26,14 +29,18 @@ from zoneinfo import ZoneInfo
 
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
+from websockets.http11 import Request as HttpRequest
+from websockets.http11 import Response as HttpResponse
 
 from voice_pipeline import call_policy, fast_path, question
 from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
 from voice_pipeline.agent_tools import (
     FAILURE,
+    IDLE_DELEGATE_TOOLS,
     PI_URL,
     TRANSIENT,
     build_tools,
+    has_delegate_jobs,
     standard_servers,
     with_builtin_search,
 )
@@ -60,6 +67,7 @@ from voice_pipeline.router import (
 from voice_pipeline.tools.smart_home import load_phonebook
 
 ROOT = Path(__file__).resolve().parents[2]
+_logger = logging.getLogger(__name__)
 # A web lookup the router runs can take 0.8-2.9 s (grounded Gemini: 1.3 s with no search, 2.1 s with
 # one). If it is still running this long after it started, the client is told a tool call is under
 # way and plays that tool's pre-recorded line ("Let me look that up."), as for a model tool call.
@@ -67,6 +75,25 @@ ROOT = Path(__file__).resolve().parents[2]
 # the questions that need a search; quick ones (median 0.8 s) finish before it would fire.
 LOOKUP_ACK_S = 1.0
 ACKED_LOOKUPS = frozenset({"web_answer"})
+
+
+def token_guard(token: str) -> Callable[[ServerConnection, HttpRequest], HttpResponse | None]:
+    """A `process_request` hook: the WebSocket handshake needs `Authorization: Bearer <token>`.
+    Anything else gets HTTP 401 before a turn can start (the delegate sandbox shares the laptop's
+    loopback, so the port alone is not a boundary). The token is never logged."""
+    expected = token.encode()
+
+    def check(connection: ServerConnection, request: HttpRequest) -> HttpResponse | None:
+        header = request.headers.get("Authorization") or ""
+        scheme, _, given = header.partition(" ")
+        if scheme.lower() == "bearer" and hmac.compare_digest(given.strip().encode(), expected):
+            return None
+        _logger.warning(
+            "rejected a connection without a valid token from %s", connection.remote_address
+        )
+        return connection.respond(401, "Unauthorized\n")
+
+    return check
 
 
 class AgentServer:
@@ -81,7 +108,9 @@ class AgentServer:
         router: LocalRouter | None = None,
         notices: NoticeQueue | None = None,
         doc_request: Request | None = None,
+        jobs_file: Path | None = None,
     ) -> None:
+        self.jobs_file = jobs_file  # set: delegate_status/cancel are offered only once a job exists
         self.doc_request = doc_request
         self.router = router
         self.notices = notices
@@ -394,6 +423,10 @@ class AgentServer:
                 await ws.send(json.dumps({"event": "tool", "name": name, "said": said}))
 
         async with self.lock:
+            if self.jobs_file is not None:
+                self.agent.hide(
+                    frozenset() if has_delegate_jobs(self.jobs_file) else IDLE_DELEGATE_TOOLS
+                )
             before = len(self.record)
             last = messages[-1] if messages else {}
             question.current = str(last.get("content", "")) if last.get("role") == "user" else ""
@@ -456,6 +489,8 @@ async def run(
     router_hold: float = 0.0,
     notices: Path | None = None,
     builtin_search: bool = False,
+    token: str | None = None,
+    hide_idle_delegate: Path | None = None,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
@@ -492,18 +527,27 @@ async def run(
     router = None
     if router_url:
         book = {c["name"]: c["relation"] for c in load_phonebook()}
-        router = LocalRouter(router_url, book, router_timeout)
+        router = LocalRouter(router_url, book, router_timeout, api_key=token)
         await router.warm_up()
     queue = NoticeQueue(notices) if notices else None
     doc_request = None
     if router and any(t.name == "search_docs" for t in tools.standard_tools):
         doc_request = await gemini_request(keepalive, ipv4_only)
     server = AgentServer(
-        agent, record, log, tools if fast or router else None, router, queue, doc_request
+        agent,
+        record,
+        log,
+        tools if fast or router else None,
+        router,
+        queue,
+        doc_request,
+        hide_idle_delegate,
     )
     try:
-        async with serve(server.handle, "127.0.0.1", port):
-            print(f"agent server on ws://127.0.0.1:{port}, log {log}", flush=True)
+        guard = token_guard(token) if token else None
+        async with serve(server.handle, "127.0.0.1", port, process_request=guard):
+            note = "" if token else ", NO TOKEN (--no-token)"
+            print(f"agent server on ws://127.0.0.1:{port}{note}, log {log}", flush=True)
             await asyncio.Future()
     finally:
         await close_llm_sessions()
@@ -513,6 +557,12 @@ async def run(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--port", type=int, default=8781)
+    parser.add_argument(
+        "--no-token",
+        action="store_true",
+        help="serve without LAN_SPEECH_TOKEN (tests only: any local process, the delegate "
+        "sandbox included, could then drive the agent's tools)",
+    )
     parser.add_argument("--live", default=None, help="ME2 dashboard URL; default records only")
     parser.add_argument("--system", type=Path, default=None, help="the system prompt file")
     parser.add_argument(
@@ -571,11 +621,20 @@ def main(argv: list[str] | None = None) -> int:
         "short filler sentence (about +0.3 s on turns the router defers)",
     )
     parser.add_argument(
+        "--hide-idle-delegate",
+        action="store_true",
+        help="offer delegate_status and delegate_cancel only once the delegate server's job table "
+        "(jobs.json next to --notices) lists a job: fewer schema tokens per request",
+    )
+    parser.add_argument(
         "--notices",
         default=str(Path.home() / ".local/state/voice_agent/delegate/notices.jsonl"),
         help="where the delegate server writes the spoken notices of jobs that ended; '' for none",
     )
     args = parser.parse_args(argv)
+    token = None if args.no_token else os.environ.get("LAN_SPEECH_TOKEN")
+    if not token and not args.no_token:
+        parser.error("LAN_SPEECH_TOKEN is not set (pass --no-token only for tests)")
     try:
         return asyncio.run(
             run(
@@ -598,6 +657,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.router_hold,
                 Path(args.notices) if args.notices else None,
                 args.builtin_search,
+                token,
+                Path(args.notices).with_name("jobs.json")
+                if args.hide_idle_delegate and args.notices
+                else None,
             )
         )
     except KeyboardInterrupt:

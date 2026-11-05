@@ -320,7 +320,9 @@ class Agent:
     """One pipeline, one connection: user aggregator -> LLM -> tap -> assistant aggregator."""
 
     def __init__(self, llm: GoogleLLMService, tools: ToolsSchema, usage: bool = False) -> None:
-        pair = LLMContextAggregatorPair(LLMContext(tools=tools))
+        self.all_tools = tools
+        self.context = LLMContext(tools=tools)
+        pair = LLMContextAggregatorPair(self.context)
         self.tap = TurnTap()
         # No idle timeout: a voice session can sit quiet for minutes between turns.
         self.worker = PipelineWorker(
@@ -331,6 +333,12 @@ class Agent:
         self._runner = WorkerRunner(handle_sigint=False)
         self.tap.interrupt = lambda: self.worker.queue_frame(InterruptionFrame())
         self._running: asyncio.Task[None] | None = None
+
+    def hide(self, names: frozenset[str]) -> None:
+        """Offer the model every tool except `names` from the next request on."""
+        from voice_pipeline.agent_tools import without_tools
+
+        self.context.set_tools(without_tools(self.all_tools, names) if names else self.all_tools)
 
     async def start(self) -> None:
         await self._runner.add_workers(self.worker)

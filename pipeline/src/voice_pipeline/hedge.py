@@ -115,6 +115,10 @@ class HedgedAgent:
         for agent in self.agents:
             await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)
 
+    def hide(self, names: frozenset[str]) -> None:
+        for agent in self.agents:
+            agent.hide(names)
+
     async def cancel(self) -> None:
         for agent in self.agents:
             await agent.cancel()

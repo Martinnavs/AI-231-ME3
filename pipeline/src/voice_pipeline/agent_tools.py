@@ -7,10 +7,11 @@ Pi's is optional: without a token, or when the Pi is unreachable, the agent star
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.mcp_service import MCPClient
 
 from voice_pipeline import question
+from voice_pipeline.device_say import device_sentence, single_question
 from voice_pipeline.tools.smart_home import SCHEMA, make_handler
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -32,7 +34,16 @@ WEB_INFO_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
 TAVILY_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.tavily_search"]
 DELEGATE_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.delegate"]
 TIME_COMMAND = [sys.executable, "-m", "mcp_server_time", "--local-timezone", "Asia/Manila"]
-PI_URL = "http://169.254.230.219:8790/mcp"
+PI_URL_FALLBACK = "http://169.254.230.219:8790/mcp"
+
+
+def pi_url_from_env(env: Mapping[str, str] | None = None) -> str:
+    """The Pi's device-tools URL: $PI_DEVICE_URL (scripts/stack/up.sh sets it from config/pi.env),
+    else the address this was first written with."""
+    return (os.environ if env is None else env).get("PI_DEVICE_URL") or PI_URL_FALLBACK
+
+
+PI_URL = pi_url_from_env()
 # Tools whose result is already a sentence to say: no second LLM request (R5; TurnTap decides).
 SPOKEN_RESULT_TOOLS = {"weather", "wiki_summary", "web_answer", "get_volume", "set_volume"}
 # a failure sentence is not an answer: the model gets it and recovers (another topic, its own
@@ -62,6 +73,27 @@ def with_builtin_search(tools: ToolsSchema) -> ToolsSchema:
     return ToolsSchema(
         standard_tools=kept, custom_tools={AdapterType.GEMINI: [{"google_search": {}}]}
     )
+
+
+# Offered to the model only once a delegated job exists (--hide-idle-delegate, off by default):
+# before that they only cost schema tokens on every request.
+IDLE_DELEGATE_TOOLS = frozenset({"delegate_status", "delegate_cancel"})
+
+
+def without_tools(tools: ToolsSchema, names: frozenset[str]) -> ToolsSchema:
+    """`tools` minus the function tools called `names`."""
+    kept = [t for t in tools.standard_tools if t.name not in names]
+    return ToolsSchema(standard_tools=kept, custom_tools=tools.custom_tools)
+
+
+def has_delegate_jobs(jobs_file: Path) -> bool:
+    """Whether the delegate server's job table lists any job (an unreadable table counts as yes)."""
+    try:
+        return bool(json.loads(jobs_file.read_text())["jobs"])
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, KeyError):
+        return True
 
 
 def stdio_server(command: list[str], env: dict[str, str] | None = None) -> MCPClient:
@@ -108,7 +140,23 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         args = {k: v for k, v in params.arguments.items() if k != "say"}
         record.append({"tool": schema.name, "args": args})
         params.arguments = args  # the real tool never sees `say`
-        if schema.name in SPOKEN_RESULT_TOOLS:
+        if schema.name == "device_status" and params.tool_call_id != "router":
+            # the router path words the status itself (agent_server.run_routed)
+            deliver_status = params.result_callback
+
+            async def status_callback(result: Any, *, properties: Any = None) -> None:
+                said = (
+                    device_sentence(result, question.current)
+                    if single_question(question.current)
+                    else None
+                )
+                if said is None:  # nothing usable, or more than a status was asked: the model
+                    await deliver_status(result, properties=properties)
+                else:
+                    await deliver_status(said, properties=properties or NO_SECOND_REQUEST)
+
+            params.result_callback = status_callback
+        elif schema.name in SPOKEN_RESULT_TOOLS:
             deliver = params.result_callback
 
             async def result_callback(result: Any, *, properties: Any = None) -> None:

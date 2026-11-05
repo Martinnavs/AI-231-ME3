@@ -27,9 +27,9 @@ ECHO_MIN_WORDS = (
     3  # "Hello." -> "Hello!" is a pleasantry; a longer verbatim repeat is a garbled turn
 )
 INFO_TOOLS = {"weather", "wiki_summary", "web_answer", "get_volume", "set_volume"}
-# The router's device_status calls were mostly wrong (a ping or a volume change answered with the
-# Pi's status); re-enable only after the retrained router passes its Pi checks.
-ROUTER_DEVICE_STATUS = False
+# The old router's device_status calls were mostly wrong (a ping or a volume change answered with
+# the Pi's status); kd-web3 scored Pi 12/12 held out, and `device_question` still guards each call.
+ROUTER_DEVICE_STATUS = True
 DOCUMENT_LOOKUPS = {"web_answer", "wiki_summary"}  # the lookups that race the documents
 
 
@@ -189,6 +189,8 @@ TIME_CHECKS: dict[str, Callable[[str], bool]] = {"TIMER": is_duration, "ALARM": 
 _PI_WORDS = re.compile(r"\b(pi|pie|raspberry|speaker|device)\b")
 _NOT_STATUS = re.compile(
     r"\b(volume|percent|louder|quieter|ping|latency|network|internet|set|change|make|turn|put)\b"
+    r"|\bper ?cent\b|\b\d+\b|\b(zero|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+    r"|hundred|half|full|max|mute)\b"  # a level: a volume change the transcript garbled ("sata")
 )
 
 

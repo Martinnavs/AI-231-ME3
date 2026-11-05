@@ -78,3 +78,36 @@ def test_flush_marks_the_sentence_and_the_first_text_is_an_event(
     assert chunks == ["Checking. " + FLUSH, "It is 20."]
     assert events == [{"event": "text"}]
     assert model.invoke([HumanMessage("q")]).content == "Checking. It is 20."
+
+
+def _serve_recording_auth(seen: list[str | None]) -> Any:
+    def auth(connection: Any, request: Any) -> None:
+        seen.append(request.headers.get("Authorization"))
+
+    def handle(ws: ServerConnection) -> None:
+        ws.recv()
+        ws.send(json.dumps({"text": "ok"}))
+        ws.send(json.dumps({"done": True}))
+
+    return serve(handle, "127.0.0.1", 0, process_request=auth)
+
+
+@pytest.mark.parametrize(
+    ("field", "env", "expected"),
+    [
+        ("given", "from-env", "Bearer given"),
+        (None, "from-env", "Bearer from-env"),
+        (None, "", None),
+    ],
+)
+def test_client_sends_the_session_token(
+    monkeypatch: pytest.MonkeyPatch, field: str | None, env: str, expected: str | None
+) -> None:
+    monkeypatch.setenv("LAN_SPEECH_TOKEN", env)
+    seen: list[str | None] = []
+    with _serve_recording_auth(seen) as server:
+        port = server.socket.getsockname()[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        list(AgentChatModel(url=f"ws://127.0.0.1:{port}", token=field).stream([HumanMessage("x")]))
+        server.shutdown()
+    assert seen == [expected]
