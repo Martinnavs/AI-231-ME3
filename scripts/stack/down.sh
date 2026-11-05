@@ -7,7 +7,7 @@ load_env
 PIDS=$STACK_DIR/pids
 
 # marker of what each PID must look like before it is signalled (guards against a reused PID)
-marker() { case $1 in router) echo llama-server;; speech) echo lan_speech;; agent) echo agent_server;; esac; }
+marker() { case $1 in router) echo llama-server;; speech) echo lan_speech;; agent) echo agent_server;; apps) echo apps_server;; esac; }
 
 stop_one() {
   local name=$1 f=$PIDS/$1 pid pg
@@ -25,7 +25,7 @@ stop_one() {
   rm -f "$f"
 }
 
-stop_laptop() { local n; for n in agent speech router; do stop_one "$n"; done; }
+stop_laptop() { local n; for n in agent apps speech router; do stop_one "$n"; done; }
 stop_pi() {
   if [ "${PI_START:-ssh}" = systemd ]; then
     pi_ssh 'systemctl --user stop pi-speaker pi-device-mcp; echo "Pi services stopped"'
@@ -41,5 +41,5 @@ case "$MODE" in
   *) die "usage: down.sh [all|laptop|agent|pi]" ;;
 esac
 if [ "$DRY" != 1 ]; then
-  ss -ltn | grep -E ":($PORT_AGENT|$PORT_SPEECH|$PORT_ROUTER) " && echo "WARNING: a laptop port is still listening (not started by make up?)" || echo "laptop ports free"
+  ss -ltn | grep -E ":($PORT_AGENT|$PORT_APPS|$PORT_SPEECH|$PORT_ROUTER) " && echo "WARNING: a laptop port is still listening (not started by make up?)" || echo "laptop ports free"
 fi

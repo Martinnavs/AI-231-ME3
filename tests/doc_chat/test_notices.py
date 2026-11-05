@@ -6,15 +6,25 @@ from typing import Any
 
 from websockets.asyncio.server import serve
 
-from doc_chat.notices import Notice, NoticeFeed, notice_line
+from doc_chat.notices import MAX_WORDS, Notice, NoticeFeed, notice_line
 
 
-def test_the_line_and_its_brief_form() -> None:
+def test_a_spoken_notice_is_the_first_sentence_cut_at_a_word_boundary() -> None:
     text = "The 13th prime from the script is 41. I ran primes.py and read the thirteenth line."
-    assert notice_line(text) == f"Your earlier request is done: {text}"
-    assert notice_line(text, brief=True) == "Earlier request: The 13th prime from the script is 41."
-    long = "word " * 40
-    assert len(notice_line(long, brief=True).split()) <= 14 + 2
+    assert (
+        notice_line(text) == "Your earlier request is done: The 13th prime from the script is 41."
+    )
+    long = " ".join(f"word{i}" for i in range(70)) + ". Second sentence."
+    said = notice_line(long).removeprefix("Your earlier request is done: ")
+    assert said.split()[-1] == "word24." and len(said.split()) == MAX_WORDS
+    assert "Second" not in said
+    flappy = (
+        "I wrote flappy_bird.py, a complete Flappy Bird clone with pygame: the bird flaps with the "
+        "space bar, pipes scroll left with random gaps, the score counts passed pipes, and it "
+        "restarts on a collision. I tested it headless for 600 frames."
+    )
+    assert len(notice_line(flappy).split()) <= MAX_WORDS + 5  # the prefix is five words
+    assert notice_line("Short answer") == "Your earlier request is done: Short answer"
 
 
 async def test_the_feed_connects_with_the_token_takes_notices_once_and_acks() -> None:
@@ -46,7 +56,7 @@ async def test_the_feed_connects_with_the_token_takes_notices_once_and_acks() ->
     await server.wait_closed()
 
 
-async def test_a_cut_notice_goes_back_once_then_is_acked_and_dropped() -> None:
+async def test_a_cut_notice_is_acked_at_once_and_never_comes_back() -> None:
     acked: list[int] = []
 
     class Feed(NoticeFeed):
@@ -54,10 +64,5 @@ async def test_a_cut_notice_goes_back_once_then_is_acked_and_dropped() -> None:
             acked.append(nid)
 
     feed = Feed("ws://unused", "t")
-    notice = Notice(9, "Done.")
-    await feed.cut(notice)
-    assert feed.waiting == [notice] and acked == []
-    again = feed.take()
-    assert again is notice
-    await feed.cut(notice)
+    await feed.cut(Notice(9, "Done."))
     assert feed.waiting == [] and acked == [9]

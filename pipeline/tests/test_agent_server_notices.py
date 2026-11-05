@@ -110,3 +110,31 @@ async def test_notices_do_not_wait_for_a_turn_or_block_one(tmp_path: Path) -> No
         assert await _turn(url) == [{"text": "Lights "}, {"text": "on."}, {"done": True}]
     ws_server.close()
     await ws_server.wait_closed()
+
+
+async def test_the_test_only_delay_pauses_a_matching_turn_and_a_closed_socket_cancels_it(
+    tmp_path: Path,
+) -> None:
+    server = AgentServer(QuickAgent(), [], tmp_path / "log.jsonl")
+    server.test_delay = ("tortoise", 0.4)
+    ws_server = await serve(server.handle, "127.0.0.1", 0)
+    url = f"ws://127.0.0.1:{next(iter(ws_server.sockets)).getsockname()[1]}"
+    loop = asyncio.get_running_loop()
+
+    async def timed(text: str) -> float:
+        t0 = loop.time()
+        async with connect(url) as ws:
+            await ws.send(json.dumps({"messages": [{"role": "user", "content": text}]}))
+            while "done" not in json.loads(await ws.recv()):
+                pass
+        return loop.time() - t0
+
+    assert await timed("lights on") < 0.3
+    assert await timed("the Tortoise question") >= 0.4
+    async with connect(url) as ws:  # the client gives up during the pause: the turn is dropped
+        await ws.send(json.dumps({"messages": [{"role": "user", "content": "tortoise"}]}))
+        await asyncio.sleep(0.1)
+    await asyncio.sleep(0.5)
+    assert not server.lock.locked()
+    ws_server.close()
+    await ws_server.wait_closed()

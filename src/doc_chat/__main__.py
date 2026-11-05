@@ -243,6 +243,8 @@ class Interruption:
 
 
 RESUME_GAP_S = 0.2  # silence put between a cut-off turn and what the user said next
+NOTICE_COOLDOWN_S = 1.5  # no notice this soon after the user spoke, interrupted or said stop
+# (longer than most pauses in the middle of a thought)
 NOTICE_CHECK_S = 0.2  # how often a waiting notice is checked against the user being idle
 IDLE_QUIET_S = 0.8  # no voiced block for this long while listening: a notice may be spoken
 IDLE_RATIO = 3.0  # how far above the room's noise counts as speech while the assistant is quiet
@@ -285,6 +287,8 @@ class Session:
     _filler_lines: list[str] = field(default_factory=list)
     _loop: asyncio.AbstractEventLoop | None = None
     notice_feed: NoticeFeed | None = None  # finished delegate jobs, spoken when the user is idle
+    _speech_mark: float = 0.0  # perf_counter at the end of the user's last speech
+    _no_notice_until: float = 0.0
 
     def log(self, rec: dict[str, Any]) -> None:
         self.log_file.write(json.dumps(rec) + "\n")
@@ -481,11 +485,22 @@ class Session:
         print(
             f"  [interrupted (barge_in); stopped {cancel_ms:.0f} ms after it heard you]", flush=True
         )
+        self._quiet_notices()
         return Interruption("barge_in", blocks, cancel_ms, 0.0)
 
+    def _quiet_notices(self) -> None:
+        """The user interrupted or stopped something: no notice for NOTICE_COOLDOWN_S."""
+        self._no_notice_until = time.perf_counter() + NOTICE_COOLDOWN_S
+
     def _user_idle(self) -> bool:
-        """Nobody is speaking: no voiced block in the current listen for IDLE_QUIET_S."""
-        return time.perf_counter() - self.client.last_voiced >= IDLE_QUIET_S
+        """A notice may start: no voiced block in the current listen for IDLE_QUIET_S, the user's
+        last speech and last interruption at least NOTICE_COOLDOWN_S ago."""
+        now = time.perf_counter()
+        return (
+            now - self.client.last_voiced >= IDLE_QUIET_S
+            and now - self._speech_mark >= NOTICE_COOLDOWN_S
+            and now >= self._no_notice_until
+        )
 
     async def hear_idle(self) -> tuple[HeardTurn, bool]:
         """`hear`, but a finished job's notice is spoken as soon as the user is idle. Returns the
@@ -511,11 +526,11 @@ class Session:
             notice = feed.take()
             if notice is None:
                 continue
-            cut = await self._speak_line(notice_line(notice.text, notice.cuts > 0))
+            cut = await self._speak_line(notice_line(notice.text))
             if cut is None:
                 await feed.played(notice)
                 continue
-            await feed.cut(notice)  # back once, briefly, at the next idle moment
+            await feed.cut(notice)  # talked over: not replayed
             return await self.hear(lead_in=cut.blocks), True
 
     async def _give_up(
@@ -855,6 +870,7 @@ class Session:
             if " ".join(said) in _QUIT_WORDS:
                 break
             if _is_stop_phrase(said, was_interrupt):
+                self._quiet_notices()
                 print(f"you:  {heard.text}   (it stopped; listening)", flush=True)
                 self.log(
                     {
@@ -936,6 +952,7 @@ class Session:
             first_speech_timeout=first_speech_timeout,
         )
         print("\r" + " " * 90 + "\r", end="")
+        self._speech_mark = max(self._speech_mark, heard.t_speech_end)
         return heard
 
     async def respond(self, idx: int, heard: HeardTurn) -> Interruption | None:
@@ -994,6 +1011,7 @@ class Session:
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await asyncio.wait_for(work, timeout=2.0)  # a stuck device must not freeze us
         cancel_ms = (time.perf_counter() - t0) * 1000.0
+        self._quiet_notices()
         kind = "barge_in" if started is not None else "resumed"
         spoken = " ".join(self._spoken)
         print(

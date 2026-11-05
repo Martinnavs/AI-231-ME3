@@ -377,3 +377,17 @@ def test_the_tool_text_says_what_the_sandbox_cannot_do(tmp_path: Path) -> None:
 def test_the_real_config_turns_network_on_and_waits_at_most_two_seconds() -> None:
     config = tomllib.loads(CONFIG.read_text())
     assert config["paths"]["network"] is True and config["limits"]["wait_s"] <= 2
+
+
+async def test_status_returns_the_whole_result_of_a_finished_job_not_just_what_was_announced(
+    tmp_path: Path,
+) -> None:
+    long = " ".join(f"word{i}" for i in range(70)) + "."
+
+    async def finish(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        return RunResult(status="done", summary=f"{long}\nFiles: flappy.py")
+
+    delegator = make(tmp_path, finish)
+    await delegator.delegate("write a flappy bird game", wait_s=2.0)
+    out = delegator.status("what happened with the game")
+    assert out["status"] == DONE and out["summary"] == long

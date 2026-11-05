@@ -2,7 +2,8 @@
 
 The channel is a WebSocket to the agent server whose first message is {"notices": true}. The server
 then sends {"notice": {"id": int, "text": str}} the moment a job ends, and again after a reconnect
-until the client sends {"ack": id}. The client acks only after the notice has played to the end.
+until the client sends {"ack": id}. The client acks when the notice has played to the end or the
+user talked over it (it is then not repeated).
 """
 
 from __future__ import annotations
@@ -17,31 +18,34 @@ from typing import Any
 import websockets.asyncio.client as ws_client
 
 RECONNECT_S = 2.0
-BRIEF_WORDS = 14
+MAX_WORDS = 25
 
 
 @dataclass
 class Notice:
     id: int
     text: str
-    cuts: int = 0  # times a barge-in cut it off
 
 
-def notice_line(text: str, brief: bool = False) -> str:
-    """What is said. The second try, after a barge-in cut the first, is the first sentence only."""
-    text = " ".join(text.split())
-    if not brief:
-        return f"Your earlier request is done: {text}"
-    first = text.split(". ")[0].rstrip(".")
-    words = first.split()
-    if len(words) > BRIEF_WORDS:
-        first = " ".join(words[:BRIEF_WORDS])
-    return f"Earlier request: {first}."
+def notice_line(text: str) -> str:
+    """What is said: the first sentence, at most MAX_WORDS words, cut at a word boundary. The whole
+    text stays in the job log and in delegate_status."""
+    words = " ".join(text.split())
+    for end in (". ", "? ", "! "):
+        head, sep, _ = words.partition(end)
+        if sep:
+            words = head + end.strip()
+            break
+    parts = words.split()
+    if len(parts) > MAX_WORDS:
+        words = " ".join(parts[:MAX_WORDS]).rstrip(",;:") + "."
+    return f"Your earlier request is done: {words}"
 
 
 class NoticeFeed:
     """The notices waiting to be spoken. `run` keeps the channel open (reconnecting) in the
-    background; `take` hands out the oldest; `played` acks it, `cut` puts it back once."""
+    background; `take` hands out the oldest; `played` and `cut` ack it (a cut
+    notice is not replayed)."""
 
     def __init__(self, url: str, token: str | None = None) -> None:
         self.url = url
@@ -90,14 +94,9 @@ class NoticeFeed:
         await self._ack(notice.id)
 
     async def cut(self, notice: Notice) -> None:
-        """A barge-in cut it off. The first time it goes back (it comes back briefly at the next
-        idle moment); the second time it is given up and acked, so it never comes back again."""
-        notice.cuts += 1
-        if notice.cuts == 1:
-            self.waiting.insert(0, notice)
-            self.arrived.set()
-        else:
-            await self._ack(notice.id)
+        """The user talked over it (or said stop): it is not replayed. The server forgets it; the
+        job's result stays in delegate_status."""
+        await self._ack(notice.id)
 
     async def _ack(self, nid: int) -> None:
         ws = self._ws
