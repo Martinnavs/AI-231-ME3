@@ -491,3 +491,12 @@ async def test_cancel_under_anyio_scope_still_waits_for_death(
     gc.collect()
     await asyncio.sleep(0)
     assert not [e for e in errors if "never retrieved" in str(e.get("message", ""))]
+
+
+def test_policy_env_is_set_inside_the_sandbox() -> None:
+    layout = HostLayout(usr_merged={}, has_lib64=False, has_etc_alternatives=False)
+    cmd = build_command(
+        SandboxPolicy(root=Path("/s"), env=(("A", "1"), ("B", "x y"))), ["x"], layout
+    )
+    start = cmd.index("A") - 1
+    assert cmd[start : start + 6] == ["--setenv", "A", "1", "--setenv", "B", "x y"]

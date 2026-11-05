@@ -21,7 +21,12 @@ def make(tmp_path: Path, run: Any, transport: httpx.AsyncBaseTransport | None = 
     key = tmp_path / "key.txt"
     key.write_text("sk-test\n")
     config = tomllib.loads(CONFIG.read_text())
-    config["paths"] = {"state_dir": str(tmp_path / "state"), "sandbox_root": str(tmp_path / "jobs")}
+    config["paths"] = {
+        "state_dir": str(tmp_path / "state"),
+        "sandbox_root": str(tmp_path / "jobs"),
+        "workspace": str(tmp_path / "workspace"),
+        "network": True,
+    }
     config["models"]["haiku"]["key_file"] = str(key)
     config["models"]["qwen"] = {**config["models"]["haiku"], "pool": "qwen"}
     return Delegator(config, JobTable(tmp_path / "state"), run, transport)
@@ -38,7 +43,7 @@ async def test_a_quick_task_is_answered_in_the_call_and_not_announced(tmp_path: 
 
     delegator = make(tmp_path, quick)
     out = await delegator.delegate("what is 6*7", wait_s=2.0)
-    assert out == {"job": "job1", "status": DONE, "summary": "It is 42."}
+    assert out == {"job": "job1", "status": DONE, "summary": "It is 42.", "workspace_files": []}
     assert notices(delegator) == [] and delegator.table.jobs["job1"].usd == 0.001
 
 
@@ -168,7 +173,10 @@ async def test_the_real_runner_works_in_a_sandbox_folder_with_a_scripted_model(
     delegator = make(tmp_path, None, httpx.MockTransport(handler))
     out = await delegator.delegate("write a.txt", wait_s=20.0)
     assert out["status"] == DONE and out["summary"] == "Wrote it."
-    assert (tmp_path / "jobs" / "job1" / "a.txt").read_text() == "hi\n"
+    assert (tmp_path / "workspace" / "a.txt").read_text() == "hi\n"
+    assert not (tmp_path / "jobs" / "job1" / "a.txt").exists()
+    assert "Wrote it." in (tmp_path / "jobs" / "job1" / "log.txt").read_text()
+    assert out["workspace_files"] == ["a.txt"]
     assert (
         delegator.table.jobs["job1"].files == ["a.txt"]
         and delegator.table.jobs["job1"].usd == 0.002
@@ -221,7 +229,7 @@ async def test_the_wait_comes_from_the_config_and_jobs_are_capped(tmp_path: Path
         return RunResult(status="done", summary="ok")
 
     delegator = make(tmp_path, runner)
-    assert (delegator.wait_s, delegator.max_jobs) == (4.0, 2)
+    assert (delegator.wait_s, delegator.max_jobs) == (1.0, 2)
     assert (await delegator.delegate("quick"))["status"] == DONE
     assert (await delegator.delegate("slow one", wait_s=0.01))["status"] == "started"
     assert (await delegator.delegate("slow two", wait_s=0.01))["status"] == "started"
@@ -300,3 +308,72 @@ async def test_the_started_message_forbids_a_duration(tmp_path: Path) -> None:
     assert "Do not say how long" in out["message"]
     delegator.tasks["job1"].cancel()
     await asyncio.gather(*delegator.tasks.values(), return_exceptions=True)
+
+
+async def test_every_job_gets_the_same_workspace_and_status_lists_its_files(
+    tmp_path: Path,
+) -> None:
+    seen: list[tuple[Path, list[str]]] = []
+
+    async def runner(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        seen.append((folder, sorted(p.name for p in delegator.workspace.iterdir())))
+        (delegator.workspace / f"{task}.py").write_text("x")
+        return RunResult(status="done", summary="ok")
+
+    delegator = make(tmp_path, runner)
+    await delegator.delegate("first")
+    second = await delegator.delegate("second")
+    assert [files for _, files in seen] == [[], ["first.py"]]
+    assert seen[0][0] != seen[1][0] and seen[0][0].parent == tmp_path / "jobs"
+    assert second["workspace_files"] == ["first.py", "second.py"]
+    assert delegator.status("")["workspace_files"] == ["first.py", "second.py"]
+
+
+def test_workspace_listing_skips_hidden_and_caches_and_is_capped(tmp_path: Path) -> None:
+    delegator = make(tmp_path, None)
+    ws = delegator.workspace
+    (ws / "__pycache__").mkdir(parents=True)
+    (ws / "__pycache__" / "a.pyc").write_text("x")
+    (ws / ".hidden").write_text("x")
+    for i in range(30):
+        (ws / f"f{i:02}.txt").write_text("x")
+    listed = delegator.workspace_files()
+    assert len(listed) == 20 and listed[0] == "f00.txt" and not any("pyc" in n for n in listed)
+
+
+async def test_the_real_runner_passes_workspace_network_and_pylibs_to_the_code_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class Fake:
+        def __init__(self, specs: dict[str, Any]) -> None:
+            captured["spec"] = specs["code"]
+            self.unavailable = ["code"]
+
+        async def __aenter__(self) -> Fake:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    monkeypatch.setattr("voice_agent.mcp_servers.delegate.McpClientManager", Fake)
+    delegator = make(tmp_path, None)
+    delegator.pylibs = tmp_path / "pylibs"
+    await delegator.run_in_sandbox("t", Model("u", "m", 0, 0, None, {}), "k", tmp_path / "j", "p")
+    args = list(captured["spec"].args)
+    assert args[args.index("--root") + 1] == str(tmp_path / "workspace")
+    assert "--network" in args and args[args.index("--pylibs") + 1] == str(tmp_path / "pylibs")
+
+
+def test_the_tool_text_says_what_the_sandbox_cannot_do(tmp_path: Path) -> None:
+    from voice_agent.mcp_servers.delegate import build_server
+
+    tool = asyncio.run(build_server(make(tmp_path, None)).get_tool("delegate"))
+    text = tool.description or ""
+    assert "no screen" in text and "network" in text and "share one workspace" in text
+
+
+def test_the_real_config_turns_network_on_and_waits_at_most_two_seconds() -> None:
+    config = tomllib.loads(CONFIG.read_text())
+    assert config["paths"]["network"] is True and config["limits"]["wait_s"] <= 2

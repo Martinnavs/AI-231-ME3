@@ -8,12 +8,15 @@ max_steps = 25
 max_seconds = 300
 max_usd = 0.15
 budget_usd = 1.0
-wait_s = 4
+wait_s = 1
 max_jobs = 2
 
 [paths]
 state_dir = "~/.local/state/voice_agent/delegate"
-sandbox_root = "~/agent_sandbox/jobs"
+sandbox_root = "~/agent_sandbox/jobs"   # one folder per job: logs only
+workspace = "~/agent_sandbox/workspace"  # shared by every job, mounted at /sandbox
+pylibs = "~/agent_sandbox/pylibs"        # extra Python packages (pygame), mounted read-only
+network = true                           # whole sandbox, not per command (bwrap cannot do per command)
 
 [models.haiku]
 pool = "openrouter"

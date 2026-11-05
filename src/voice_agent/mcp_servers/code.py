@@ -14,7 +14,7 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import anyio
 from mcp.server.fastmcp import FastMCP
@@ -59,6 +59,8 @@ class _State:
     sites_host: str = "raspberrypi.local"
     sites_port: int = 8080
     media_root: Path | None = field(default_factory=lambda: PathsConfig().media_root)
+    network: bool = False
+    pylibs: Path | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -189,7 +191,7 @@ def _hidden_has_symlink(real_root: Path, hidden: str) -> bool:
 async def run_python(
     path: str, args: list[str] | None = None, timeout_s: int = 60
 ) -> dict[str, object]:
-    """Run a Python script from the sandbox folder in isolation (no network, 512M, 1 core)."""
+    """Run a Python script from the sandbox folder in isolation (512M, 1 core; --network only)."""
     async with _state.lock:
         script = _resolve(path, must_exist=True)
         if not script.is_file():
@@ -203,6 +205,8 @@ async def run_python(
             root=real_root,
             timeout_s=max(1, min(timeout_s, MAX_RUN_TIMEOUT_S)),
             hidden_paths=(hidden,) if hidden else (),
+            host_readonly=_state.network,
+            **_extras(),
         )
         try:
             result = await run_in_sandbox(policy, ["python3", f"/sandbox/{rel}", *(args or [])])
@@ -224,6 +228,21 @@ async def run_python(
     }
 
 
+def _extras() -> dict[str, Any]:
+    """Policy fields set by --network / --pylibs (delegate jobs); empty by default."""
+    extras: dict[str, Any] = {"network": _state.network}
+    libs = _state.pylibs
+    if libs is not None and libs.is_dir():
+        env = (
+            ("PYTHONPATH", str(libs)),
+            ("SDL_VIDEODRIVER", "dummy"),
+            ("SDL_AUDIODRIVER", "dummy"),
+            ("PYGAME_HIDE_SUPPORT_PROMPT", "1"),
+        )
+        extras |= {"ro_binds": (libs,), "env": env}
+    return extras
+
+
 def _policy(timeout_s: int, *, host_readonly: bool = False) -> SandboxPolicy:
     real_root = _state.root.resolve()
     hidden = _media_rel()
@@ -234,6 +253,7 @@ def _policy(timeout_s: int, *, host_readonly: bool = False) -> SandboxPolicy:
         timeout_s=max(1, min(timeout_s, MAX_RUN_TIMEOUT_S)),
         hidden_paths=(hidden,) if hidden else (),
         host_readonly=host_readonly,
+        **_extras(),
     )
 
 
@@ -241,8 +261,8 @@ def _policy(timeout_s: int, *, host_readonly: bool = False) -> SandboxPolicy:
 async def bash(command: str, timeout_s: int = 60) -> dict[str, object]:
     """Run a shell command in the isolated sandbox.
 
-    The machine is visible read-only, only the working folder is writable, there is no network,
-    and sudo, ssh and similar commands are refused.
+    The machine is visible read-only, only the working folder is writable, there is no network
+    unless the server was started with --network, and sudo, ssh and similar commands are refused.
     """
     refusal = check_command(command)
     if refusal is not None:
@@ -495,6 +515,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, force=True)
     parser = argparse.ArgumentParser(prog="voice_agent.mcp_servers.code")
     parser.add_argument("--root", type=Path)
+    parser.add_argument(
+        "--network", action="store_true", help="let sandboxed commands use the network"
+    )
+    parser.add_argument("--pylibs", type=Path, help="read-only folder of extra Python packages")
     args = parser.parse_args(argv)
     try:
         cfg = load_config()
@@ -503,6 +527,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ConfigError:
         paths = PathsConfig()
     _state.root = (args.root or paths.sandbox_root).expanduser()
+    _state.network = args.network
+    _state.pylibs = args.pylibs.expanduser().resolve() if args.pylibs else None
     _state.sites_root = paths.sites_root
     _state.media_root = paths.media_root.expanduser()
     if ".." in _state.media_root.parts:
