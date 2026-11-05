@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import socket
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -44,7 +44,11 @@ from voice_pipeline.device_say import device_sentence
 SAY_DELAY_S = 0.6  # a tool that answers within this makes the `say` sentence unnecessary
 # Tools that never answer that fast: their `say` is spoken at once (weather took 1.3-4.2 s every
 # time in the 2026-10-27 session, so holding its `say` 0.6 s only delayed it).
-SAY_DELAY_BY_TOOL = {"weather": 0.0}
+SAY_DELAY_TODAY = {"weather": 0.0}
+# 2026-11-05 logs: first text came exactly one hold after the first call (80 Gemini tool turns,
+# median 0.61 s), and these tools took 0.63 s at the fastest (routed web lookups, median 1.9 s)
+SAY_DELAY_SLOW = {**SAY_DELAY_TODAY, "web_answer": 0.0, "search_docs": 0.0, "delegate": 0.0}
+SAY_DELAY_BY_TOOL = SAY_DELAY_TODAY
 MODEL = "gemini-3.1-flash-lite"
 TURN_TIMEOUT_S = 20.0
 # After a tool result the model's follow-up call normally starts in under a second; one in
@@ -134,9 +138,15 @@ def stall_sentence(name: str, result: Any, asked: str) -> str:
 class TurnTap(FrameProcessor):
     """Times one turn (first tool call, first text, end) and forwards its text."""
 
-    def __init__(self, say_delay_s: float = SAY_DELAY_S, stall_s: float = STALL_S) -> None:
+    def __init__(
+        self,
+        say_delay_s: float = SAY_DELAY_S,
+        stall_s: float = STALL_S,
+        say_delays: Mapping[str, float] | None = None,
+    ) -> None:
         super().__init__()
         self.say_delay_s = say_delay_s
+        self.say_delays = SAY_DELAY_BY_TOOL if say_delays is None else say_delays
         self.stall_s = stall_s
         self.interrupt: Callable[[], Awaitable[None]] | None = None  # stops the model's late reply
         self._say_task: asyncio.Task[None] | None = None
@@ -228,7 +238,7 @@ class TurnTap(FrameProcessor):
         self.said = bool(say and (self.on_say or self.on_text) is not None)
         if self.said:
             self.say_text = say
-            delay = SAY_DELAY_BY_TOOL.get(calls[0].function_name, self.say_delay_s)
+            delay = self.say_delays.get(calls[0].function_name, self.say_delay_s)
             if delay > 0 and self.say_delay_s > 0:
                 self._say_task = asyncio.create_task(self._say_after_delay(delay))
             else:
@@ -319,11 +329,17 @@ class TurnTap(FrameProcessor):
 class Agent:
     """One pipeline, one connection: user aggregator -> LLM -> tap -> assistant aggregator."""
 
-    def __init__(self, llm: GoogleLLMService, tools: ToolsSchema, usage: bool = False) -> None:
+    def __init__(
+        self,
+        llm: GoogleLLMService,
+        tools: ToolsSchema,
+        usage: bool = False,
+        say_delays: Mapping[str, float] | None = None,
+    ) -> None:
         self.all_tools = tools
         self.context = LLMContext(tools=tools)
         pair = LLMContextAggregatorPair(self.context)
-        self.tap = TurnTap()
+        self.tap = TurnTap(say_delays=say_delays)
         # No idle timeout: a voice session can sit quiet for minutes between turns.
         self.worker = PipelineWorker(
             Pipeline([pair.user(), llm, self.tap, pair.assistant()]),

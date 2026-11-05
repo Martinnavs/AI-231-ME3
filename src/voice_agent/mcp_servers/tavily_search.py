@@ -284,10 +284,15 @@ def build_server(
         api_key = gemini_key or gemini_grounding.load_key()
         if not api_key or spend.exhausted:
             return None
+        started = time.perf_counter()
         try:
             async with asyncio.timeout(GEMINI_TIMEOUT_S):
                 answer = await gemini_grounding.ask(http, query, api_key)
-        except (httpx.HTTPError, ValueError, KeyError, TimeoutError):
+        except (httpx.HTTPError, ValueError, KeyError, TimeoutError) as exc:
+            spend.add_failure(
+                time.perf_counter() - started,
+                "timeout" if isinstance(exc, TimeoutError) else type(exc).__name__,
+            )
             return None
         if answer is None:
             return None

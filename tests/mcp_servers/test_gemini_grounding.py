@@ -162,3 +162,21 @@ def test_the_ledger_counts_this_month_only_and_survives_a_bad_file(tmp_path: Pat
     (tmp_path / "file").write_text("a file, not a folder")
     unwritable.add(gemini_grounding.Grounded("t", 2, [], None, 0.1))  # must not raise
     assert unwritable.searches == 2
+
+
+async def test_a_failed_grounded_call_is_a_costless_ledger_row(tmp_path: Path) -> None:
+    path = tmp_path / "ledger.jsonl"
+    ledger = Ledger(path, month="2026-11")
+    await _ask(Both(httpx.ConnectError("down")), ledger=ledger)
+    row = json.loads(path.read_text().splitlines()[0])
+    assert row["failed"] == "ConnectError" and row["searches"] == 0 and row["tokens"] == 0
+    assert Ledger(path, month="2026-11").searches == 0
+
+
+async def test_a_grounded_timeout_is_logged_as_a_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "ledger.jsonl"
+    monkeypatch.setattr(tavily_search, "GEMINI_TIMEOUT_S", 0.05)
+    await _ask(Both(httpx.Response(200), delay=1.0), ledger=Ledger(path, month="2026-11"))
+    assert json.loads(path.read_text().splitlines()[0])["failed"] == "timeout"

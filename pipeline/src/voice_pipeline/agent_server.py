@@ -33,7 +33,14 @@ from websockets.http11 import Request as HttpRequest
 from websockets.http11 import Response as HttpResponse
 
 from voice_pipeline import call_policy, fast_path, question
-from voice_pipeline.agent import KEEPALIVE_S, Agent, build_llm, close_llm_sessions
+from voice_pipeline.agent import (
+    KEEPALIVE_S,
+    SAY_DELAY_SLOW,
+    SAY_DELAY_TODAY,
+    Agent,
+    build_llm,
+    close_llm_sessions,
+)
 from voice_pipeline.agent_tools import (
     FAILURE,
     IDLE_DELEGATE_TOOLS,
@@ -491,6 +498,7 @@ async def run(
     builtin_search: bool = False,
     token: str | None = None,
     hide_idle_delegate: Path | None = None,
+    say_delays: dict[str, float] | None = None,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
@@ -509,13 +517,16 @@ async def run(
 
     agent: Agent | HedgedAgent
     if hedge is None:
-        agent = Agent(llm(), llm_tools(tools))
+        agent = Agent(llm(), llm_tools(tools), say_delays=say_delays)
         await agent.start()
         await agent.ask([{"role": "user", "content": "Say OK."}], reset=True)  # warm-up
     else:  # R4: two requests per turn, the first to answer wins (hedge.py)
         gate = HedgeGate()
         agent = HedgedAgent(
-            [Agent(llm(), llm_tools(gated_tools(tools, gate, i))) for i in range(2)],
+            [
+                Agent(llm(), llm_tools(gated_tools(tools, gate, i)), say_delays=say_delays)
+                for i in range(2)
+            ],
             gate,
             hedge,
             hold_s=router_hold,
@@ -621,6 +632,13 @@ def main(argv: list[str] | None = None) -> int:
         "short filler sentence (about +0.3 s on turns the router defers)",
     )
     parser.add_argument(
+        "--say-delays",
+        choices=["default", "today", "slow"],
+        default="default",
+        help="how long the model's `say` is held per tool: today = weather only, slow = also "
+        "web_answer, search_docs and delegate",
+    )
+    parser.add_argument(
         "--hide-idle-delegate",
         action="store_true",
         help="offer delegate_status and delegate_cancel only once the delegate server's job table "
@@ -661,6 +679,7 @@ def main(argv: list[str] | None = None) -> int:
                 Path(args.notices).with_name("jobs.json")
                 if args.hide_idle_delegate and args.notices
                 else None,
+                {"today": SAY_DELAY_TODAY, "slow": SAY_DELAY_SLOW}.get(args.say_delays),
             )
         )
     except KeyboardInterrupt:

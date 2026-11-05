@@ -134,11 +134,21 @@ class Ledger:
 
     def add(self, grounded: Grounded) -> None:
         self.searches += grounded.searches
+        self._write(grounded.searches, grounded.tokens or 0, grounded.seconds)
+
+    def add_failure(self, seconds: float, kind: str) -> None:
+        """A grounded call that timed out or failed (`kind`): a row with no cost, so the
+        latency tail can be counted."""
+        self._write(0, 0, seconds, kind)
+
+    def _write(self, searches: int, tokens: int, seconds: float, failed: str = "") -> None:
         if self.path is None:
             return
         row = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "month": self.month,
-               "searches": grounded.searches, "tokens": grounded.tokens,
-               "seconds": round(grounded.seconds, 2)}  # fmt: skip
+               "searches": searches, "tokens": tokens,
+               "seconds": round(seconds, 2)}  # fmt: skip
+        if failed:
+            row["failed"] = failed  # type: ignore[assignment]
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a") as sink:
