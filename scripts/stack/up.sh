@@ -7,7 +7,7 @@
 source "$(dirname "$0")/lib.sh"
 MODE=${1:-all}
 load_env
-ROUTER_MODEL=${ROUTER_MODEL:-router-350m-kd-web2-s0-unverified}
+ROUTER_MODEL=${ROUTER_MODEL:-router-350m-kd-web3-s0-unverified}
 ROUTER_THREADS=${ROUTER_THREADS:-3}
 GGUF_TOOLS=${GGUF_TOOLS:-$HOME/work/gguf-tools}
 ENTITIES=${ENTITIES:-config/entities.json}
