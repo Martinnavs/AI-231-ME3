@@ -142,3 +142,9 @@ def test_once_text_has_started_the_turn_is_never_given_up() -> None:
     turn.text_arrived()  # at 5 s, audio not yet playing
     assert turn.next_at() is None
     assert all(turn.due(t) is None for t in (8.0, 15.0, 20.0, 60.0))
+
+
+def test_a_lookup_ack_that_follows_the_servers_own_sentence_plays_no_filler_line() -> None:
+    turn = TurnFillers(Fillers.load())
+    assert turn.tool("web_answer", said=True) is None
+    assert turn.say_pending and not turn.filled

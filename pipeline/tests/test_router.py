@@ -160,12 +160,17 @@ async def test_failed_lookup_goes_to_gemini_unless_something_already_changed(
 
     server.tools["wiki_summary"] = SimpleNamespace(name="wiki_summary", handler=missing)
     result, spoken = await turn(server, "who is Atlantis")
-    assert spoken == ["From Gemini."] and result["router_reason"].startswith("lookup failed")
+    assert spoken == [
+        agent_server.LOOKUP_SAY + " ",
+        "From Gemini.",
+    ]  # the sentence went out before the lookup failed
+    assert result["router_reason"].startswith("lookup failed")
     server, agent = server_for("LIGHT_ON\nwiki_summary|Atlantis", tmp_path)
     server.tools["wiki_summary"] = SimpleNamespace(name="wiki_summary", handler=missing)
     _, spoken = await turn(server, "lights on and who is Atlantis")
     assert agent.asked == [] and spoken == [
-        "The lights are on. I couldn't find a Wikipedia article about Atlantis."
+        agent_server.LOOKUP_SAY + " ",
+        "The lights are on. I couldn't find a Wikipedia article about Atlantis.",
     ]
 
 
@@ -254,8 +259,8 @@ async def test_a_slow_web_lookup_tells_the_client_a_tool_is_under_way(
 ) -> None:
     monkeypatch.setattr(agent_server, "LOOKUP_ACK_S", 0.05)
     spoken, events = await turn_with_events(web_server(0.3, tmp_path), "Who painted the Mona Lisa?")
-    assert events == [("web_answer", False)]  # the client then plays its "Let me look that up."
-    assert spoken == ["Leonardo da Vinci painted it."]
+    assert events == [("web_answer", True)]  # said: the client plays no filler line of its own
+    assert spoken == [agent_server.LOOKUP_SAY + " ", "Leonardo da Vinci painted it."]
 
 
 async def test_a_quick_web_lookup_is_not_announced(tmp_path: Path, monkeypatch: Any) -> None:
@@ -263,7 +268,10 @@ async def test_a_quick_web_lookup_is_not_announced(tmp_path: Path, monkeypatch: 
     spoken, events = await turn_with_events(
         web_server(0.02, tmp_path), "Who painted the Mona Lisa?"
     )
-    assert events == [] and spoken == ["Leonardo da Vinci painted it."]
+    assert events == [] and spoken == [
+        agent_server.LOOKUP_SAY + " ",
+        "Leonardo da Vinci painted it.",
+    ]
     await asyncio.sleep(0.6)  # the timer was cancelled: nothing arrives late
     assert events == []
 
@@ -490,7 +498,7 @@ async def test_wiki_summary_lookups_use_the_web_answer_tool_when_it_exists(tmp_p
     server.tools["web_answer"] = SimpleNamespace(name="web_answer", handler=web_answer)
     _, spoken = await turn(server, "who is Cormac McCarthy")
     assert seen == [{"query": "who is Cormac McCarthy"}]  # the whole question, not just the topic
-    assert spoken == ["Cormac McCarthy was an American novelist."]
+    assert spoken == [agent_server.LOOKUP_SAY + " ", "Cormac McCarthy was an American novelist."]
 
     server, _ = server_for("LIGHT_OFF\nwiki_summary|The Road", tmp_path)
     server.tools["wiki_summary"] = SimpleNamespace(name="wiki_summary", handler=wiki)

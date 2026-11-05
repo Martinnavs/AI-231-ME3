@@ -82,6 +82,9 @@ _logger = logging.getLogger(__name__)
 # the questions that need a search; quick ones (median 0.8 s) finish before it would fire.
 LOOKUP_ACK_S = 1.0
 ACKED_LOOKUPS = frozenset({"web_answer"})
+# Spoken at once when the router sends a web lookup (routed turns have no model `say`); listed in
+# config/fast_phrases.json so the client plays it from memory.
+LOOKUP_SAY = "Let me look that up."
 
 
 def token_guard(token: str) -> Callable[[ServerConnection, HttpRequest], HttpResponse | None]:
@@ -186,14 +189,17 @@ class AgentServer:
         await self.tools[name].handler(params)
         return results[0] if results else {"ok": False}
 
-    async def acked_call(self, tool: str, args: dict[str, Any], on_tool: Any, home: bool) -> Any:
-        """`call_tool`, telling the client after LOOKUP_ACK_S that a slow lookup is under way."""
+    async def acked_call(
+        self, tool: str, args: dict[str, Any], on_tool: Any, home: bool, said: bool = False
+    ) -> Any:
+        """`call_tool`, telling the client after LOOKUP_ACK_S that a slow lookup is under way
+        (`said`: a sentence for it was already spoken, so the client plays no filler line)."""
         if home or on_tool is None or tool not in ACKED_LOOKUPS:
             return await self.call_tool(tool, args)
 
         async def announce() -> None:
             await asyncio.sleep(LOOKUP_ACK_S)
-            await on_tool(tool, False)
+            await on_tool(tool, said)
 
         ack = asyncio.create_task(announce())
         try:
@@ -237,7 +243,13 @@ class AgentServer:
         return got.text, fields
 
     async def raced_lookup(
-        self, tool: str, args: dict[str, Any], user: str, on_tool: Any, race: dict[str, Any]
+        self,
+        tool: str,
+        args: dict[str, Any],
+        user: str,
+        on_tool: Any,
+        race: dict[str, Any],
+        said: bool = False,
     ) -> str | None:
         """The web lookup and the documents' answer at the same time: the document answer if it
         passed its checks, else the web result; None if neither is usable. Nothing is spoken here;
@@ -246,7 +258,7 @@ class AgentServer:
 
         async def announce() -> None:
             await asyncio.sleep(LOOKUP_ACK_S)
-            await on_tool(tool, False)
+            await on_tool(tool, said)
 
         web = asyncio.create_task(self.lookup(tool, args))
         ack = (
@@ -280,6 +292,7 @@ class AgentServer:
         on_text: Any,
         claim: Callable[[], bool] = lambda: True,
         on_tool: Any = None,
+        on_say: Any = None,
     ) -> dict[str, Any] | None:
         """Run the router's calls with the agent's own tools and say the result. `claim` is asked
         before the first home command and before speaking: False means Gemini already answered
@@ -288,6 +301,7 @@ class AgentServer:
         the router)."""
         spoken: list[str] = []
         claimed = False
+        announced = False
 
         def take() -> bool:
             nonlocal claimed
@@ -313,6 +327,14 @@ class AgentServer:
             else:
                 home, tool, args = step.home, step.tool, step.args
                 if (
+                    on_say is not None
+                    and not home
+                    and not announced
+                    and tool in call_policy.DOCUMENT_LOOKUPS
+                ):
+                    announced = True
+                    await on_say(LOOKUP_SAY + " ")
+                if (
                     not home
                     and len(steps) == 1
                     and tool in call_policy.DOCUMENT_LOOKUPS
@@ -321,14 +343,16 @@ class AgentServer:
                 ):
                     routed.race = {}
                     asked = args.get("query") or args.get("topic") or routed.user
-                    said = await self.raced_lookup(tool, args, asked, on_tool, routed.race)
+                    said = await self.raced_lookup(
+                        tool, args, asked, on_tool, routed.race, announced
+                    )
                     if said is None:
                         return None
                     spoken.append(said)
                     continue
                 if home and not take():
                     return None
-                result = await self.acked_call(tool, args, on_tool, home)
+                result = await self.acked_call(tool, args, on_tool, home, announced)
                 if not home and TRANSIENT.search(str(result)) and not claimed:
                     result = await self.call_tool(
                         tool, args
@@ -385,12 +409,15 @@ class AgentServer:
         started = time.perf_counter()
         user = str(messages[-1].get("content", ""))
         info: dict[str, Any] = {}
+        hedged = isinstance(self.agent, HedgedAgent)  # Gemini may win: say nothing before the claim
 
         async def local(claim: Callable[[], bool]) -> dict[str, Any] | None:
             routed = await router.route(self.history(messages), user, set(self.tools))
             info.update(router_s=routed.seconds, router_lines=routed.lines)
             if routed.reason is None:
-                done = await self.run_routed(routed, started, on_text, claim, on_tool)
+                done = await self.run_routed(
+                    routed, started, on_text, claim, on_tool, None if hedged else on_say
+                )
                 if done is not None:
                     return done
                 routed.reason = "lookup failed or Gemini first"
