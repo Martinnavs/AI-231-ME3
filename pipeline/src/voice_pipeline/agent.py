@@ -38,7 +38,7 @@ from pipecat.services.google.llm import GoogleLLMService
 from pipecat.workers.runner import WorkerRunner
 
 from voice_pipeline import question
-from voice_pipeline.agent_tools import FAILURE
+from voice_pipeline.agent_tools import DELEGATE_STARTED, FAILURE
 from voice_pipeline.device_say import device_sentence
 
 SAY_DELAY_S = 0.6  # a tool that answers within this makes the `say` sentence unnecessary
@@ -51,6 +51,13 @@ SAY_DELAY_SLOW = {**SAY_DELAY_TODAY, "web_answer": 0.0, "search_docs": 0.0, "del
 # web_answer's say is spoken at once: 8 live lookups, first text median 1.34 -> 0.73 s (ticket P)
 SAY_DELAY_BY_TOOL = {**SAY_DELAY_TODAY, "web_answer": 0.0}
 MODEL = "gemini-3.1-flash-lite"
+# A connectivity stall (R4): Pipecat waits `stream_idle_timeout_secs` (20 s) for the first chunk
+# and, by default, does not retry; on 2026-11-05 one stalled request ended a turn after 20 s and
+# the next took 18 s to call a tool. The first chunk is normally back in under 2 s (p90 1.7 s,
+# p99 7.7 s with tools), so: one re-issue after 5 s, then at most 10 s more: 15 s worst case, inside
+# the client's 20 s cap, and about 7 s when the retry answers normally (the 8 s no-progress cap).
+RETRY_FIRST_CHUNK_S = 5.0
+STREAM_IDLE_S = 10.0
 TURN_TIMEOUT_S = 20.0
 # After a tool result the model's follow-up call normally starts in under a second; one in
 # 2026-11-05 (device_status back in 0.15 s) gave no text for 16 s and the client dropped the turn.
@@ -116,6 +123,9 @@ def build_llm(
         http_options=warm_http_options(keepalive_s, ipv4_only),
         settings=GoogleLLMService.Settings(model=model, system_instruction=system),
         tool_config={"include_server_side_tool_invocations": True} if builtin_search else None,
+        retry_on_timeout=True,
+        retry_timeout_secs=RETRY_FIRST_CHUNK_S,
+        stream_idle_timeout_secs=STREAM_IDLE_S,
     )
 
 
@@ -131,7 +141,12 @@ def stall_sentence(name: str, result: Any, asked: str) -> str:
         text = message.strip() if isinstance(message, str) and result.get("ok") is not False else ""
         if text and not FAILURE.search(text):
             return text
-    elif isinstance(result, str) and result.strip() and not FAILURE.search(result):
+    elif (
+        isinstance(result, str)
+        and result.strip()
+        and not result.lstrip().startswith(("{", "["))  # a tool's JSON is not a sentence
+        and not FAILURE.search(result)
+    ):
         return " ".join(result.split())
     return STALL_GENERIC
 
@@ -315,6 +330,11 @@ class TurnTap(FrameProcessor):
             frame.properties = replace(props, run_llm=None)
             self._arm_stall(frame)
             return
+        if sentence == DELEGATE_STARTED:  # the model's own line first, else say that it started
+            if self.say_text:
+                await self._speak_say()
+            elif not self.said:
+                sentence = "Started. " + sentence
         if not sentence:
             await self._speak_say()  # the `say` is the whole reply
         if sentence:
