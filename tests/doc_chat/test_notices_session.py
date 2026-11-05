@@ -185,35 +185,91 @@ async def test_a_notice_waits_while_the_user_is_speaking(player: Player) -> None
     assert heard.text == "play some music" and spoken == [] and feed.waiting  # still waiting
 
 
-async def test_a_notice_cut_by_barge_in_comes_back_once_and_briefly(player: Player) -> None:
+async def test_a_notice_cut_by_barge_in_is_not_replayed(player: Player) -> None:
     s, client = _playing_session()
     feed = s.notice_feed = Feed()
     spoken: list[str] = []
-    cuts = [True, True]  # both times the user talks over it
 
     async def speak(text: str, pcm: bytes | None = None) -> Any:
         spoken.append(text)
-        return Interruption("barge_in", [], 1.0, 0.0) if cuts.pop(0) else None
+        return Interruption("barge_in", [], 1.0, 0.0)  # the user talks over it
 
     s._speak_line = speak  # type: ignore[method-assign]
-    text = "The 13th prime from the script is 41. I ran primes.py and read the thirteenth line."
-    feed.waiting.append(Notice(3, text))
-    calls = [0]
+    feed.waiting.append(Notice(3, "The 13th prime is 41. I ran primes.py."))
 
     async def listen(**kw: Any) -> Any:
-        calls[0] += 1
         if kw.get("audio") is None:  # idle listening: nobody speaks yet
             await asyncio.sleep(10)
-        return turn("hold on")  # the user talking over the notice
+        return turn("stop")
 
     client.listen_turn = listen
-    # first delivery: cut by the user, who is then heard (barge-in)
     heard, over = await s.hear_idle()
-    assert over is True and heard.text == "hold on" and feed.acked == []
-    assert [n.id for n in feed.waiting] == [3]  # back in the queue
-    # next idle moment: the brief form, cut again -> given up, acked, never again
-    heard, over = await s.hear_idle()
-    assert spoken[0].startswith("Your earlier request is done:")
-    assert spoken[1] == "Earlier request: The 13th prime from the script is 41."
-    assert feed.acked == [3] and feed.waiting == [] and over is True
-    assert len(spoken) == 2
+    assert over is True and heard.text == "stop" and feed.acked == [3]
+    assert feed.waiting == [] and spoken == ["Your earlier request is done: The 13th prime is 41."]
+    # back to idle listening: nothing is spoken again
+    task = asyncio.create_task(s.hear_idle())
+    await asyncio.sleep(0.5)
+    task.cancel()
+    assert len(spoken) == 1
+
+
+def test_no_notice_starts_soon_after_the_user_spoke_or_interrupted() -> None:
+    s, client = _playing_session()
+    now = time.perf_counter()
+    assert s._user_idle()
+    s._speech_mark = now - 1.0  # spoke a second ago
+    assert not s._user_idle()
+    s._speech_mark = now - 3.5
+    assert s._user_idle()
+    s._quiet_notices()  # interrupted or said stop just now
+    assert not s._user_idle()
+    s._no_notice_until = now - 0.1
+    assert s._user_idle()
+    client.last_voiced = time.perf_counter()  # voiced block in this listen
+    assert not s._user_idle()
+
+
+async def test_a_barge_in_or_a_stop_word_starts_the_quiet_period(player: Player) -> None:
+    s, client = _playing_session()
+    client.hub.put(0.4, 0.4, 0.4, 0.4, 0.4)
+    assert await s._speak_line("A notice.") is not None
+    assert s._no_notice_until > time.perf_counter() + 1.0  # NOTICE_COOLDOWN_S is 1.5
+    s2, _ = _playing_session()
+    assert s2._no_notice_until == 0.0
+
+
+async def test_hearing_a_turn_marks_the_end_of_the_users_speech() -> None:
+    s, client = _playing_session()
+    end = time.perf_counter() - 0.2
+
+    async def listen(**kw: Any) -> Any:
+        from dataclasses import replace
+
+        return replace(turn("hello"), t_speech_end=end)
+
+    client.listen_turn = listen
+    await s.hear()
+    assert s._speech_mark == end and not s._user_idle()
+
+
+async def test_notices_are_cut_by_the_same_onset_guard_as_answers(player: Player) -> None:
+    """Same blocks, same number consumed before the cut: a notice is not stopped by the stop-word
+    transcript (S4: onset to fire 0.4-0.6 s in stack-1105-1517, answers 0.25 s in 1105-1426)."""
+    blocks = (0.001, 0.001, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4)
+
+    s, client = _playing_session()
+    client.hub.put(*blocks)
+    assert await s._speak_line("A notice.") is not None
+    left_notice = client.hub.queue.qsize()
+
+    s2, client2 = _playing_session()
+    client2.hub.put(*blocks)
+
+    async def handle(idx: int, heard: Any) -> None:
+        s2._answer_started = time.perf_counter()
+        await asyncio.sleep(10)
+
+    s2.handle = handle  # type: ignore[method-assign]
+    result = await asyncio.wait_for(s2.respond(1, turn("tell me about volcanoes")), timeout=5)
+    assert result is not None and result.kind == "barge_in"
+    assert client2.hub.queue.qsize() == left_notice

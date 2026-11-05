@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -55,7 +56,14 @@ def pi_url_from_env(env: Mapping[str, str] | None = None) -> str:
 
 PI_URL = pi_url_from_env()
 # Tools whose result is already a sentence to say: no second LLM request (R5; TurnTap decides).
-SPOKEN_RESULT_TOOLS = {"weather", "wiki_summary", "web_answer", "get_volume", "set_volume"}
+SPOKEN_RESULT_TOOLS = {
+    "weather",
+    "wiki_summary",
+    "web_answer",
+    "get_volume",
+    "set_volume",
+    "open_app",
+}
 # a failure sentence is not an answer: the model gets it and recovers (another topic, its own
 # knowledge), as before R5
 FAILURE = re.compile(r"couldn't find|did not answer|not connected|can't say|error", re.IGNORECASE)
@@ -119,6 +127,73 @@ def has_delegate_jobs(jobs_file: Path) -> bool:
         return False
     except (OSError, ValueError, KeyError):
         return True
+
+
+# Web apps the delegate writes (apps/<name>/index.html), served by voice_agent.apps_server on
+# loopback; open_app is the only way the agent starts a browser, and only for these URLs (T2, T4).
+APPS_ROOT = Path(os.environ.get("APPS_ROOT") or "~/agent_sandbox/workspace/apps").expanduser()
+APPS_PORT = int(os.environ.get("PORT_APPS") or 8795)
+APP_NAME = re.compile(r"[a-z0-9_-]{1,40}")
+# the user must ask, or agree to an offer ("yes", "open it"); the model alone never opens a page
+OPEN_REQUEST = re.compile(
+    r"\b(open|play|launch|start|run|show|yes|yeah|yep|sure|ok|okay|please|go ahead|do it)\b",
+    re.IGNORECASE,
+)
+OPEN_COMMAND = os.environ.get("OPEN_APP_COMMAND") or "xdg-open"
+OPEN_APP_DESCRIPTION = (
+    "Open a web app (a game or demo the background assistant made) in the user's browser. Use it "
+    "only when the user asks to open or play one, or says yes to your offer to open it. `name` is "
+    "the app's folder name (letters, digits, - and _); leave it empty to hear which apps exist. "
+    "If the app does not exist the reply says so: offer to make it with `delegate`."
+)
+
+
+def app_names(root: Path | None = None) -> list[str]:
+    """The apps that have an index.html."""
+    base = APPS_ROOT if root is None else root
+    try:
+        return sorted(
+            d.name
+            for d in base.iterdir()
+            if APP_NAME.fullmatch(d.name) and not d.is_symlink() and (d / "index.html").is_file()
+        )
+    except OSError:
+        return []
+
+
+def open_app(
+    name: str, asked: str, root: Path | None = None, port: int | None = None
+) -> tuple[str, str | None]:
+    """(the sentence to say, the URL opened or None). Nothing is opened unless `asked` is a
+    request to open or play it and `name` is an existing app."""
+    base, port = (APPS_ROOT if root is None else root), (APPS_PORT if port is None else port)
+    have = app_names(base)
+    name = name.strip().lower().replace(" ", "_")
+    if not name:
+        return (
+            "I have " + ", ".join(n.replace("_", " ") for n in have) + "."
+            if have
+            else "I don't have any apps yet. Want me to make one?",
+            None,
+        )
+    if not APP_NAME.fullmatch(name):
+        return "I can't open that. App names use letters, digits, dashes and underscores.", None
+    if name not in have:
+        return (
+            f"I don't have an app called {name.replace('_', ' ')}. Want me to make it?",
+            None,
+        )
+    if not OPEN_REQUEST.search(asked):
+        return "I open apps when you ask me to. Say open it and I will.", None
+    url = f"http://127.0.0.1:{port}/{name}/"
+    subprocess.Popen(  # noqa: S603 - fixed command, URL built from a checked name
+        [OPEN_COMMAND, url],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return f"Opening {name.replace('_', ' ')} in your browser.", url
 
 
 def stdio_server(command: list[str], env: dict[str, str] | None = None) -> MCPClient:
@@ -233,7 +308,30 @@ async def build_tools(
         required=SCHEMA.required,
         handler=make_handler(base_url=live, record=record),
     )
-    tools: list[FunctionSchema] = [home]
+
+    async def open_handler(params: FunctionCallParams) -> None:
+        said, _url = open_app(str(params.arguments.get("name") or ""), question.current)
+        await params.result_callback(said)
+
+    tools: list[FunctionSchema] = [
+        home,
+        _recorded(
+            FunctionSchema(
+                name="open_app",
+                description=OPEN_APP_DESCRIPTION,
+                properties={
+                    "name": {
+                        "type": "string",
+                        "description": "the app's folder name, e.g. flappy_bird",
+                    },
+                    "say": SAY,
+                },
+                required=["name"],
+                handler=open_handler,
+            ),
+            record,
+        ),
+    ]
     for server in servers:
         tools += [_recorded(s, record) for s in (await server.tools()).standard_tools]
     for server in optional:

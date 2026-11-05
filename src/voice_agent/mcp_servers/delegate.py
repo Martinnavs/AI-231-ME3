@@ -263,10 +263,12 @@ def build_server(delegator: Delegator) -> FastMCP:
             "later; never say how long it will take. All tasks share one workspace, so a task "
             "can use files an earlier task wrote; name them in `task`. The sandbox has network "
             "(ping, curl, downloads work) and Python with pygame, but no screen, display, "
-            "speakers or microphone and no sudo: it can write a game or GUI program and test it "
-            "headless, but nobody can see or play it there. If the user wants to see, hear or "
-            "play something running, or needs sudo or a device, say it cannot be done here "
-            "instead of delegating. Never use it for simple questions, home commands, the "
+            "speakers or microphone and no sudo, so a game is tested headless. When the user wants "
+            "something playable or visual (a game, a demo), say so in `task`: the task must also "
+            "produce a self-contained web version at apps/<name>/index.html (plain HTML, canvas "
+            "and JavaScript, no external URLs); the user then plays it in their browser with "
+            "open_app. If the user needs sudo or a device, say it cannot be done here instead of "
+            "delegating. Never use it for simple questions, home commands, the "
             "weather or the time."
         )
     )

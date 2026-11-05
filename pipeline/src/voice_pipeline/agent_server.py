@@ -128,6 +128,7 @@ class AgentServer:
         self.notices = notices
         self.unacked: dict[int, str] = {}  # notices read from the file, not yet played to the end
         self.notice_ids = 0
+        self.test_delay: tuple[str, float] | None = None  # (word, seconds): --test-delay-word
         self.router_lines: dict[str, str] = {}  # reply we spoke -> the router lines behind it
         self.agent = agent
         self.record = record
@@ -474,6 +475,14 @@ class AgentServer:
         finally:
             reader.cancel()
 
+    async def delayed(self, work: Any, user: str) -> dict[str, Any]:
+        """`work`, after the test-only pause when the user's words contain --test-delay-word (to
+        hear the client's wait and give-up lines on demand); the pause is cancelled like a turn."""
+        if self.test_delay is not None and self.test_delay[0] in user.lower():
+            await asyncio.sleep(self.test_delay[1])
+        result: dict[str, Any] = await work
+        return result
+
     async def handle(self, ws: ServerConnection) -> None:
         request = json.loads(await ws.recv())
         if request.get("notices"):
@@ -511,16 +520,16 @@ class AgentServer:
                 if last.get("role") == "user"
                 else None
             )
+            work: Any
             if found is not None and (found.tool == "clock" or found.tool in self.tools):
-                turn = asyncio.create_task(self.fast(found, on_text))
+                work = self.fast(found, on_text)
             elif self.router is not None and last.get("role") == "user":
-                turn = asyncio.create_task(self.routed_turn(messages, on_text, on_tool, on_say))
+                work = self.routed_turn(messages, on_text, on_tool, on_say)
             else:
-                turn = asyncio.create_task(
-                    self.agent.ask(
-                        messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say
-                    )
+                work = self.agent.ask(
+                    messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say
                 )
+            turn = asyncio.create_task(self.delayed(work, question.current))
             closed = asyncio.create_task(ws.wait_closed())
             await asyncio.wait({turn, closed}, return_when=asyncio.FIRST_COMPLETED)
             cancelled = not turn.done()
@@ -565,6 +574,7 @@ async def run(
     token: str | None = None,
     hide_idle_delegate: Path | None = None,
     say_delays: dict[str, float] | None = None,
+    test_delay: tuple[str, float] | None = None,
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
@@ -620,6 +630,7 @@ async def run(
         doc_request,
         hide_idle_delegate,
     )
+    server.test_delay = test_delay
     try:
         guard = token_guard(token) if token else None
         async with serve(server.handle, "127.0.0.1", port, process_request=guard):
@@ -715,6 +726,13 @@ def main(argv: list[str] | None = None) -> int:
         default=str(Path.home() / ".local/state/voice_agent/delegate/notices.jsonl"),
         help="where the delegate server writes the spoken notices of jobs that ended; '' for none",
     )
+    parser.add_argument(
+        "--test-delay-word",
+        default="",
+        help="TEST ONLY: a turn whose words contain this waits --test-delay-s before it is "
+        "answered, so the client's wait lines and give-up line can be heard on demand",
+    )
+    parser.add_argument("--test-delay-s", type=float, default=12.0)
     args = parser.parse_args(argv)
     token = None if args.no_token else os.environ.get("LAN_SPEECH_TOKEN")
     if not token and not args.no_token:
@@ -746,6 +764,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.hide_idle_delegate and args.notices
                 else None,
                 {"today": SAY_DELAY_TODAY, "slow": SAY_DELAY_SLOW}.get(args.say_delays),
+                (args.test_delay_word.lower(), args.test_delay_s) if args.test_delay_word else None,
             )
         )
     except KeyboardInterrupt:

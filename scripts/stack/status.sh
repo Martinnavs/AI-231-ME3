@@ -4,7 +4,7 @@ source "$(dirname "$0")/lib.sh"
 load_env
 if [ "$DRY" = 1 ]; then echo "+ ping -c1 $PI_V4; ss -ltn; /dev/tcp checks; curl router /props"; [ "${1:-}" = pi ] && pi_ssh 'tail -n 2 /tmp/pi_speaker.log /tmp/pi_device.log'; exit 0; fi
 echo "cable: $CABLE_IF $LAPTOP_IP   Pi ping: $(ping -c1 -W2 "$PI_V4" >/dev/null 2>&1 && echo ok || echo NO REPLY)   (config/pi.env detected ${DETECTED_AT:-?})"
-for p in "$PORT_ROUTER:router" "$PORT_SPEECH:speech" "$PORT_AGENT:agent"; do
+for p in "$PORT_ROUTER:router" "$PORT_SPEECH:speech" "$PORT_AGENT:agent" "$PORT_APPS:apps"; do
   port_listening "${p%%:*}" && echo "  ${p##*:} (:${p%%:*}) up" || echo "  ${p##*:} (:${p%%:*}) down"
 done
 { [ -r "$TOKEN_FILE" ] && printf 'header = "Authorization: Bearer %s"\n' "$(cat "$TOKEN_FILE")"; } |

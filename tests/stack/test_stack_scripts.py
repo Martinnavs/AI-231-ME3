@@ -361,3 +361,19 @@ def test_units_read_pi_env_and_use_the_wrapper():
         assert "EnvironmentFile=@REPO@/config/pi.env" in text
         assert f"pi_service.sh {role}" in text
         assert "LAN_SPEECH_TOKEN" not in text
+
+
+def test_up_starts_the_apps_server_on_loopback_before_the_agent(world):
+    r = run_script("up.sh", stack_env(world), "laptop")
+    out = r.stdout
+    assert "voice_agent.apps_server --port 8795" in out
+    assert out.index("apps_server") < out.index("agent_server")
+
+
+def test_down_stops_the_apps_server_by_pid_file(world):
+    env = stack_env(world)
+    pids = world.tmp / "out" / "stack" / "pids"
+    pids.mkdir(parents=True)
+    (pids / "apps").write_text("23456")
+    r = run_script("down.sh", env, "laptop")
+    assert "kill -TERM -- -23456" in r.stdout and "pkill" not in r.stdout

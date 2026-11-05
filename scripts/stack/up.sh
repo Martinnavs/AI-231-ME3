@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# up.sh [all|laptop|pi|agent]: router, speech server, Pi tools, agent server (in that order, so the agent sees the Pi tools).
+# up.sh [all|laptop|pi|agent|apps]: router, speech server, Pi tools, apps server, agent server (in that order, so the agent sees the Pi tools).
 #   all = everything   laptop = router + speech + agent, no Pi   pi = Pi speaker and device tools only
 #   agent = (re)start only the agent server
 # The router (--api-key-file), the speech server and the agent server all require the session token (the delegate sandbox shares loopback).
@@ -59,6 +59,13 @@ start_speech() {
     --kitten-voice "$KITTEN_VOICE" ${SPEECH_ARGS:-}
   wait_for "speech server" "$LOGS/speech.log" 120 port_listening "$PORT_SPEECH"
 }
+start_apps() {
+  # the web apps the delegate writes (apps/<name>/index.html), 127.0.0.1 only, CSP on every response
+  mkdir -p "$HOME/agent_sandbox/workspace/apps"
+  bg apps "$LOGS/apps.log" uv run --offline python -m voice_agent.apps_server --port "$PORT_APPS"
+  apps_ready() { port_listening "$PORT_APPS"; }
+  wait_for "apps server" "$LOGS/apps.log" 30 apps_ready
+}
 start_agent() {
   need_token
   # shellcheck disable=SC2086
@@ -104,11 +111,12 @@ start_pi() {
   done
 }
 
-case "$MODE" in all | laptop) check_free "$PORT_ROUTER" "$PORT_SPEECH" "$PORT_AGENT" ;; esac
+case "$MODE" in all | laptop) check_free "$PORT_ROUTER" "$PORT_SPEECH" "$PORT_AGENT" "$PORT_APPS" ;; esac
 case "$MODE" in
-  all)    start_router; start_speech; start_pi; start_agent ;;
-  laptop) start_router; start_speech; start_agent ;;
+  all)    start_router; start_speech; start_pi; start_apps; start_agent ;;
+  laptop) start_router; start_speech; start_apps; start_agent ;;
   pi)     start_pi ;;
   agent)  stop_agent; start_agent ;;
-  *) die "usage: up.sh [all|laptop|pi|agent]" ;;
+  apps)   start_apps ;;
+  *) die "usage: up.sh [all|laptop|pi|agent|apps]" ;;
 esac
