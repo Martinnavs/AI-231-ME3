@@ -391,3 +391,63 @@ async def test_status_returns_the_whole_result_of_a_finished_job_not_just_what_w
     await delegator.delegate("write a flappy bird game", wait_s=2.0)
     out = delegator.status("what happened with the game")
     assert out["status"] == DONE and out["summary"] == long
+
+
+async def test_a_cut_off_job_is_failed_in_status_and_the_notice_says_why(tmp_path: Path) -> None:
+    release = asyncio.Event()
+
+    async def cut(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        await release.wait()
+        return RunResult(status="failed", summary="the reply was cut off at the length limit")
+
+    delegator = make(tmp_path, cut)
+    out = await delegator.delegate(
+        "Create a simple Angry Birds-like game for the browser", wait_s=0.05
+    )
+    assert out["status"] == "started"
+    release.set()
+    await asyncio.sleep(0.1)
+    status = delegator.status()
+    assert status["status"] == "failed" and status["summary"].startswith("the reply was cut off")
+    assert notices(delegator) == [
+        {
+            "job": "job1",
+            "text": "The Create a simple Angry Birds-like job didn't finish: "
+            "the reply was cut off at the length limit.",
+        }
+    ]
+
+
+async def test_a_reworded_repeat_of_a_running_task_is_not_started_twice(tmp_path: Path) -> None:
+    release = asyncio.Event()
+
+    async def slow(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        await release.wait()
+        return RunResult(status="done", summary="Done.")
+
+    delegator = make(tmp_path, slow)
+    first = "Create a simple Flappy Bird game using Python and pygame, and also produce a "
+    first += "self-contained web version at apps/flappy-bird/index.html."
+    again = "Create a playable, self-contained Flappy Bird clone in HTML, CSS, and JavaScript. "
+    again += "Save the files in a folder named apps/flappy_bird, with the main file index.html."
+    assert (await delegator.delegate(first, wait_s=0.05))["status"] == "started"
+    out = await delegator.delegate(again, wait_s=0.05)
+    assert out["status"] == "already_running" and out["job"] == "job1"
+    assert list(delegator.table.jobs) == ["job1"]
+    other = await delegator.delegate("List the files in the workspace directory", wait_s=0.05)
+    assert other["status"] == "started"  # a different task still starts
+    release.set()
+    await asyncio.sleep(0.1)
+    # once the first has finished the same request may start again
+    assert (await delegator.delegate(again, wait_s=0.05))["status"] in ("started", "done")
+
+
+def test_the_same_task_rule_needs_shared_subject_words() -> None:
+    from voice_agent.mcp_servers.delegate import same_task
+
+    assert same_task("Make an Angry Birds game", "Build a simple angry birds clone for the browser")
+    assert not same_task(
+        "Write a Python script that prints primes", "Write a Python script for sorting"
+    )
+    assert not same_task("Create a game", "Create a game")  # no distinctive words: not provable
+    assert not same_task("Flappy Bird", "Angry Birds")

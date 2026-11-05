@@ -7,6 +7,7 @@ Pi's is optional: without a token, or when the Pi is unreachable, the agent star
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -161,6 +162,33 @@ def app_names(root: Path | None = None) -> list[str]:
         return []
 
 
+APP_NOISE = frozenset({"clone", "game", "app", "the", "a", "an", "version", "my", "web", "of"})
+
+
+def app_key(name: str) -> str:
+    """A name for comparing: lower case, words split on spaces, - and _, noise words dropped,
+    plural s removed ("Angry Birds clone" and angry_birds both become "angry bird")."""
+    words = [w for w in re.split(r"[\s_-]+", name.lower()) if w and w not in APP_NOISE]
+    return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words)
+
+
+def closest_app(name: str, have: list[str]) -> str | None:
+    """The existing app `name` means, or None: same key, else the best spelling match >= 0.8."""
+    if name in have:
+        return name
+    key = app_key(name)
+    if not key:
+        return None
+    for app in have:
+        if app_key(app) == key:
+            return app
+    scored = sorted(
+        ((difflib.SequenceMatcher(None, key, app_key(app)).ratio(), app) for app in have),
+        reverse=True,
+    )
+    return scored[0][1] if scored and scored[0][0] >= 0.8 else None
+
+
 def open_app(
     name: str, asked: str, root: Path | None = None, port: int | None = None
 ) -> tuple[str, str | None]:
@@ -168,7 +196,7 @@ def open_app(
     request to open or play it and `name` is an existing app."""
     base, port = (APPS_ROOT if root is None else root), (APPS_PORT if port is None else port)
     have = app_names(base)
-    name = name.strip().lower().replace(" ", "_")
+    name = name.strip()
     if not name:
         return (
             "I have " + ", ".join(n.replace("_", " ") for n in have) + "."
@@ -176,13 +204,21 @@ def open_app(
             else "I don't have any apps yet. Want me to make one?",
             None,
         )
-    if not APP_NAME.fullmatch(name):
-        return "I can't open that. App names use letters, digits, dashes and underscores.", None
-    if name not in have:
+    spoken = name.replace("_", " ").replace("-", " ")
+    if not re.fullmatch(r"[A-Za-z0-9 _-]{1,60}", name):
         return (
-            f"I don't have an app called {name.replace('_', ' ')}. Want me to make it?",
+            "I can't open that. App names use letters, digits, spaces, dashes and underscores.",
             None,
         )
+    found = closest_app(name, have)
+    if found is None:
+        return (
+            f"I don't have an app called {spoken}."
+            + (" I have " + ", ".join(n.replace("_", " ") for n in have) + "." if have else "")
+            + " Want me to make it?",
+            None,
+        )
+    name = found
     if not OPEN_REQUEST.search(asked):
         return "I open apps when you ask me to. Say open it and I will.", None
     url = f"http://127.0.0.1:{port}/{name}/"

@@ -15,7 +15,8 @@ class NoticeQueue:
         self.path = path
         self.offset = path.stat().st_size if path.exists() else 0
 
-    def pop(self) -> list[str]:
+    def pop_items(self) -> list[dict[str, str]]:
+        """The new rows ({"job", "text"})."""
         if not self.path.exists():
             return []
         with self.path.open("rb") as source:
@@ -23,4 +24,7 @@ class NoticeQueue:
             data = source.read()
         complete = data[: data.rfind(b"\n") + 1]
         self.offset += len(complete)
-        return [json.loads(line)["text"] for line in complete.splitlines() if line]
+        return [json.loads(line) for line in complete.splitlines() if line]
+
+    def pop(self) -> list[str]:
+        return [item["text"] for item in self.pop_items()]

@@ -94,3 +94,30 @@ async def test_the_tool_is_offered_and_answers_with_the_sentence(apps) -> None: 
         question.current = ""
     assert got[0][0] == "Opening flappy bird in your browser." and got[0][1].run_llm is False
     assert apps[1] == [[agent_tools.OPEN_COMMAND, "http://127.0.0.1:8795/flappy_bird/"]]
+
+
+def test_a_name_is_matched_to_the_closest_existing_app(tmp_path: Path) -> None:
+    from voice_pipeline.agent_tools import app_key, closest_app
+
+    have = ["angry_birds", "flappy-bird", "flappy_bird", "pong"]
+    assert closest_app("angry birds clone", have) == "angry_birds"
+    assert closest_app("Angry Bird game", have) == "angry_birds"
+    assert closest_app("flappy bird", have) == "flappy-bird"  # same key: the first listed
+    assert closest_app("flappy_bird", have) == "flappy_bird"  # exact name wins
+    assert closest_app("angry-birds", ["angry_birds"]) == "angry_birds"
+    assert closest_app("pongo", have) == "pong"  # a near spelling
+    assert closest_app("tetris", have) is None and closest_app("the game", have) is None
+    assert app_key("The Angry Birds Clone App") == "angry bird"
+
+
+def test_the_fuzzy_name_opens_the_right_url_and_an_unknown_one_lists_what_exists(apps) -> None:  # type: ignore[no-untyped-def]
+    root, calls = apps
+    (root / "angry_birds").mkdir()
+    (root / "angry_birds" / "index.html").write_text("x")
+    said, url = open_app("angry birds clone", "open the angry birds clone", root)
+    assert url == "http://127.0.0.1:8795/angry_birds/" and "angry birds" in said
+    assert calls == [[agent_tools.OPEN_COMMAND, url]]
+    said, url = open_app("tetris", "open tetris", root)
+    assert (
+        url is None and "I have angry birds, flappy bird." in said and "Want me to make it" in said
+    )

@@ -80,13 +80,13 @@ async def test_the_channel_pushes_a_notice_at_once_and_resends_it_until_acked(
         _finish(path, "job1", "The site is ready.")
         t0 = asyncio.get_running_loop().time()
         pushed = json.loads(await asyncio.wait_for(ws.recv(), 2))
-        assert pushed == {"notice": {"id": 1, "text": "The site is ready."}}
+        assert pushed == {"notice": {"id": 1, "text": "The site is ready.", "job": "job1"}}
         assert asyncio.get_running_loop().time() - t0 < agent_server.NOTICE_POLL_S + 0.3
     # the client went away without acking (a barge-in, a crash): the next connection gets it again
     async with connect(url) as ws:
         await ws.send(json.dumps({"notices": True}))
         again = json.loads(await asyncio.wait_for(ws.recv(), 2))
-        assert again == {"notice": {"id": 1, "text": "The site is ready."}}
+        assert again == {"notice": {"id": 1, "text": "The site is ready.", "job": "job1"}}
         await ws.send(json.dumps({"ack": 1}))
         await asyncio.sleep(0.1)
     assert server.unacked == {}

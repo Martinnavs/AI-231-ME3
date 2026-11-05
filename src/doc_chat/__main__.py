@@ -38,7 +38,7 @@ from doc_chat.chain import (
 from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
 from doc_chat.fillers import Fillers, TurnFillers, strip_fillers
-from doc_chat.notices import NoticeFeed, notice_line
+from doc_chat.notices import Notice, NoticeFeed, notice_line
 from doc_chat.speech import (
     STITCH_GAP_S,
     DocChatSpeechClient,
@@ -289,6 +289,7 @@ class Session:
     notice_feed: NoticeFeed | None = None  # finished delegate jobs, spoken when the user is idle
     _speech_mark: float = 0.0  # perf_counter at the end of the user's last speech
     _no_notice_until: float = 0.0
+    _held_logged: set[int] = field(default_factory=set)
 
     def log(self, rec: dict[str, Any]) -> None:
         self.log_file.write(json.dumps(rec) + "\n")
@@ -492,14 +493,33 @@ class Session:
         """The user interrupted or stopped something: no notice for NOTICE_COOLDOWN_S."""
         self._no_notice_until = time.perf_counter() + NOTICE_COOLDOWN_S
 
-    def _user_idle(self) -> bool:
-        """A notice may start: no voiced block in the current listen for IDLE_QUIET_S, the user's
-        last speech and last interruption at least NOTICE_COOLDOWN_S ago."""
+    def _notice_block(self) -> str | None:
+        """Why a notice may not start now (None: it may): a voiced block in the current listen
+        less than IDLE_QUIET_S ago, the user's last speech less than NOTICE_COOLDOWN_S ago, or an
+        interruption less than NOTICE_COOLDOWN_S ago."""
         now = time.perf_counter()
-        return (
-            now - self.client.last_voiced >= IDLE_QUIET_S
-            and now - self._speech_mark >= NOTICE_COOLDOWN_S
-            and now >= self._no_notice_until
+        if now - self.client.last_voiced < IDLE_QUIET_S:
+            return "user_speaking"
+        if now - self._speech_mark < NOTICE_COOLDOWN_S:
+            return "after_user_speech"
+        if now < self._no_notice_until:
+            return "after_interruption"
+        return None
+
+    def _user_idle(self) -> bool:
+        return self._notice_block() is None
+
+    def _log_notice(self, notice: Notice, outcome: str, **more: Any) -> None:
+        """One row in turns.jsonl per notice event: spoken (played or cut) or held back."""
+        self.log(
+            {
+                "notice": notice.id,
+                "job": notice.job,
+                "outcome": outcome,
+                "waited_s": round(time.time() - notice.arrived, 2),
+                **more,
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
         )
 
     async def hear_idle(self) -> tuple[HeardTurn, bool]:
@@ -515,8 +535,14 @@ class Session:
                     done, _ = await asyncio.wait({listening}, timeout=NOTICE_CHECK_S)
                     if done:
                         return listening.result(), False
-                    if feed.waiting and self._user_idle():
-                        break
+                    if feed.waiting:
+                        reason = self._notice_block()
+                        if reason is None:
+                            break
+                        head = feed.waiting[0]
+                        if head.id not in self._held_logged:  # once per notice
+                            self._held_logged.add(head.id)
+                            self._log_notice(head, "held", reason=reason)
             except asyncio.CancelledError:
                 listening.cancel()
                 raise
@@ -526,10 +552,13 @@ class Session:
             notice = feed.take()
             if notice is None:
                 continue
-            cut = await self._speak_line(notice_line(notice.text))
+            line = notice_line(notice.text)
+            cut = await self._speak_line(line)
             if cut is None:
+                self._log_notice(notice, "played", spoken=line)
                 await feed.played(notice)
                 continue
+            self._log_notice(notice, "cut", spoken=line, cancel_ms=round(cut.cancel_ms, 1))
             await feed.cut(notice)  # talked over: not replayed
             return await self.hear(lead_in=cut.blocks), True
 
