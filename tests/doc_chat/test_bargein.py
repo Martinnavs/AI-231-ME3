@@ -786,3 +786,10 @@ async def test_the_interruption_keeps_only_preroll_s_of_audio_before_the_decisio
     client.hub.put(0.001, 0.001, 0.001, 0.001, 0.2, 0.2, 0.2, 0.2)
     result = await asyncio.wait_for(s.respond(1, turn("break from the document")), timeout=5)
     assert isinstance(result, Interruption) and len(result.blocks) == 2
+
+
+def test_w1_leaves_the_clients_stop_words_alone() -> None:
+    from doc_chat.__main__ import _is_stop_phrase
+
+    assert _is_stop_phrase(["stop"]) and _is_stop_phrase(["wait", "stop"])
+    assert not _is_stop_phrase(["don't", "stop", "the", "music", "please", "now", "ok"])

@@ -52,6 +52,10 @@ SLOT_FOR_INTENT: dict[str, str] = {
     "MESSAGE": "CONTACT",
 }
 
+# An optional slot: PLAY_MUSIC may say what to play. The router's line protocol has none (it keeps
+# bare music only, call_policy.bare_music); the model fills it for "play Taylor Swift".
+OPTIONAL_SLOT_FOR_INTENT: dict[str, str] = {"PLAY_MUSIC": "QUERY"}
+
 SLOT_HINTS: dict[str, str] = {
     "BRIGHTNESS": "a percentage, like '40 percent'",
     "COLOR": "any colour, like 'purple' or 'warm white'",
@@ -80,6 +84,8 @@ def make_schema(contacts: list[dict[str, str]]) -> FunctionSchema:
             "timer, alarm, reminders, phone call, message. One call per command. "
             "Intents that need a slot, and its form: "
             + "; ".join(f"{intent}: {hint}" for intent, hint in SLOT_HINTS.items())
+            + ". Optional: PLAY_MUSIC: what to play (an artist, song, genre or playlist), spelled "
+            "as it should be if the transcript garbled it, and omitted for plain music"
             + f". Phonebook: {phonebook}. Every other intent takes no slot."
         ),
         properties={
@@ -87,7 +93,8 @@ def make_schema(contacts: list[dict[str, str]]) -> FunctionSchema:
             "slot": {
                 "type": "string",
                 "description": "The value for BRIGHTNESS, COLOR, TEMPERATURE, TIMER, ALARM, "
-                "CREATE_REMINDER, CALL or MESSAGE, in the form listed. Omit for other intents.",
+                "CREATE_REMINDER, CALL or MESSAGE, in the form listed; for PLAY_MUSIC what to "
+                "play, if the user named something. Omit for other intents.",
             },
         },
         required=["intent"],
@@ -99,7 +106,7 @@ SCHEMA = make_schema(load_phonebook())
 
 def to_command(intent: str, slot: str | None) -> dict[str, Any]:
     """The /api/command body; a slot given to an unslotted intent is dropped."""
-    name = SLOT_FOR_INTENT.get(intent)
+    name = SLOT_FOR_INTENT.get(intent) or OPTIONAL_SLOT_FOR_INTENT.get(intent)
     return {"intent": intent, "slots": {name: slot} if name and slot else {}}
 
 
@@ -125,8 +132,12 @@ def make_handler(
             result = {"ok": False, "message": f"{slot} is not in the phonebook ({known})"}
         elif base_url is None:
             result = {"ok": True, "message": "recorded"}
+            if intent in OPTIONAL_SLOT_FOR_INTENT and slot:
+                result["message"] = f"Playing {str(slot).strip().rstrip('.')}."
         else:
             result = await _post(base_url, to_command(intent, slot))
+            if result.get("ok") and intent in OPTIONAL_SLOT_FOR_INTENT and slot:
+                result["message"] = f"Playing {str(slot).strip().rstrip('.')}."
         # a command that worked needs no second LLM request: the model's `say` is the reply
         # (TurnTap checks that there is one)
         await params.result_callback(

@@ -165,10 +165,13 @@ def app_names(root: Path | None = None) -> list[str]:
 APP_NOISE = frozenset({"clone", "game", "app", "the", "a", "an", "version", "my", "web", "of"})
 
 
+GENERIC_APP_WORDS = frozenset({"it", "that", "this", "one", "that one", "something", "anything"})
+
+
 def app_key(name: str) -> str:
     """A name for comparing: lower case, words split on spaces, - and _, noise words dropped,
     plural s removed ("Angry Birds clone" and angry_birds both become "angry bird")."""
-    words = [w for w in re.split(r"[\s_-]+", name.lower()) if w and w not in APP_NOISE]
+    words = [w for w in re.findall(r"[a-z0-9]+", name.lower()) if w not in APP_NOISE]
     return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words)
 
 
@@ -199,7 +202,7 @@ def open_app(
     name = name.strip()
     if not name:
         return (
-            "I have " + ", ".join(n.replace("_", " ") for n in have) + "."
+            "I have " + ", ".join(n.replace("_", " ") for n in have) + ". Which one do you want?"
             if have
             else "I don't have any apps yet. Want me to make one?",
             None,
@@ -211,6 +214,12 @@ def open_app(
             None,
         )
     found = closest_app(name, have)
+    if found is None and (not app_key(name) or name.lower() in GENERIC_APP_WORDS):
+        # "the game", "the clone", "it": nothing was named, so no offer to make an app by that name
+        if not have:
+            return "I don't have any apps yet. Want me to make one?", None
+        listed = ", ".join(n.replace("_", " ") for n in have)
+        return f"I have {listed}. Which one do you want?", None
     if found is None:
         return (
             f"I don't have an app called {spoken}."

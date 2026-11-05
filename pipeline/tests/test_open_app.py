@@ -62,7 +62,7 @@ def test_a_missing_app_is_said_and_the_offer_made(apps) -> None:  # type: ignore
 
 
 def test_an_empty_name_lists_the_apps(apps, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
-    assert open_app("", "which apps", apps[0])[0] == "I have flappy bird."
+    assert open_app("", "which apps", apps[0])[0] == "I have flappy bird. Which one do you want?"
     assert "don't have any apps" in open_app("", "x", tmp_path / "none")[0]
 
 
