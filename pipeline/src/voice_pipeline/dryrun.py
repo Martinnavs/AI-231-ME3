@@ -30,7 +30,14 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 
 from voice_pipeline import fast_path
-from voice_pipeline.agent import MODEL, Agent, build_llm, close_llm_sessions
+from voice_pipeline.agent import (
+    MODEL,
+    SAY_DELAY_SLOW,
+    SAY_DELAY_TODAY,
+    Agent,
+    build_llm,
+    close_llm_sessions,
+)
 from voice_pipeline.agent_tools import (
     BUILTIN_SEARCH_REPLACES,
     IDLE_DELEGATE_TOOLS,
@@ -330,6 +337,7 @@ async def run(
     stub: bool = False,
     search_ledger: Path | None = LEDGER,
     hide_idle_delegate: bool = False,
+    say_delays: dict[str, float] | None = None,
 ) -> int:
     """`builtin_search`: the model searches the web itself (its Google Search, counted per turn
     and priced into the budget); `stub`: web_answer and wiki_summary return a canned sentence."""
@@ -378,6 +386,7 @@ async def run(
         llm or build_llm(system, model=model),
         with_builtin_search(tools) if builtin_search else tools,
         usage=True,
+        say_delays=say_delays,
     )
     if hide_idle_delegate:  # no delegated job exists in a dry run
         agent.hide(IDLE_DELEGATE_TOOLS)
@@ -467,6 +476,13 @@ def main(argv: list[str] | None = None) -> int:
         help="web_answer and wiki_summary return a canned sentence (no network, no searches)",
     )
     parser.add_argument(
+        "--say-delays",
+        choices=["default", "today", "slow"],
+        default="default",
+        help="how long the model's `say` is held per tool: today = weather only, slow = also "
+        "web_answer, search_docs and delegate",
+    )
+    parser.add_argument(
         "--hide-idle-delegate",
         action="store_true",
         help="do not offer delegate_status and delegate_cancel (no job exists in a dry run)",
@@ -497,6 +513,7 @@ def main(argv: list[str] | None = None) -> int:
             args.stub_lookups,
             args.search_ledger,
             args.hide_idle_delegate,
+            {"today": SAY_DELAY_TODAY, "slow": SAY_DELAY_SLOW}.get(args.say_delays),
         )
     )
 
