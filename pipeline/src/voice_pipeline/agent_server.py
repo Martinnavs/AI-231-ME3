@@ -126,7 +126,8 @@ class AgentServer:
         self.doc_request = doc_request
         self.router = router
         self.notices = notices
-        self.unacked: dict[int, str] = {}  # notices read from the file, not yet played to the end
+        # notices read from the file, not yet played to the end (or cut)
+        self.unacked: dict[int, dict[str, str]] = {}
         self.notice_ids = 0
         self.test_delay: tuple[str, float] | None = None  # (word, seconds): --test-delay-word
         self.router_lines: dict[str, str] = {}  # reply we spoke -> the router lines behind it
@@ -446,9 +447,9 @@ class AgentServer:
 
     def collect_notices(self) -> None:
         """Move the delegate server's new notices into `unacked` (each gets an id)."""
-        for text in self.notices.pop() if self.notices is not None else []:
+        for item in self.notices.pop_items() if self.notices is not None else []:
             self.notice_ids += 1
-            self.unacked[self.notice_ids] = text
+            self.unacked[self.notice_ids] = item
 
     async def notice_channel(self, ws: ServerConnection) -> None:
         """A push channel for finished jobs (R1): every notice goes out the moment it appears in
@@ -465,10 +466,11 @@ class AgentServer:
         try:
             while not reader.done():
                 self.collect_notices()
-                for nid, text in list(self.unacked.items()):
+                for nid, item in list(self.unacked.items()):
                     if nid not in sent:
                         sent.add(nid)
-                        await ws.send(json.dumps({"notice": {"id": nid, "text": text}}))
+                        note = {"id": nid, "text": item["text"], "job": item.get("job", "")}
+                        await ws.send(json.dumps({"notice": note}))
                 await asyncio.sleep(NOTICE_POLL_S)
         except ConnectionClosed:
             pass
@@ -523,7 +525,11 @@ class AgentServer:
             work: Any
             if found is not None and (found.tool == "clock" or found.tool in self.tools):
                 work = self.fast(found, on_text)
-            elif self.router is not None and last.get("role") == "user":
+            elif (
+                self.router is not None
+                and last.get("role") == "user"
+                and not call_policy.answers_an_offer(messages, self.router_lines)
+            ):
                 work = self.routed_turn(messages, on_text, on_tool, on_say)
             else:
                 work = self.agent.ask(

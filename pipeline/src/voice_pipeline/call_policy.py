@@ -33,6 +33,39 @@ ROUTER_DEVICE_STATUS = True
 DOCUMENT_LOOKUPS = {"web_answer", "wiki_summary"}  # the lookups that race the documents
 
 
+# A short "yes" to the assistant's own offer ("Would you like me to open it?") means what the offer
+# said: the 350M router has no context for it and answered "Okay." three times in the 2026-11-05
+# session, doing nothing. Gemini sees the whole conversation.
+OFFER = re.compile(
+    r"\?\s*$|want me to|would you like|do you want|shall i|should i|say open it|say yes",
+    re.IGNORECASE,
+)
+CONFIRM_WORDS = frozenset(
+    {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "please", "no", "nope", "nah"}
+    | {"do", "it", "go", "ahead", "that", "one", "in", "the", "browser", "open", "right", "now"}
+)
+CONFIRM_ANCHORS = frozenset({"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "please", "no"})
+CONFIRM_MAX_WORDS = 6
+
+
+def answers_an_offer(messages: list[dict[str, Any]], router_replies: Any = ()) -> bool:
+    """The last user turn is a short yes/no made of confirmation words, and the assistant's reply
+    before it ended with a question or an offer that the router did not write: the router's own
+    follow-ups ("Want me to warm the room?" then "To how many degrees?") are trained and stay."""
+    if len(messages) < 2 or messages[-1].get("role") != "user":
+        return False
+    previous = messages[-2]
+    reply = str(previous.get("content", "")).strip()
+    if previous.get("role") != "assistant" or reply in router_replies or not OFFER.search(reply):
+        return False
+    words = re.findall(r"[a-z']+", str(messages[-1].get("content", "")).lower())
+    return (
+        0 < len(words) <= CONFIRM_MAX_WORDS
+        and all(w in CONFIRM_WORDS for w in words)
+        and any(w in CONFIRM_ANCHORS or w in ("nope", "nah") for w in words)
+    )
+
+
 @dataclass
 class Planned:
     """One call as it will run: `tool` and `args` are final (the swap is applied)."""

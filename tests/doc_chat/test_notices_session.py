@@ -273,3 +273,80 @@ async def test_notices_are_cut_by_the_same_onset_guard_as_answers(player: Player
     result = await asyncio.wait_for(s2.respond(1, turn("tell me about volcanoes")), timeout=5)
     assert result is not None and result.kind == "barge_in"
     assert client2.hub.queue.qsize() == left_notice
+
+
+def _notice_rows(s: Any) -> list[dict[str, Any]]:
+    return [r for r in s.records if "notice" in r]
+
+
+async def test_a_played_notice_is_logged_with_job_text_and_outcome(player: Player) -> None:
+    s, client = _playing_session()
+    player.play_s = 0.05
+    feed = s.notice_feed = Feed()
+
+    async def listen(**kw: Any) -> Any:
+        await asyncio.sleep(0.6)
+        return turn("hello")
+
+    client.listen_turn = listen
+    feed.waiting.append(Notice(4, "The 13th prime is 41. I ran it.", job="job9"))
+    await s.hear_idle()
+    (row,) = _notice_rows(s)
+    assert row["notice"] == 4 and row["job"] == "job9" and row["outcome"] == "played"
+    assert row["spoken"] == "Your earlier request is done: The 13th prime is 41."
+    assert row["waited_s"] >= 0 and "ts" in row
+
+
+async def test_a_cut_notice_is_logged_as_cut(player: Player) -> None:
+    s, client = _playing_session()
+    feed = s.notice_feed = Feed()
+
+    async def speak(text: str, pcm: bytes | None = None) -> Any:
+        return Interruption("barge_in", [], 2.5, 0.0)
+
+    s._speak_line = speak  # type: ignore[method-assign]
+
+    async def listen(**kw: Any) -> Any:
+        if kw.get("audio") is None:
+            await asyncio.sleep(10)
+        return turn("stop")
+
+    client.listen_turn = listen
+    feed.waiting.append(Notice(5, "Done it.", job="job2"))
+    await s.hear_idle()
+    (row,) = _notice_rows(s)
+    assert row["outcome"] == "cut" and row["job"] == "job2" and row["cancel_ms"] == 2.5
+
+
+async def test_a_notice_held_back_is_logged_once_with_the_reason(player: Player) -> None:
+    s, client = _playing_session()
+    feed = s.notice_feed = Feed()
+    s._quiet_notices()  # the user just interrupted something
+    spoken: list[str] = []
+
+    async def speak(text: str, pcm: bytes | None = None) -> Any:
+        spoken.append(text)
+
+    s._speak_line = speak  # type: ignore[method-assign]
+
+    async def listen(**kw: Any) -> Any:
+        await asyncio.sleep(10)
+
+    client.listen_turn = listen
+    feed.waiting.append(Notice(6, "Done.", job="job3"))
+    task = asyncio.create_task(s.hear_idle())
+    await asyncio.sleep(0.7)
+    task.cancel()
+    rows = _notice_rows(s)
+    assert [r["outcome"] for r in rows] == ["held"] and rows[0]["reason"] == "after_interruption"
+    assert rows[0]["job"] == "job3" and spoken == []
+
+
+def test_the_block_reasons_are_named() -> None:
+    s, client = _playing_session()
+    assert s._notice_block() is None
+    client.last_voiced = time.perf_counter()
+    assert s._notice_block() == "user_speaking"
+    client.last_voiced = 0.0
+    s._speech_mark = time.perf_counter()
+    assert s._notice_block() == "after_user_speech"

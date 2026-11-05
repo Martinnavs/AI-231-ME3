@@ -32,13 +32,16 @@ def call(arguments: str, name: str = "code__bash", call_id: str = "c1") -> dict[
 
 
 def reply(
-    content: str | None = None, calls: list[dict[str, Any]] | None = None, **usage: Any
+    content: str | None = None,
+    calls: list[dict[str, Any]] | None = None,
+    finish: str = "stop",
+    **usage: Any,
 ) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": content}
     if calls:
         message["tool_calls"] = calls
     return {
-        "choices": [{"message": message}],
+        "choices": [{"message": message, "finish_reason": finish}],
         "usage": {"prompt_tokens": 1000, "completion_tokens": 100, **usage},
     }
 
@@ -160,3 +163,39 @@ async def test_ledger_stops_at_ninety_percent_and_persists(tmp_path: Path) -> No
         "x", MODEL, "k", FakeTools(), client=client([]), ledger=ledger, pool="gemini"
     )
     assert result.status == "budget" and result.steps == 0
+
+
+async def test_a_reply_cut_off_at_the_length_limit_is_failed_not_done() -> None:
+    from voice_agent.agent.subagent import CUT_OFF, MAX_REPLY_TOKENS
+
+    seen: list[dict[str, Any]] = []
+    cut = reply(None, finish="length")  # job36: one long reply, nothing usable in it
+    result = await run_task("build a game", MODEL, "k", FakeTools(), client=client([cut], seen))
+    assert (result.status, result.summary, result.steps) == ("failed", CUT_OFF, 1)
+    assert seen[0]["max_tokens"] == MAX_REPLY_TOKENS == 16_000
+
+
+async def test_a_tool_call_cut_off_mid_argument_is_failed_too() -> None:
+    tools = FakeTools()
+    cut = reply(calls=[call('{"path": "a.html", "content": "<html>')], finish="length")
+    result = await run_task("x", MODEL, "k", tools, client=client([cut]))
+    assert result.status == "failed" and tools.calls == []  # the half call is not run
+
+
+async def test_an_empty_summary_with_no_files_written_is_failed() -> None:
+    from voice_agent.agent.subagent import NO_RESULT
+
+    http = client([reply(None), reply("")])
+    for _ in range(2):
+        result = await run_task("x", MODEL, "k", FakeTools(), client=http)
+        assert (result.status, result.summary) == ("failed", NO_RESULT)
+
+
+async def test_an_empty_summary_after_writing_a_file_is_still_done() -> None:
+    write = call('{"path": "a.txt", "content": "x"}', name="code__write_file")
+    tools = FakeTools()
+    tools.tools = [ToolSpec("code__write_file", "code", "write_file", "w", {"type": "object"})]
+    result = await run_task(
+        "x", MODEL, "k", tools, client=client([reply(calls=[write]), reply("")])
+    )
+    assert result.status == "done"

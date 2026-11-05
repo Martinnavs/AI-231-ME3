@@ -27,7 +27,16 @@ import httpx
 from fastmcp import FastMCP
 
 from doc_chat.qwen import _read_secret_file, normalize_base_url
-from voice_agent.agent.jobs import CANCELLED, DONE, ERROR, RUNNING, Job, JobTable, spoken
+from voice_agent.agent.jobs import (
+    CANCELLED,
+    DONE,
+    ERROR,
+    FAILED,
+    RUNNING,
+    Job,
+    JobTable,
+    spoken,
+)
 from voice_agent.agent.mcp_clients import McpClientManager
 from voice_agent.agent.subagent import Ledger, Limits, Model, RunResult, run_task
 from voice_agent.config import McpServerSpec
@@ -51,6 +60,26 @@ Runner = Callable[[str, Model, str, Path, str], Awaitable[RunResult]]
 
 def content_words(text: str) -> set[str]:
     return {word for word in re.findall(r"[a-z0-9]+", text.lower()) if word not in STOPWORDS}
+
+
+# Words every game or script task uses: they do not say which task it is.
+GENERIC = frozenset(
+    {"create", "simple", "game", "using", "python", "html", "css", "javascript", "file", "files"}
+    | {"folder", "named", "web", "version", "index", "apps", "app", "self", "contained", "playable"}
+    | {"clone", "browser", "should", "main", "script", "save", "program", "output", "code", "run"}
+    | {"list", "also", "produce", "all", "any", "browser", "page", "plain", "canvas", "wants"}
+)
+SAME_TASK = 0.6  # share of the smaller task's distinctive words that the other also has
+SAME_TASK_MIN = 2  # fewer distinctive words than this cannot show two tasks are the same
+
+
+def same_task(a: str, b: str) -> bool:
+    """Two task texts that ask for the same thing: of the distinctive words (content words minus
+    GENERIC) at least SAME_TASK of the smaller set are in the other. A mistranscribed repeat of
+    "make a Flappy Bird game" is worded differently each time but keeps its subject words."""
+    words_a, words_b = content_words(a) - GENERIC, content_words(b) - GENERIC
+    smaller = min(len(words_a), len(words_b))
+    return smaller >= SAME_TASK_MIN and len(words_a & words_b) / smaller >= SAME_TASK
 
 
 def expand(path: str) -> Path:
@@ -146,8 +175,12 @@ class Delegator:
                 break
         done = result.status == "done"
         self.write_log(job, result)
-        summary = result.summary if done else REASONS.get(result.status, "something went wrong")
-        job = self.table.finish(job_id, DONE if done else ERROR, summary, result.usd)
+        failed = result.status == "failed"
+        summary = (
+            result.summary if done or failed else REASONS.get(result.status, "something went wrong")
+        )
+        status = DONE if done else (FAILED if failed else ERROR)
+        job = self.table.finish(job_id, status, summary, result.usd)
         if job_id not in self.inline:
             self.table.notify(job)
 
@@ -177,6 +210,14 @@ class Delegator:
         if sum(not worker.done() for worker in self.tasks.values()) >= self.max_jobs:
             message = f"Already working on {self.max_jobs} tasks; wait for one to finish."
             return {"status": "busy", "message": message}
+        for running in self.table.jobs.values():
+            worker = self.tasks.get(running.id)
+            if worker is not None and not worker.done() and same_task(task, running.task):
+                return {
+                    "status": "already_running",
+                    "job": running.id,
+                    "message": f"That is already running as {running.id}; wait for its result.",
+                }
         wait = self.wait_s if wait_s is None else wait_s
         job = self.table.create(task, self.config["backend"]["default"])
         self.inline.add(job.id)
@@ -186,7 +227,11 @@ class Delegator:
             await asyncio.wait({worker}, timeout=max(0.0, min(wait, MAX_WAIT_S)))
         except asyncio.CancelledError:
             ended = self.table.jobs[job.id]
-            if worker.done() and ended.status in (DONE, ERROR):  # nobody will hear the answer
+            if worker.done() and ended.status in (
+                DONE,
+                ERROR,
+                FAILED,
+            ):  # nobody will hear the answer
                 self.table.notify(ended)
             raise
         finally:
@@ -265,7 +310,8 @@ def build_server(delegator: Delegator) -> FastMCP:
             "(ping, curl, downloads work) and Python with pygame, but no screen, display, "
             "speakers or microphone and no sudo, so a game is tested headless. When the user wants "
             "something playable or visual (a game, a demo), say so in `task`: the task must also "
-            "produce a self-contained web version at apps/<name>/index.html (plain HTML, canvas "
+            "produce a self-contained web version at apps/<name>/index.html (<name> in snake_case, "
+            "like flappy_bird, never spaces or hyphens; plain HTML, canvas "
             "and JavaScript, no external URLs); the user then plays it in their browser with "
             "open_app. If the user needs sudo or a device, say it cannot be done here instead of "
             "delegating. Never use it for simple questions, home commands, the "

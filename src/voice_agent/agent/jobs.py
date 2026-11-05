@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 RUNNING, DONE, ERROR, CANCELLED, LOST = "running", "done", "error", "cancelled", "lost"
+FAILED = "failed"  # ran to an end but produced nothing usable (a cut-off reply, no result)
 
 
 @dataclass
@@ -23,6 +24,11 @@ class Job:
     started: float = field(default_factory=time.time)
     finished: float | None = None
     usd: float = 0.0
+
+
+def task_name(task: str) -> str:
+    """The first words of the task, for 'The <task> job didn't finish'."""
+    return " ".join(task.split()[:5]).rstrip(",.;:") or "background"
 
 
 def spoken(summary: str) -> str:
@@ -78,7 +84,9 @@ class JobTable:
 
     def notify(self, job: Job) -> None:
         said = spoken(job.summary)
-        text = said if job.status == DONE else f"I could not finish {job.id}: {said}."
+        text = (
+            said if job.status == DONE else f"The {task_name(job.task)} job didn't finish: {said}."
+        )
         with self.notices.open("a") as sink:
             sink.write(json.dumps({"job": job.id, "text": text}) + "\n")
 

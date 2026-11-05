@@ -14,7 +14,7 @@ def test_reads_the_golden_file_the_delegate_server_tests_pin(tmp_path: Path) -> 
     shutil.copy(GOLDEN, path)
     assert queue.pop() == [
         "I built the recipes site. It is in the recipes folder.",
-        "I could not finish job2: it ran out of time.",
+        "The math job didn't finish: it ran out of time.",
     ]
     assert queue.pop() == []
 

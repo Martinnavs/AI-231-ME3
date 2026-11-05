@@ -13,6 +13,12 @@ import httpx
 from voice_agent.agent.mcp_clients import ToolOutcome, ToolSpec
 
 MAX_RESULT_CHARS = 12_000
+# One reply must hold a whole file written in one tool call; at 4000 a game was cut off mid-call
+# and the job still ended "done" with nothing (job36, 2026-11-05: $0.0022, one reply, no summary).
+MAX_REPLY_TOKENS = 16_000
+CUT_OFF = "the reply was cut off at the length limit"
+NO_RESULT = "it ended without a result or any files"
+WRITES = frozenset({"code__write_file", "code__edit_file"})
 SYSTEM = (
     "You are a background assistant working for a voice assistant. Work in the folder /sandbox "
     "with the tools; every path is relative to it and files stay there for later tasks. Use the "
@@ -31,7 +37,11 @@ SYSTEM = (
     "files in the same folder; never use an external URL, CDN, font, fetch, WebSocket or "
     "form (the page is served with a policy that blocks them). pygame stays for headless tests. "
     "If you made such a page, your first spoken sentence must be: 'The <name with spaces> web "
-    "version is ready; say open it to play it.'"
+    "version is ready; say open it to play it.' Name app folders in snake_case (flappy_bird, "
+    "angry_birds), never with spaces or hyphens. Write a large file in parts: create it with a "
+    "first write_file of the first part, then add the rest with further calls (append with bash "
+    "or edit_file), or split the program into several smaller files; one tool call must stay "
+    "under about 6000 words of code."
 )
 
 
@@ -136,7 +146,7 @@ async def _chat(
         "model": model.model_id,
         "messages": messages,
         "tools": schema,
-        "max_tokens": 4000,
+        "max_tokens": MAX_REPLY_TOKENS,
         **model.extra,
     }
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -232,12 +242,20 @@ async def run_task(
             if result.usd > limits.max_usd:
                 result.status = "cost_limit"
                 break
-            message = data["choices"][0]["message"]
+            choice = data["choices"][0]
+            message = choice["message"]
+            if choice.get("finish_reason") == "length":  # a tool call cut off mid-argument too
+                result.status, result.summary = "failed", CUT_OFF
+                break
             messages.append({k: v for k, v in message.items() if v is not None})
             calls = message.get("tool_calls") or []
             if not calls:
                 result.summary = (message.get("content") or "").strip()
-                result.status = "done"
+                wrote = any(name in WRITES for name in result.tool_calls)
+                if not result.summary and not wrote:
+                    result.status, result.summary = "failed", NO_RESULT
+                else:
+                    result.status = "done"
                 break
             if result.first_call_s is None:
                 result.first_call_s = time.monotonic() - started

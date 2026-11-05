@@ -1,9 +1,9 @@
 """Finished delegate jobs, pushed by the agent server on a channel of their own (R1).
 
-The channel is a WebSocket to the agent server whose first message is {"notices": true}. The server
-then sends {"notice": {"id": int, "text": str}} the moment a job ends, and again after a reconnect
-until the client sends {"ack": id}. The client acks when the notice has played to the end or the
-user talked over it (it is then not repeated).
+The channel is a WebSocket to the agent server whose first message is {"notices": true}. The
+server then sends {"notice": {"id": int, "text": str, "job": str}} the moment a job ends, and
+again after a reconnect until the client sends {"ack": id}. The client acks when the notice has
+played to the end or the user talked over it (it is then not repeated).
 """
 
 from __future__ import annotations
@@ -12,7 +12,8 @@ import asyncio
 import contextlib
 import json
 import os
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import websockets.asyncio.client as ws_client
@@ -25,6 +26,8 @@ MAX_WORDS = 25
 class Notice:
     id: int
     text: str
+    job: str = ""
+    arrived: float = field(default_factory=time.time)
 
 
 def notice_line(text: str) -> str:
@@ -75,12 +78,12 @@ class NoticeFeed:
     def _receive(self, raw: str | bytes) -> None:
         try:
             item = json.loads(raw)["notice"]
-            nid, text = int(item["id"]), str(item["text"])
+            nid, text, job = int(item["id"]), str(item["text"]), str(item.get("job", ""))
         except (ValueError, KeyError, TypeError):
             return
         if nid not in self._seen:  # a reconnect resends what was not acked
             self._seen.add(nid)
-            self.waiting.append(Notice(nid, text))
+            self.waiting.append(Notice(nid, text, job))
             self.arrived.set()
 
     def take(self) -> Notice | None:
