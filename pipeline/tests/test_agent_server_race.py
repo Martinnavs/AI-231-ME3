@@ -239,3 +239,61 @@ async def test_the_routers_question_reaches_the_lookup_and_the_documents(tmp_pat
     await run(server, r)
     assert web.calls == [{"query": "Who sold the truck in 2022?"}]
     assert docs.calls == [{"query": "Who sold the truck in 2022?"}]
+
+
+async def run_say(server: AgentServer, r: Routed, on_tool: Any = None):
+    events: list[tuple[str, str]] = []
+
+    async def on_text(text: str) -> None:
+        events.append(("text", text))
+
+    async def on_say(text: str) -> None:
+        events.append(("say", text))
+
+    done = await server.run_routed(r, 0.0, on_text, on_tool=on_tool, on_say=on_say)
+    return done, events
+
+
+async def test_a_routed_lookup_speaks_the_sentence_before_the_answer(tmp_path):
+    for with_docs in (True, False):
+        server, *_ = make(tmp_path, with_docs=with_docs)
+        done, events = await run_say(server, routed())
+        assert [k for k, _ in events] == ["say", "text"]
+        assert events[0][1] == agent_server.LOOKUP_SAY + " "
+
+
+async def test_a_routed_turn_that_is_not_a_lookup_speaks_no_sentence(tmp_path):
+    server, *_ = make(tmp_path)
+    server.tools["smart_home"] = Tool("smart_home", {"ok": True})
+    for text in ("LIGHT_ON", "none|Hello there."):
+        done, events = await run_say(server, routed(text))
+        assert [k for k, _ in events] == ["text"], text
+
+
+async def test_no_sentence_without_a_say_channel(tmp_path):
+    server, *_ = make(tmp_path)
+    done, said = await run(server)
+    assert agent_server.LOOKUP_SAY not in " ".join(said)
+
+
+async def test_the_slow_lookup_ack_says_a_sentence_was_spoken_so_no_second_one_plays(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(agent_server, "LOOKUP_ACK_S", 0.02)
+    server, *_ = make(tmp_path, with_docs=False, web=Tool("web_answer", WEB, delay=0.1))
+    acks: list[tuple[str, bool]] = []
+
+    async def on_tool(name: str, said: bool) -> None:
+        acks.append((name, said))
+
+    done, events = await run_say(server, routed(), on_tool)
+    assert acks == [("web_answer", True)]
+    assert [k for k, _ in events] == ["say", "text"]
+
+
+async def test_the_sentence_is_spoken_once_for_two_lookups(tmp_path):
+    server, *_ = make(tmp_path, with_docs=False)
+    done, events = await run_say(
+        server, routed("web_answer|who sold the truck?\nweb_answer|who bought it?")
+    )
+    assert [k for k, _ in events].count("say") <= 1

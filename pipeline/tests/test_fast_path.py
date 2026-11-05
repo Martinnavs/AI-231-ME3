@@ -154,7 +154,9 @@ def test_the_preloaded_phrase_list_matches_the_fixed_confirmations() -> None:
     listed = json.loads((PROMPTS.parents[3] / "config" / "fast_phrases.json").read_text())[
         "phrases"
     ]
-    assert sorted(listed) == sorted({confirm for _intent, confirm in FIXED.values()})
+    from voice_pipeline.agent_server import LOOKUP_SAY
+
+    assert sorted(listed) == sorted({confirm for _intent, confirm in FIXED.values()} | {LOOKUP_SAY})
 
 
 def test_what_a_question_to_the_clock_wants() -> None:

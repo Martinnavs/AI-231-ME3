@@ -1,5 +1,5 @@
 {
-  "_note": "Fixed spoken confirmations of the fast path (pipeline/src/voice_pipeline/fast_path.py FIXED). doc_chat synthesises them once at session start and plays them from memory (no TTS wait). A pipeline test keeps this list equal to FIXED.",
+  "_note": "Fixed spoken confirmations of the fast path (pipeline/src/voice_pipeline/fast_path.py FIXED). doc_chat synthesises them once at session start and plays them from memory (no TTS wait). Also the router-lookup sentence (agent_server.py LOOKUP_SAY). A pipeline test keeps this list equal to FIXED plus LOOKUP_SAY.",
   "phrases": [
     "The lights are on.",
     "The lights are off.",
@@ -8,6 +8,7 @@
     "Music stopped.",
     "Skipping to the next one.",
     "Turning it up.",
-    "Turning it down."
+    "Turning it down.",
+    "Let me look that up."
   ]
 }

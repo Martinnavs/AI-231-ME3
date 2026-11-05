@@ -50,4 +50,4 @@ def test_a_phrase_that_is_not_cached_still_needs_the_server() -> None:
 
 def test_the_phrase_file_loads() -> None:
     phrases = load_fast_phrases()
-    assert FAST_PHRASES.exists() and len(phrases) == 8 and "Paused." in phrases
+    assert FAST_PHRASES.exists() and len(phrases) == 9 and "Paused." in phrases
