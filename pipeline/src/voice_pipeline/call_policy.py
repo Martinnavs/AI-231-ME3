@@ -9,12 +9,13 @@ arguments of each call that runs (the trained `wiki_summary` becomes a `web_answ
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from voice_pipeline import device_say, fast_path
+from voice_pipeline import device_say, fast_path, place_check
 from voice_pipeline.question import is_question, needs_reasoning
 from voice_pipeline.router import spec
 
@@ -360,6 +361,157 @@ def slot_from_user(slot: str, user: str, durational: bool) -> bool:
     return True
 
 
+# "play" is overloaded: the 350M router tagged 15 of 24 game phrasings ("Can I play the Angry Birds
+# clone?") PLAY_MUSIC, and the home tool then played music (2026-11-06). A play/open/launch/run turn
+# stays with the router only when it is plain music; anything that names a target goes to Gemini,
+# which sees the apps and can pass an artist.
+PLAY_VERBS = frozenset({"play", "open", "launch", "run", "start", "resume"})
+NON_MUSIC_VERBS = frozenset({"play", "open", "launch", "run"})  # "start" is also a timer verb
+MUSIC_WORDS = frozenset(
+    {"music", "song", "songs", "playlist", "radio", "something", "tunes", "next", "previous"}
+    | {"another", "different", "other"}  # "play the next song", "play another one"
+)
+VERB_FILLER = frozenset(
+    {"please", "can", "could", "would", "will", "you", "the", "a", "an", "some", "me", "i", "my"}
+    | {"to", "for", "now", "again", "just", "go", "ahead", "let", "lets", "let's", "like", "want"}
+    | {"id", "i'd", "us", "we", "on", "up", "back", "hey", "okay", "ok", "again"}
+)
+APPS_CACHE_S = 5.0
+_apps_cache: tuple[float, list[str]] = (0.0, [])
+
+
+def known_apps() -> list[str]:
+    """The names of the web apps that exist (agent_tools.app_names), read at most every few
+    seconds; tests replace this function."""
+    global _apps_cache
+    now = time.monotonic()
+    if now - _apps_cache[0] > APPS_CACHE_S or not _apps_cache[0]:
+        from voice_pipeline.agent_tools import app_names
+
+        _apps_cache = (now, app_names())
+    return _apps_cache[1]
+
+
+def names_an_app(user: str) -> bool:
+    """The user's words contain the name of an existing app (angry birds, flappy bird)."""
+    from voice_pipeline.agent_tools import app_key
+
+    spoken = set(app_key(user).split())
+    return any(app_key(app) and set(app_key(app).split()) <= spoken for app in known_apps())
+
+
+MUSIC_VERBS = frozenset({"put", "turn", "listen", "hear", "wanna", "gonna", "need"})
+
+
+def _rest(user: str) -> set[str]:
+    """The words that are neither a play verb nor filler: what the user named."""
+    words = re.findall(r"[a-z']+", user.lower())
+    return {w for w in words if w not in PLAY_VERBS and w not in VERB_FILLER}
+
+
+def _clauses(user: str) -> list[str]:
+    return re.split(r",|;|\band\b|\bthen\b|\balso\b", user.lower())
+
+
+def bare_music(user: str) -> bool:
+    """Only a verb, filler and music words: "play some music", "start the music", "play",
+    "can you play something", "resume the music"."""
+    return bool(set(re.findall(r"[a-z']+", user.lower())) & PLAY_VERBS) and _rest(user) <= (
+        MUSIC_WORDS
+    )
+
+
+def play_target(call_name: str, user: str, single: bool = True) -> str | None:
+    """Why a router home intent for a play/open/launch/run turn must go to Gemini, or None.
+    PLAY_MUSIC is judged on the clause(s) that talk about playing ("turn off the lights and play
+    some music" is fine); other intents only when they are the turn's only call."""
+    if call_name == "PLAY_MUSIC":  # also without a verb ("some music please", "put on jazz")
+        for clause in _clauses(user):
+            words = set(re.findall(r"[a-z']+", clause))
+            plays = words & (PLAY_VERBS | MUSIC_WORDS | {"listen", "hear"}) or "put on" in clause
+            if plays and not _rest(clause) - MUSIC_VERBS <= MUSIC_WORDS:
+                return "play: names a target"
+        return None
+    words = set(re.findall(r"[a-z']+", user.lower()))
+    if not single:
+        return None
+    if "resume" in words and call_name != "PLAY_MUSIC":
+        return "resume is not " + call_name
+    if words & NON_MUSIC_VERBS and not bare_music(user):
+        return f"{call_name} for a play/open turn"
+    return None
+
+
+# W1 negation: "don't turn off the lights" made the router turn them off (2026-11-06 probe).
+_NEGATION = re.compile(
+    r"\b(don't|dont|do not|does not|never(?! mind)|no need to)\b|(?<![a-z])'?wag\b|\bhuwag\b",
+    re.IGNORECASE,
+)
+_STOP_ING = re.compile(r"\bstop \w+ing\b", re.IGNORECASE)
+
+
+def negated_action(call_name: str, user: str) -> str | None:
+    """A home action on a turn that says not to: the router does not read negation."""
+    if call_name not in spec.HOME_INTENTS:
+        return None
+    if _NEGATION.search(user):
+        return f"negation: {call_name}"
+    if _STOP_ING.search(user) and call_name not in ("STOP", "PAUSE"):
+        return f"negation: {call_name}"
+    return None
+
+
+SORRY_MAX_WORDS = 3  # W2: "Sorry, I didn't catch that." fits a garbled blip, not a sentence
+
+
+def _is_sorry(reply: str) -> bool:
+    return reply.lower().startswith("sorry") and "catch" in reply.lower()
+
+
+def _set(text: str) -> frozenset[str]:
+    return frozenset(text.split())
+
+
+# W3 keyword gates: the router must have had a reason in the user's words
+GATES: dict[str, frozenset[str]] = {
+    "weather": _set(
+        "weather rain raining rainy forecast sunny cloud clouds cloudy umbrella storm typhoon hot "
+        "cold warm cool humid wind windy snow temperature outside panahon ulan init lamig "
+        "bagyo today tomorrow tonight morrow weekend"  # "And tomorrow?" after a forecast
+    ),
+    "get_current_time": _set(
+        "time date day month year clock oclock o'clock hour late week today oras petsa araw"
+    ),
+    "LIGHT_OFF": _set("off out patay patayin kill shut dark sleep bed night"),
+    "TEMPERATURE": _set(
+        "degrees degree temperature thermostat aircon heat warm cool cold hot celsius init lamig"
+    ),
+    "NEXT": _set("next skip susunod another forward following different"),
+}
+_TIME_QUERY = re.compile(r"\btime\b", re.IGNORECASE)
+
+
+_FOLLOW_UP = re.compile(r"\s*(and|what about|how about|then|also)\b", re.IGNORECASE)
+
+
+def gate_missing(call: Any, user: str) -> str | None:
+    words = set(re.findall(r"[a-z']+", user.lower()))
+    gate = GATES.get(call.name)
+    follow_up = call.name in ("weather", "get_current_time") and _FOLLOW_UP.match(user)
+    if gate is not None and not (words & gate) and not follow_up:
+        return f"no keyword for {call.name}"
+    if call.name == "LIGHT_OFF" and words & {"dim", "dimmer", "dimmed"}:
+        return "dim is not off"
+    if (
+        call.name in ("web_answer", "wiki_summary")
+        and call.args
+        and _TIME_QUERY.search(call.args[0])
+        and not words & GATES["get_current_time"]
+    ):
+        return "a time query the user did not ask"
+    return None
+
+
 def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
     if not calls:
         return "empty"
@@ -378,9 +530,15 @@ def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
                 return "echo"
             if "search_docs" in available and is_question(user):
                 return "documents loaded: question"  # a 1B model would invent the answer
+            if names_an_app(user):
+                return "names an app"
+            if _is_sorry(call.args[0]) and len(user.split()) > SORRY_MAX_WORDS:
+                return "sorry on a sentence"  # "Open angry birds." -> "Sorry, I didn't catch that."
         elif name in spec.HOME_INTENTS:
             if name == "LIST_REMINDERS" or "smart_home" not in available:
                 return f"unsupported: {name}"
+            if (why := play_target(name, user, len(calls) == 1)) is not None:
+                return why
             check = TIME_CHECKS.get(name)
             if check is not None and not check(call.args[0] if call.args else ""):
                 return f"unsupported: {name} value"
@@ -388,11 +546,17 @@ def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
                 call.args[0] if call.args else "", user, name in TIME_CHECKS
             ):
                 return f"slot not in the user's words: {name}"
+            if (why := negated_action(name, user)) is not None:
+                return why
+            if (why := gate_missing(call, user)) is not None:
+                return why
         elif name == "get_current_time":
             try:
                 ZoneInfo(spec.to_tool_args(call).get("timezone", fast_path.TIMEZONE))
             except (ZoneInfoNotFoundError, ValueError):
                 return "unsupported: time zone"
+            if (why := gate_missing(call, user)) is not None:
+                return why
         elif name == "device_status" and ROUTER_DEVICE_STATUS and "device_status" in available:
             if not device_question(user):
                 return "unsupported: device_status"
@@ -400,6 +564,14 @@ def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
             return f"unsupported: {name}"
         elif needs_reasoning(user):  # "should I bring an umbrella": a decision, not a forecast
             return "needs reasoning"
+        elif name in ("weather", "web_answer", "wiki_summary") and (
+            why := gate_missing(call, user)
+        ):
+            return why
+        elif name == "weather" and not place_check.known_place(
+            spec.to_tool_args(call).get("place", "")
+        ):
+            return "unknown place"  # W4: Gemini corrects or asks
         elif name in DOCUMENT_LOOKUPS and not _lookup_asked(
             user, call.args[0] if call.args else ""
         ):

@@ -226,7 +226,7 @@ def test_device_question(user, expected):
         ("ALARM|6:30 AM", "wake me at six thirty"),
         ("ALARM|6:30 AM", "alarm for 6:30am"),
         ("TEMPERATURE|28 degrees", "make it twenty eight degrees"),
-        ("TEMPERATURE|28 degrees", "set it to 28"),
+        ("TEMPERATURE|28 degrees", "set it to 28 degrees"),
         ("BRIGHTNESS|40 percent", "dim to forty percent"),
         ("set_volume|35", "volume to thirty five"),
         ("set_volume|35", "volume to 35 percent"),
