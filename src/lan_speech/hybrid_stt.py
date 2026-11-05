@@ -39,6 +39,7 @@ from lan_speech.transcript_repair import (
     infer_context,
     repair_text,
     repair_to_dict,
+    warm_up,
 )
 
 logger = logging.getLogger(__name__)
@@ -324,6 +325,7 @@ class ParakeetHybridSTTEngine:
         self._noise = NoiseFloor()
         self._matchers: dict[str, EntityMatcher] = {}
         if repair and entities:
+            warm_up()  # the numba compile, here and not on the first spoken turn
             self._matchers = build_matchers(entities, _known_words())
 
     @property
