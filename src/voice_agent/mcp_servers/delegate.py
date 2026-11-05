@@ -298,9 +298,10 @@ def build_server(delegator: Delegator) -> FastMCP:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="voice_agent.mcp_servers.delegate")
     parser.add_argument("--config", type=Path, default=CONFIG)
+    parser.add_argument("--state-dir", default=None, help="jobs.json, notices.jsonl, spend.json")
     args = parser.parse_args(argv)
     config = tomllib.loads(args.config.read_text())
-    table = JobTable(expand(config["paths"]["state_dir"]))
+    table = JobTable(expand(args.state_dir or config["paths"]["state_dir"]))
     build_server(Delegator(config, table)).run(show_banner=False)
     return 0
 

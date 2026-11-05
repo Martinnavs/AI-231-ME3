@@ -32,7 +32,17 @@ ROOT_MODULE = ["uv", "run", "--group", "laptop", "python", "-m"]
 DOCS_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.docs"]
 WEB_INFO_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
 TAVILY_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.tavily_search"]
-DELEGATE_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.delegate"]
+# $DELEGATE_STATE_DIR (a second server for testing) keeps its jobs and notices apart from the
+# running stack's; the MCP child does not inherit the environment, so it goes on the command line
+DELEGATE_COMMAND = [
+    *ROOT_MODULE,
+    "voice_agent.mcp_servers.delegate",
+    *(
+        ["--state-dir", os.environ["DELEGATE_STATE_DIR"]]
+        if os.environ.get("DELEGATE_STATE_DIR")
+        else []
+    ),
+]
 TIME_COMMAND = [sys.executable, "-m", "mcp_server_time", "--local-timezone", "Asia/Manila"]
 PI_URL_FALLBACK = "http://169.254.230.219:8790/mcp"
 
@@ -52,6 +62,21 @@ FAILURE = re.compile(r"couldn't find|did not answer|not connected|can't say|erro
 # failures that may clear on their own (a network blip), unlike "couldn't find": worth one retry
 TRANSIENT = re.compile(r"did not answer|not connected|can't say|error", re.IGNORECASE)
 NO_SECOND_REQUEST = FunctionCallResultProperties(run_llm=False)
+# What a started delegate job is answered with: no second model request, so no invented duration
+# and no raw JSON (R2). TurnTap puts "Started. " in front when the model's own `say` is missing.
+DELEGATE_STARTED = "I'll tell you when it's done."
+
+
+def job_started(result: Any) -> bool:
+    """Whether a `delegate` result says the job was started and runs in the background."""
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except ValueError:
+            return False
+    return isinstance(result, dict) and result.get("status") == "started"
+
+
 SAY = {
     "type": "string",
     "description": "One short sentence said to the user the moment this call starts, saying "
@@ -156,6 +181,16 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                     await deliver_status(said, properties=properties or NO_SECOND_REQUEST)
 
             params.result_callback = status_callback
+        elif schema.name == "delegate":
+            deliver_job = params.result_callback
+
+            async def job_callback(result: Any, *, properties: Any = None) -> None:
+                if job_started(result):
+                    await deliver_job(DELEGATE_STARTED, properties=properties or NO_SECOND_REQUEST)
+                else:
+                    await deliver_job(result, properties=properties)
+
+            params.result_callback = job_callback
         elif schema.name in SPOKEN_RESULT_TOOLS:
             deliver = params.result_callback
 

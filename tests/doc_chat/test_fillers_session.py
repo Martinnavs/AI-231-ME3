@@ -85,11 +85,11 @@ async def test_giving_up_drops_the_turn_and_logs_it() -> None:
     async def handle(idx: int, heard: Any) -> None:
         await asyncio.sleep(10)  # the model never answers
 
-    async def play_pcm(text: str, pcm: bytes) -> None:
+    async def speak_line(text: str, pcm: bytes | None = None) -> None:
         played.append(text)
 
     s.handle = handle  # type: ignore[method-assign]
-    s.play_pcm = play_pcm  # type: ignore[method-assign]
+    s._speak_line = speak_line  # type: ignore[method-assign]
     result = await asyncio.wait_for(s.respond(1, turn("will it rain")), timeout=5)
     assert result is None
     assert played == ["Sorry, that's taking too long. Could you ask me again?"]
@@ -219,11 +219,11 @@ async def test_a_progress_turn_survives_respond_to_the_end() -> None:
         s.on_agent_event({"event": "tool", "name": "device_status"})
         await asyncio.sleep(0.7)  # slower than the plain give-up, faster than the progress cap
 
-    async def play_pcm(text: str, pcm: bytes) -> None:
+    async def speak_line(text: str, pcm: bytes | None = None) -> None:
         played.append(text)
 
     s.handle = handle  # type: ignore[method-assign]
-    s.play_pcm = play_pcm  # type: ignore[method-assign]
+    s._speak_line = speak_line  # type: ignore[method-assign]
     import dataclasses
     import time
 

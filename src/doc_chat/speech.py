@@ -209,6 +209,7 @@ class DocChatSpeechClient:
         self.hub: MicHub | None = None  # set to listen to the microphone across turns
         self.canceller: Any = None  # an EchoCanceller, handed to every remote player
         self._active_speak_task: asyncio.Task[Any] | None = None
+        self.last_voiced: float = 0.0  # perf_counter of the last voiced block of the current listen
         self.audio_cache: dict[tuple[str, str | None], bytes] = {}  # (text, voice) -> 16-bit audio
 
     async def preload_phrases(self, phrases: Iterable[str], voice: str | None = "F1") -> None:
@@ -454,6 +455,7 @@ class DocChatSpeechClient:
         t_start = time.perf_counter()
         source = audio if audio is not None else self._mic_chunks(rate, block_ms)
 
+        self.last_voiced = 0.0  # no speech yet in this listen (a notice may be spoken now)
         awaiting = [False]  # finalize sent, final not back yet: hold audio instead of sending it
         held: list[bytes] = []
 
@@ -463,7 +465,7 @@ class DocChatSpeechClient:
                 level = float(np.sqrt(np.mean(x**2))) if x.size else 0.0
                 voiced, pause = detector.feed(level, len(chunk) / 2 / rate)
                 if voiced:
-                    state["last_voiced"] = time.perf_counter()
+                    state["last_voiced"] = self.last_voiced = time.perf_counter()
                 if awaiting[0]:
                     # audio sent now would start a new stream on the server whose end-of-turn
                     # would arrive later as a stale transcript; it is released only if the

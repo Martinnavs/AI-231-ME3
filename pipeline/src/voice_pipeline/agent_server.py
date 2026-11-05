@@ -62,6 +62,7 @@ from voice_pipeline.doc_answer import (
 from voice_pipeline.doc_answer import answer as doc_answer
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
 from voice_pipeline.notices import NoticeQueue
+from voice_pipeline.payload_guard import PayloadFilter
 from voice_pipeline.router import (
     HISTORY_PAIRS,
     NO_SLOT_SAY,
@@ -85,6 +86,7 @@ ACKED_LOOKUPS = frozenset({"web_answer"})
 # Spoken at once when the router sends a web lookup (routed turns have no model `say`); listed in
 # config/fast_phrases.json so the client plays it from memory.
 LOOKUP_SAY = "Let me look that up."
+NOTICE_POLL_S = 0.25  # how often the notices file is read while a client listens for them
 
 
 def token_guard(token: str) -> Callable[[ServerConnection, HttpRequest], HttpResponse | None]:
@@ -124,6 +126,8 @@ class AgentServer:
         self.doc_request = doc_request
         self.router = router
         self.notices = notices
+        self.unacked: dict[int, str] = {}  # notices read from the file, not yet played to the end
+        self.notice_ids = 0
         self.router_lines: dict[str, str] = {}  # reply we spoke -> the router lines behind it
         self.agent = agent
         self.record = record
@@ -439,18 +443,56 @@ class AgentServer:
         )
         return {**result, **info}
 
+    def collect_notices(self) -> None:
+        """Move the delegate server's new notices into `unacked` (each gets an id)."""
+        for text in self.notices.pop() if self.notices is not None else []:
+            self.notice_ids += 1
+            self.unacked[self.notice_ids] = text
+
+    async def notice_channel(self, ws: ServerConnection) -> None:
+        """A push channel for finished jobs (R1): every notice goes out the moment it appears in
+        the file, and again on a new connection until the client acks it as played to the end.
+        The client decides when the user is idle; this side only keeps the notices."""
+        sent: set[int] = set()
+
+        async def acks() -> None:
+            async for raw in ws:
+                with contextlib.suppress(ValueError, AttributeError, TypeError):
+                    self.unacked.pop(int(json.loads(raw)["ack"]), None)
+
+        reader = asyncio.create_task(acks())
+        try:
+            while not reader.done():
+                self.collect_notices()
+                for nid, text in list(self.unacked.items()):
+                    if nid not in sent:
+                        sent.add(nid)
+                        await ws.send(json.dumps({"notice": {"id": nid, "text": text}}))
+                await asyncio.sleep(NOTICE_POLL_S)
+        except ConnectionClosed:
+            pass
+        finally:
+            reader.cancel()
+
     async def handle(self, ws: ServerConnection) -> None:
         request = json.loads(await ws.recv())
+        if request.get("notices"):
+            await self.notice_channel(ws)
+            return
         messages = [m for m in request["messages"] if m.get("role") != "system"]
 
+        payloads = PayloadFilter()
+
         async def on_text(text: str) -> None:
-            with contextlib.suppress(ConnectionClosed):
-                await ws.send(json.dumps({"text": text}))
+            if text := payloads.feed(text):
+                with contextlib.suppress(ConnectionClosed):
+                    await ws.send(json.dumps({"text": text}))
 
         async def on_say(text: str) -> None:
             # its own flagged message: the client speaks it now instead of holding it back
-            with contextlib.suppress(ConnectionClosed):
-                await ws.send(json.dumps({"text": text, "flush": True}))
+            if text := payloads.feed(text):
+                with contextlib.suppress(ConnectionClosed):
+                    await ws.send(json.dumps({"text": text, "flush": True}))
 
         async def on_tool(name: str, said: bool) -> None:
             with contextlib.suppress(ConnectionClosed):
@@ -486,11 +528,8 @@ class AgentServer:
                 await self.agent.cancel()
             result = await turn
             closed.cancel()
-            said: list[str] = []
-            if not cancelled and result["status"] == "ok" and self.notices is not None:
-                said = self.notices.pop()
-                for text in said:
-                    await on_say(f" Update on your earlier request: {text}")
+            for held in payloads.finish():
+                await on_text(held)
             if not cancelled:
                 reply = {"done": True} if result["status"] == "ok" else {"error": "timeout"}
                 try:
@@ -502,7 +541,7 @@ class AgentServer:
                 "question": messages[-1]["content"] if messages else "",
                 "calls": self.record[before:],
                 "cancelled": cancelled,
-                "notices": said,
+                **({"dropped_payload": payloads.dropped} if payloads.dropped else {}),
                 **result,
             }
             with self.log.open("a") as sink:

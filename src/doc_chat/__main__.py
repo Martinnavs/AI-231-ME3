@@ -38,6 +38,7 @@ from doc_chat.chain import (
 from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
 from doc_chat.fillers import Fillers, TurnFillers, strip_fillers
+from doc_chat.notices import NoticeFeed, notice_line
 from doc_chat.speech import (
     STITCH_GAP_S,
     DocChatSpeechClient,
@@ -242,6 +243,8 @@ class Interruption:
 
 
 RESUME_GAP_S = 0.2  # silence put between a cut-off turn and what the user said next
+NOTICE_CHECK_S = 0.2  # how often a waiting notice is checked against the user being idle
+IDLE_QUIET_S = 0.8  # no voiced block for this long while listening: a notice may be spoken
 IDLE_RATIO = 3.0  # how far above the room's noise counts as speech while the assistant is quiet
 
 
@@ -281,6 +284,7 @@ class Session:
     _filler_free_at: float = 0.0  # perf_counter when the queued filler audio has played out
     _filler_lines: list[str] = field(default_factory=list)
     _loop: asyncio.AbstractEventLoop | None = None
+    notice_feed: NoticeFeed | None = None  # finished delegate jobs, spoken when the user is idle
 
     def log(self, rec: dict[str, Any]) -> None:
         self.log_file.write(json.dumps(rec) + "\n")
@@ -418,8 +422,107 @@ class Session:
             if kind is not None:
                 self._play_filler(kind)
 
-    async def _give_up(self, idx: int, heard: HeardTurn, work: asyncio.Task[None]) -> None:
-        """No answer in time: drop the turn and apologise (the user asks again)."""
+    async def _speak_line(self, text: str, pcm: bytes | None = None) -> Interruption | None:
+        """Say one line of our own (a give-up or a notice) while listening for the user, the way
+        an answer is: the guard is on, and a barge-in aborts the audio and is returned. `pcm` is
+        the line recorded in advance, else it is synthesised."""
+        from doc_chat.playback import make_player
+
+        print(f"bot:  {text}", flush=True)
+        if not self.args.play:
+            return None
+        player = make_player(
+            self.client.tts_sample_rate,
+            getattr(self.args, "play_remote", None),
+            self.client.canceller,
+        )
+        self._player = player
+        self._answer_started = self._say_started = None
+        self._current_is_say = False
+        self._filler_started = time.perf_counter()  # the guard treats it as the assistant speaking
+        self._filler_lines, self._spoken = [], [text]
+
+        async def play() -> None:
+            try:
+                if pcm is not None:
+                    player.push(pcm)
+                else:
+                    await self.client.speak_text(
+                        text, voice=self.args.voice, on_chunk=self._chunk(player)
+                    )
+            finally:
+                await asyncio.to_thread(player.close)
+
+        playing = asyncio.create_task(play())
+        if self.client.hub is None or not getattr(self.args, "barge_in", True):
+            await playing
+            return None
+        watch = asyncio.create_task(self._watch_for_voice())
+        try:
+            await asyncio.wait({playing, watch}, return_when=asyncio.FIRST_COMPLETED)
+        except asyncio.CancelledError:
+            playing.cancel()
+            watch.cancel()
+            raise
+        if not watch.done():  # it played to the end
+            watch.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watch
+            await playing
+            return None
+        blocks = watch.result()
+        t0 = time.perf_counter()
+        player.abort()
+        await self.client.send_tts_cancel()
+        playing.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await asyncio.wait_for(playing, timeout=2.0)
+        cancel_ms = (time.perf_counter() - t0) * 1000.0
+        print(
+            f"  [interrupted (barge_in); stopped {cancel_ms:.0f} ms after it heard you]", flush=True
+        )
+        return Interruption("barge_in", blocks, cancel_ms, 0.0)
+
+    def _user_idle(self) -> bool:
+        """Nobody is speaking: no voiced block in the current listen for IDLE_QUIET_S."""
+        return time.perf_counter() - self.client.last_voiced >= IDLE_QUIET_S
+
+    async def hear_idle(self) -> tuple[HeardTurn, bool]:
+        """`hear`, but a finished job's notice is spoken as soon as the user is idle. Returns the
+        turn and whether it began as a barge-in on a notice."""
+        feed = self.notice_feed
+        if feed is None:
+            return await self.hear(), False
+        while True:
+            listening = asyncio.create_task(self.hear())
+            try:
+                while True:
+                    done, _ = await asyncio.wait({listening}, timeout=NOTICE_CHECK_S)
+                    if done:
+                        return listening.result(), False
+                    if feed.waiting and self._user_idle():
+                        break
+            except asyncio.CancelledError:
+                listening.cancel()
+                raise
+            listening.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await listening
+            notice = feed.take()
+            if notice is None:
+                continue
+            cut = await self._speak_line(notice_line(notice.text, notice.cuts > 0))
+            if cut is None:
+                await feed.played(notice)
+                continue
+            await feed.cut(notice)  # back once, briefly, at the next idle moment
+            return await self.hear(lead_in=cut.blocks), True
+
+    async def _give_up(
+        self, idx: int, heard: HeardTurn, work: asyncio.Task[None]
+    ) -> Interruption | None:
+        """No answer in time: drop the turn and apologise (the user asks again). The apology can
+        be talked over like any reply; the server's job (if one runs) is not cancelled."""
         if self._stream is not None:
             self._stream.cancel()
         if self._player is not None:
@@ -430,8 +533,9 @@ class Session:
             await asyncio.wait_for(work, timeout=2.0)
         print("  [gave up: no answer in time]", flush=True)
         picked = self.fillers.pick("giveup") if self.fillers is not None else None
+        cut = None
         if picked is not None:
-            await self.play_pcm(*picked)
+            cut = await self._speak_line(*picked)
         self.log(
             {
                 "turn": idx,
@@ -444,6 +548,7 @@ class Session:
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
         )
+        return cut
 
     async def complete_turn(self, heard: HeardTurn) -> HeardTurn:
         """If the words end like an unfinished sentence, ask whether there is more and join it.
@@ -743,7 +848,8 @@ class Session:
         while True:
             idx += 1
             if heard is None:
-                heard = await self.hear()
+                heard, over_notice = await self.hear_idle()
+                after_interrupt = after_interrupt or over_notice
             said = re.sub(r"[^a-z' ]", " ", heard.text.lower()).split()
             was_interrupt, after_interrupt = after_interrupt, False
             if " ".join(said) in _QUIT_WORDS:
@@ -865,8 +971,7 @@ class Session:
             raise
         if timer.done() and not work.done() and not watch.done():  # no answer in time
             watch.cancel()
-            await self._give_up(idx, heard, work)
-            return None
+            return await self._give_up(idx, heard, work)
         timer.cancel()
         if not watch.done():  # the answer finished without interruption
             watch.cancel()
@@ -876,7 +981,10 @@ class Session:
             return None
         blocks = watch.result()
         t0 = time.perf_counter()
-        started = self._answer_started if self._answer_started is not None else self._say_started
+        started = next(
+            (t for t in (self._answer_started, self._say_started, self._filler_started) if t),
+            None,
+        )  # a filler line is the assistant speaking too: talking over it is a barge-in
         if self._stream is not None:
             self._stream.cancel()
         if self._player is not None:
@@ -1224,6 +1332,10 @@ async def async_main(args: argparse.Namespace) -> int:
                 system_prompt=system_prompt,
                 history=past,
             )
+        feed_task: asyncio.Task[None] | None = None
+        if args.mic and agent_llm is not None and getattr(args, "notices", True):
+            session.notice_feed = NoticeFeed(args.agent_url)
+            feed_task = asyncio.create_task(session.notice_feed.run())
         try:
             if args.text is not None:
                 await session.run_text()
@@ -1235,6 +1347,8 @@ async def async_main(args: argparse.Namespace) -> int:
             # Ctrl-C mid-TTS: send cancel, close sockets, flush jsonl; no traceback (Edge 50)
             await client.cancel_current()
         finally:
+            if feed_task is not None:
+                feed_task.cancel()
             if hub is not None:
                 hub.stop()
             await client.close()
@@ -1326,6 +1440,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="LLM backend: none, qwen, gemini, echo (no model: repeats what it heard, then "
         "reads a fixed passage, for testing speech and interruptions), or agent (the Pipecat "
         "agent server in pipeline/, with tools; use with --no-docs). Default: none",
+    )
+    parser.add_argument(
+        "--notices",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="speak a finished delegate job's result when the user is idle (--llm agent, --mic)",
     )
     parser.add_argument(
         "--agent-url",
