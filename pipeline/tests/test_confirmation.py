@@ -112,3 +112,16 @@ async def test_the_server_sends_the_confirmation_to_gemini_without_asking_the_ro
     assert agent.asked == ["Yep, please do."] and Router.calls == 0
     ws_server.close()
     await ws_server.wait_closed()
+
+
+def test_the_notice_that_offers_to_open_an_app_is_an_offer() -> None:
+    notice = (
+        "Your earlier request is done: The angry birds web version is ready; "
+        "say open it to play it."
+    )
+    history = [
+        {"role": "user", "content": "(a background job finished)"},
+        {"role": "assistant", "content": notice},
+        {"role": "user", "content": "Yep, please do."},
+    ]
+    assert answers_an_offer(history)

@@ -556,6 +556,8 @@ class Session:
             cut = await self._speak_line(line)
             if cut is None:
                 self._log_notice(notice, "played", spoken=line)
+                # the notice often offers something ("say open it"): the next turn must see it
+                self.history.add("(a background job finished)", line)
                 await feed.played(notice)
                 continue
             self._log_notice(notice, "cut", spoken=line, cancel_ms=round(cut.cancel_ms, 1))

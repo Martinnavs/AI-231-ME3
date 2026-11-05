@@ -350,3 +350,22 @@ def test_the_block_reasons_are_named() -> None:
     client.last_voiced = 0.0
     s._speech_mark = time.perf_counter()
     assert s._notice_block() == "after_user_speech"
+
+
+async def test_a_played_notice_goes_into_the_history_so_a_yes_after_it_means_its_offer(
+    player: Player,
+) -> None:
+    s, client = _playing_session()
+    player.play_s = 0.05
+    feed = s.notice_feed = Feed()
+
+    async def listen(**kw: Any) -> Any:
+        await asyncio.sleep(0.6)
+        return turn("hello")
+
+    client.listen_turn = listen
+    ready = "The angry birds web version is ready; say open it to play it."
+    feed.waiting.append(Notice(8, ready))
+    await s.hear_idle()
+    (pair,) = s.history.pairs()
+    assert pair[1] == f"Your earlier request is done: {ready}"
