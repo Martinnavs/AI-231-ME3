@@ -6,7 +6,7 @@ help: ## List documented targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:[^#]*## /\t/' | sort | awk -F'\t' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 # Pi + laptop stack: settings. Override on the command line, e.g. make up ROUTER_MODEL=router-350m-kd-s0 DRY=1
-ROUTER_MODEL ?= router-350m-kd-web2-s0-unverified
+ROUTER_MODEL ?= router-350m-kd-web3-s0-unverified
 ROUTER_THREADS ?= 3
 GGUF_TOOLS ?= $(HOME)/work/gguf-tools
 ENTITIES ?= config/entities.json
