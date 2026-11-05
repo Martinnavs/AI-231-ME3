@@ -3,7 +3,8 @@
 uv run --group laptop python -m voice_agent.mcp_servers.delegate [--config config/delegate.toml]
 
 The default model (config/delegate.toml, haiku-5.5 on OpenRouter) runs a tool loop over the `code`
-server in a fresh sandbox folder per job; if it ends in an error the fallback (the class Qwen
+server in one shared workspace (every job sees earlier jobs' files; a job's own folder keeps its
+log); if it ends in an error the fallback (the class Qwen
 server) runs the task once more. Keys are read at run time from files and never printed or put in
 a result. A job that ends is recorded in the job table with a sentence to say (jobs.py); a job that
 finishes while `delegate` is still waiting is answered in that call instead.
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import re
 import sys
 import time
@@ -32,6 +34,7 @@ from voice_agent.config import McpServerSpec
 
 CONFIG = Path(__file__).resolve().parents[3] / "config" / "delegate.toml"
 MAX_WAIT_S = 20.0
+MAX_LISTED_FILES = 20
 REASONS = {
     "step_limit": "it took too many steps",
     "time_limit": "it ran out of time",
@@ -87,7 +90,11 @@ class Delegator:
         self.run = run or self.run_in_sandbox
         self.tasks: dict[str, asyncio.Task[None]] = {}
         self.inline: set[str] = set()
-        self.sandbox = expand(config["paths"]["sandbox_root"])
+        paths = config["paths"]
+        self.sandbox = expand(paths["sandbox_root"])
+        self.workspace = expand(paths.get("workspace", "~/agent_sandbox/workspace"))
+        self.pylibs = expand(paths["pylibs"]) if paths.get("pylibs") else None
+        self.network = bool(paths.get("network", False))
         cap = config["limits"]
         self.limits = Limits(cap["max_steps"], cap["max_seconds"], max_usd=cap["max_usd"])
         self.wait_s, self.max_jobs = float(cap["wait_s"]), int(cap["max_jobs"])
@@ -97,8 +104,12 @@ class Delegator:
     async def run_in_sandbox(
         self, task: str, model: Model, key: str, folder: Path, pool: str
     ) -> RunResult:
-        args = ("-m", "voice_agent.mcp_servers.code", "--root", str(folder))
-        spec = McpServerSpec(command=sys.executable, args=args)
+        args = ["-m", "voice_agent.mcp_servers.code", "--root", str(self.workspace)]
+        if self.network:
+            args.append("--network")
+        if self.pylibs is not None:
+            args += ["--pylibs", str(self.pylibs)]
+        spec = McpServerSpec(command=sys.executable, args=tuple(args))
         async with McpClientManager({"code": spec}) as registry:
             if registry.unavailable:
                 return RunResult(status="error", summary="the code tools did not start")
@@ -123,6 +134,7 @@ class Delegator:
             job.backend = name
             job.folder = str(self.sandbox / (job_id if tried == 0 else f"{job_id}-{name}"))
             Path(job.folder).mkdir(parents=True, exist_ok=True)
+            self.workspace.mkdir(parents=True, exist_ok=True)
             try:
                 async with httpx.AsyncClient(transport=self.transport) as client:
                     model, key = await resolve_model(self.config, name, client)
@@ -133,10 +145,33 @@ class Delegator:
             if result.status not in ("error", "budget"):
                 break
         done = result.status == "done"
+        self.write_log(job, result)
         summary = result.summary if done else REASONS.get(result.status, "something went wrong")
         job = self.table.finish(job_id, DONE if done else ERROR, summary, result.usd)
         if job_id not in self.inline:
             self.table.notify(job)
+
+    def write_log(self, job: Job, result: RunResult) -> None:
+        head = f"task: {job.task}\nbackend: {job.backend}\nstatus: {result.status}"
+        text = f"{head}\n\n{result.summary}\n"
+        with contextlib.suppress(OSError):
+            (Path(job.folder) / "log.txt").write_text(text)
+
+    def workspace_files(self) -> list[str]:
+        """Relative paths of the shared workspace's files, shallow first, capped."""
+        found: list[str] = []
+        try:
+            for path in sorted(self.workspace.rglob("*"), key=lambda p: (len(p.parts), str(p))):
+                rel = path.relative_to(self.workspace)
+                if path.is_file() and not any(
+                    part.startswith(".") or part == "__pycache__" for part in rel.parts
+                ):
+                    found.append(rel.as_posix())
+                if len(found) >= MAX_LISTED_FILES:
+                    break
+        except OSError:
+            pass
+        return found
 
     async def delegate(self, task: str, wait_s: float | None = None) -> dict[str, Any]:
         if sum(not worker.done() for worker in self.tasks.values()) >= self.max_jobs:
@@ -158,7 +193,12 @@ class Delegator:
             self.inline.discard(job.id)
         if worker.done():
             done = self.table.jobs[job.id]
-            return {"job": job.id, "status": done.status, "summary": spoken(done.summary)}
+            return {
+                "job": job.id,
+                "status": done.status,
+                "summary": spoken(done.summary),
+                "workspace_files": self.workspace_files(),
+            }
         return {
             "job": job.id,
             "status": "started",
@@ -198,6 +238,7 @@ class Delegator:
             "task": found.task[:120],
             "seconds": seconds,
             "summary": spoken(found.summary),
+            "workspace_files": self.workspace_files(),
         }
 
     def cancel(self, job: str = "") -> dict[str, Any]:
@@ -219,8 +260,14 @@ def build_server(delegator: Delegator) -> FastMCP:
             "problem with code, audit this machine, analyse files or data. Write `task` as the "
             "complete request with every detail it needs; it cannot ask questions. A quick task "
             "returns its result; otherwise it returns 'started' and the result is announced "
-            "later; never say how long it will take. Never use it for simple questions, home "
-            "commands, the weather or the time."
+            "later; never say how long it will take. All tasks share one workspace, so a task "
+            "can use files an earlier task wrote; name them in `task`. The sandbox has network "
+            "(ping, curl, downloads work) and Python with pygame, but no screen, display, "
+            "speakers or microphone and no sudo: it can write a game or GUI program and test it "
+            "headless, but nobody can see or play it there. If the user wants to see, hear or "
+            "play something running, or needs sudo or a device, say it cannot be done here "
+            "instead of delegating. Never use it for simple questions, home commands, the "
+            "weather or the time."
         )
     )
     async def delegate(task: str) -> dict[str, Any]:
@@ -229,7 +276,8 @@ def build_server(delegator: Delegator) -> FastMCP:
     @server.tool(
         description=(
             "How the latest delegated task is going. `job` may be an id or a few words of its "
-            "description; the reply names the task it found."
+            "description; the reply names the task it found and lists the files in the shared "
+            "workspace."
         )
     )
     def delegate_status(job: str = "") -> dict[str, Any]:

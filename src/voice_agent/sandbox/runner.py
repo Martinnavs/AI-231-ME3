@@ -36,6 +36,7 @@ class SandboxPolicy:
     max_dir_bytes: int = 256 * 1024 * 1024
     info_fd: int | None = None
     host_readonly: bool = False
+    env: tuple[tuple[str, str], ...] = ()  # extra variables set inside the sandbox
 
 
 @dataclass(frozen=True)
@@ -188,6 +189,8 @@ def build_command(policy: SandboxPolicy, argv: Sequence[str], layout: HostLayout
     cmd += ["--die-with-parent", "--new-session"]
     cmd += ["--clearenv", "--setenv", "PATH", "/usr/bin:/bin"]
     cmd += ["--setenv", "HOME", "/sandbox", "--setenv", "LANG", "C.UTF-8"]
+    for name, value in policy.env:
+        cmd += ["--setenv", name, value]
     cmd += list(argv)
     return cmd
 

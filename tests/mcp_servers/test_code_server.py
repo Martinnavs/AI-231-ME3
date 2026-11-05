@@ -608,3 +608,25 @@ async def test_list_files_caps_bytes_and_marker_not_forgeable(
     (box / "…[truncated: fake]").write_text("")
     out = await code.list_files(".")
     assert out == ["./…[truncated: fake]"]
+
+
+async def test_network_and_pylibs_reach_the_policy_only_when_asked(
+    box: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[SandboxPolicy] = []
+
+    async def fake(policy: SandboxPolicy, argv: list[str]) -> SandboxResult:
+        seen.append(policy)
+        return SandboxResult(0, "", "", False, False, 0.1)
+
+    monkeypatch.setattr(code, "run_in_sandbox", fake)
+    await code.bash("true")
+    libs = tmp_path / "libs"
+    libs.mkdir()
+    monkeypatch.setattr(code._state, "network", True)
+    monkeypatch.setattr(code._state, "pylibs", libs)
+    await code.bash("true")
+    off, on = seen
+    assert not off.network and off.env == () and off.ro_binds == ()
+    assert on.network and on.ro_binds == (libs,)
+    assert ("PYTHONPATH", str(libs)) in on.env and ("SDL_VIDEODRIVER", "dummy") in on.env
