@@ -240,6 +240,17 @@ def test_up_dry_prints_commands_from_pi_env(world):
     assert TOKEN not in out
 
 
+def test_up_dry_gives_the_router_the_token_file_not_the_token(world):
+    r = run_script("up.sh", stack_env(world), "laptop")
+    assert "--api-key-file" in r.stdout and "lan_speech_token" in r.stdout
+    assert TOKEN not in r.stdout
+
+
+def test_up_dry_gives_the_agent_the_pi_address_from_pi_env(world):
+    r = run_script("up.sh", stack_env(world), "laptop")
+    assert "PI_DEVICE_URL=http://169.254.7.7:8790/mcp" in r.stdout
+
+
 def test_up_dry_runs_detect_when_env_is_stale(world):
     env = stack_env(world, PI_ENV_MAX_AGE_MIN="0")
     r = run_script("up.sh", env, "pi")

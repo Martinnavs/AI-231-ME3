@@ -7,7 +7,8 @@ echo "cable: $CABLE_IF $LAPTOP_IP   Pi ping: $(ping -c1 -W2 "$PI_V4" >/dev/null 
 for p in "$PORT_ROUTER:router" "$PORT_SPEECH:speech" "$PORT_AGENT:agent"; do
   port_listening "${p%%:*}" && echo "  ${p##*:} (:${p%%:*}) up" || echo "  ${p##*:} (:${p%%:*}) down"
 done
-curl -s "http://127.0.0.1:$PORT_ROUTER/props" 2>/dev/null | grep -o '"model_path":"[^"]*"' | head -1
+{ [ -r "$TOKEN_FILE" ] && printf 'header = "Authorization: Bearer %s"\n' "$(cat "$TOKEN_FILE")"; } |
+  curl -s -K - "http://127.0.0.1:$PORT_ROUTER/props" 2>/dev/null | grep -o '"model_path":"[^"]*"' | head -1
 for p in "$PORT_PI_SPEAKER:pi-speaker" "$PORT_PI_DEVICE:pi-device"; do
   pi_port_open "${p%%:*}" && echo "  ${p##*:} (:${p%%:*}) reachable" || echo "  ${p##*:} (:${p%%:*}) not reachable"
 done

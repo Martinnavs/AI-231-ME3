@@ -74,10 +74,12 @@ class LocalRouter:
         phonebook: dict[str, str],
         timeout: float = TIMEOUT_S,
         client: httpx.AsyncClient | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.phonebook = phonebook
         self.timeout = timeout
-        self.client = client or httpx.AsyncClient(base_url=url)
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self.client = client or httpx.AsyncClient(base_url=url, headers=headers)
         self.grammar = spec.grammar()
 
     async def warm_up(self) -> None:

@@ -4,6 +4,9 @@ The server owns the system prompt, the tools (smart_home, the docs MCP server) a
 client sends the conversation and streams the reply text back. Closing the socket before the reply
 is done (the listener interrupted) tells the server to cancel it.
 
+The server requires the session token (LAN_SPEECH_TOKEN) as `Authorization: Bearer ...` on the
+handshake; without it the connection fails with HTTP 401.
+
 Protocol, one request per WebSocket connection:
   client -> {"messages": [{"role": "system"|"user"|"assistant", "content": str}, ...]}
   server -> {"text": str} ... then {"done": true}, or {"error": str}; and
@@ -16,6 +19,7 @@ Protocol, one request per WebSocket connection:
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -50,6 +54,7 @@ class AgentChatModel(BaseChatModel):
 
     url: str = DEFAULT_URL
     timeout: float = 30.0
+    token: str | None = None  # default: $LAN_SPEECH_TOKEN, sent as a bearer header
     on_event: Any = None  # called with every {"event": ...} message (worker thread)
 
     @property
@@ -74,7 +79,9 @@ class AgentChatModel(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
-        with connect(self.url, open_timeout=self.timeout) as ws:
+        token = self.token if self.token is not None else os.environ.get("LAN_SPEECH_TOKEN")
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        with connect(self.url, open_timeout=self.timeout, additional_headers=headers) as ws:
             ws.send(json.dumps({"messages": to_wire(messages)}))
             first = True
             while True:

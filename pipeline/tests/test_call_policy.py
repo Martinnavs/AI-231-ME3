@@ -178,19 +178,26 @@ def test_is_question():
 DEVICE = ALL | {"device_status"}
 
 
-def test_device_status_is_refused_while_the_flag_is_off():
-    assert call_policy.ROUTER_DEVICE_STATUS is False
+def test_device_status_is_refused_while_the_flag_is_off(monkeypatch):
+    monkeypatch.setattr(call_policy, "ROUTER_DEVICE_STATUS", False)
     assert reason("device_status", "what's the pi temperature", DEVICE) == (
         "unsupported: device_status"
     )
 
 
-def test_device_status_when_enabled_needs_a_status_question(monkeypatch):
-    monkeypatch.setattr(call_policy, "ROUTER_DEVICE_STATUS", True)
+def test_device_status_is_on_and_needs_a_status_question():
+    assert call_policy.ROUTER_DEVICE_STATUS is True
     assert reason("device_status", "what's the pi temperature", DEVICE) is None
     assert reason("device_status", "is the speaker connected", DEVICE) is None
     assert reason("device_status", "what's the pi temperature") == "unsupported: device_status"
-    for user in ("ping the router and give the latency", "set the speaker to half", "how are you"):
+    for user in (
+        "ping the router and give the latency",
+        "set the speaker to half",
+        "how are you",
+        "Sata speaker to thirty per cent.",
+        "speaker to 30",
+        "the speaker at eighty",
+    ):
         assert reason("device_status", user, DEVICE) == "unsupported: device_status"
 
 

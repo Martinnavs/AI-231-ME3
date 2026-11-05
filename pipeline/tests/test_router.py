@@ -498,3 +498,24 @@ async def test_wiki_summary_lookups_use_the_web_answer_tool_when_it_exists(tmp_p
     seen.clear()
     await turn(server, "turn off the lights and tell me about The Road")
     assert seen == [{"query": "The Road"}]  # a compound turn: only the topic
+
+
+async def test_router_sends_the_api_key_as_a_bearer_header() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("Authorization"))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "none|ok"}}]})
+
+    transport = httpx.MockTransport(handler)
+    keyed = LocalRouter("http://x", BOOK, api_key="k3y")
+    keyed.client = httpx.AsyncClient(
+        base_url="http://x", transport=transport, headers=keyed.client.headers
+    )
+    await keyed.route([], "hello")
+    plain = LocalRouter("http://x", BOOK)
+    plain.client = httpx.AsyncClient(
+        base_url="http://x", transport=transport, headers=plain.client.headers
+    )
+    await plain.route([], "hello")
+    assert seen == ["Bearer k3y", None]

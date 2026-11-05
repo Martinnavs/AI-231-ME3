@@ -3,10 +3,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
+from websockets.exceptions import InvalidStatus
 
-from voice_pipeline.agent_server import AgentServer
+from voice_pipeline.agent_server import AgentServer, main, token_guard
 
 
 class FakeAgent:
@@ -152,3 +154,51 @@ async def test_anything_else_still_goes_to_the_llm(tmp_path: Path) -> None:
         await ws.recv()
     ws_server.close()
     assert agent.asked == [[{"role": "user", "content": "Turn on the lights and play music."}]]
+
+
+async def _guarded(tmp_path: Path, token: str) -> tuple[Any, str, FakeAgent]:
+    record: list[dict[str, Any]] = []
+    agent = FakeAgent(record)
+    server = AgentServer(agent, record, tmp_path / "log.jsonl")
+    ws_server = await serve(server.handle, "127.0.0.1", 0, process_request=token_guard(token))
+    port = next(iter(ws_server.sockets)).getsockname()[1]
+    return ws_server, f"ws://127.0.0.1:{port}", agent
+
+
+async def test_token_guard_accepts_the_right_token(tmp_path: Path) -> None:
+    ws_server, url, agent = await _guarded(tmp_path, "s3cret")
+    async with connect(url, additional_headers={"Authorization": "Bearer s3cret"}) as ws:
+        await ws.send(json.dumps({"messages": [{"role": "user", "content": "hi"}]}))
+        got = [json.loads(await ws.recv()) for _ in range(3)]
+    ws_server.close()
+    assert got[-1] == {"done": True} and len(agent.asked) == 1
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Authorization": "Bearer wrong"},
+        {"Authorization": "s3cret"},
+        {"Authorization": "Bearer "},
+    ],
+)
+async def test_token_guard_rejects_without_running_a_turn(
+    tmp_path: Path, headers: dict[str, str], caplog: pytest.LogCaptureFixture
+) -> None:
+    ws_server, url, agent = await _guarded(tmp_path, "s3cret")
+    with pytest.raises(InvalidStatus) as err:
+        async with connect(url, additional_headers=headers) as ws:
+            await ws.send(json.dumps({"messages": [{"role": "user", "content": "hi"}]}))
+    ws_server.close()
+    assert err.value.response.status_code == 401
+    assert agent.asked == []
+    assert "s3cret" not in caplog.text and "wrong" not in caplog.text
+    assert "rejected a connection" in caplog.text
+
+
+def test_main_refuses_to_start_without_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LAN_SPEECH_TOKEN", raising=False)
+    with pytest.raises(SystemExit) as err:
+        main([])
+    assert err.value.code == 2

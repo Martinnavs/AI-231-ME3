@@ -19,6 +19,22 @@ TOPICS = {
 }
 
 
+# a status question joined to a request of another kind ("how hot is the Pi and what is the
+# weather") needs the model: only it can make both calls and word one answer
+_JOINED = re.compile(r"\b(and|then|also|plus|but|while)\b")
+_OTHER_REQUEST = re.compile(
+    r"\b(weather|rain|forecast|time|date|lights?|music|songs?|play|timer|alarm|remind\w*|call|"
+    r"text|message|volume|louder|quieter|turn|set|open|close|search|news)\b"
+)
+
+
+def single_question(question: str) -> bool:
+    """The question is about the Pi alone, so the status sentence answers all of it."""
+    asked = question.lower()
+    joined_to_other = _JOINED.search(asked) and _OTHER_REQUEST.search(asked)
+    return not joined_to_other and asked.count("?") < 2
+
+
 def parse(result: Any) -> dict[str, Any] | None:
     """The status dict: given as one, or as the JSON text the MCP client hands back."""
     if isinstance(result, dict):

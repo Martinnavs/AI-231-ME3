@@ -71,3 +71,33 @@ async def test_pygame_imports_and_draws_headless(
     )
     res = await code.run_python("g.py")
     assert res["returncode"] == 0 and "(1, 2, 3)" in str(res["stdout"]), res
+
+
+_PROBE = """
+import socket, sys
+s = socket.create_connection(("127.0.0.1", {port}), timeout=5)
+s.sendall(b"GET / HTTP/1.1\\r\\nHost: x\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\n"
+          b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\\r\\nSec-WebSocket-Version: 13\\r\\n\\r\\n")
+print(s.recv(64).split(b"\\r\\n")[0].decode())
+"""
+
+
+async def test_agent_server_rejects_a_sandboxed_job_that_has_no_token(tmp_path: Path) -> None:
+    """The sandbox shares loopback with the laptop; the session token is what keeps it out."""
+    import threading
+
+    from websockets.sync.server import serve
+
+    def guard(connection: object, request: object) -> object:
+        header = request.headers.get("Authorization")  # type: ignore[attr-defined]
+        if header == "Bearer smoke-token":
+            return None
+        return connection.respond(401, "Unauthorized\n")  # type: ignore[attr-defined]
+
+    with serve(lambda ws: None, "127.0.0.1", 0, process_request=guard) as server:
+        port = server.socket.getsockname()[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        res = await _bash(tmp_path, f"python3 -c '{_PROBE.format(port=port)}'; env")
+        server.shutdown()
+    assert "401" in res.stdout.splitlines()[0], res.stdout + res.stderr
+    assert "smoke-token" not in res.stdout and "LAN_SPEECH_TOKEN" not in res.stdout
