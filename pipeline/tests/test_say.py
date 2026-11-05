@@ -253,3 +253,16 @@ async def test_the_slow_tool_table_speaks_lookups_and_documents_at_once() -> Non
             await tap._announce(_frame(tool, {"say": "One moment."}))
             assert (texts == ["One moment. "]) is (expected or tool == "weather"), (tool, table)
             tap.begin(None)  # stops a held say's timer
+
+
+async def test_the_default_table_speaks_a_web_answer_say_at_once_and_holds_the_rest() -> None:
+    from voice_pipeline.agent import SAY_DELAY_BY_TOOL
+
+    for tool, now in (("web_answer", True), ("weather", True), ("search_docs", False),
+                      ("delegate", False), ("wiki_summary", False)):  # fmt: skip
+        texts: list[str] = []
+        tap = TurnTap(say_delay_s=5.0, say_delays=SAY_DELAY_BY_TOOL)
+        tap.begin(_Sink(texts).say)
+        await tap._announce(_frame(tool, {"say": "One moment."}))
+        assert (texts == ["One moment. "]) is now, tool
+        tap.begin(None)

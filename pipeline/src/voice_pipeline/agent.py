@@ -48,7 +48,8 @@ SAY_DELAY_TODAY = {"weather": 0.0}
 # 2026-11-05 logs: first text came exactly one hold after the first call (80 Gemini tool turns,
 # median 0.61 s), and these tools took 0.63 s at the fastest (routed web lookups, median 1.9 s)
 SAY_DELAY_SLOW = {**SAY_DELAY_TODAY, "web_answer": 0.0, "search_docs": 0.0, "delegate": 0.0}
-SAY_DELAY_BY_TOOL = SAY_DELAY_TODAY
+# web_answer's say is spoken at once: 8 live lookups, first text median 1.34 -> 0.73 s (ticket P)
+SAY_DELAY_BY_TOOL = {**SAY_DELAY_TODAY, "web_answer": 0.0}
 MODEL = "gemini-3.1-flash-lite"
 TURN_TIMEOUT_S = 20.0
 # After a tool result the model's follow-up call normally starts in under a second; one in
