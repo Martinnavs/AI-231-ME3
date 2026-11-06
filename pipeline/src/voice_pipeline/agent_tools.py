@@ -13,8 +13,9 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from mcp import StdioServerParameters
@@ -30,21 +31,58 @@ from voice_pipeline.device_say import device_sentence, single_question
 from voice_pipeline.tools.smart_home import SCHEMA, make_handler
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-ROOT_MODULE = ["uv", "run", "--group", "laptop", "python", "-m"]
+# On the laptop the MCP servers run through uv; on the Pi (no uv) $MCP_PYTHON is the venv's python.
+MCP_PYTHON = os.environ.get("MCP_PYTHON")
+ROOT_MODULE = (
+    [MCP_PYTHON, "-m"] if MCP_PYTHON else ["uv", "run", "--group", "laptop", "python", "-m"]
+)
 DOCS_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.docs"]
 WEB_INFO_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
 TAVILY_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.tavily_search"]
 # $DELEGATE_STATE_DIR (a second server for testing) keeps its jobs and notices apart from the
 # running stack's; the MCP child does not inherit the environment, so it goes on the command line
-DELEGATE_COMMAND = [
-    *ROOT_MODULE,
-    "voice_agent.mcp_servers.delegate",
-    *(
-        ["--state-dir", os.environ["DELEGATE_STATE_DIR"]]
-        if os.environ.get("DELEGATE_STATE_DIR")
-        else []
-    ),
-]
+DELEGATE_STATE_DIR: str | None = os.environ.get("DELEGATE_STATE_DIR") or None
+DELEGATE_CONFIG: str | None = os.environ.get("DELEGATE_CONFIG") or None
+MUSIC_RESOLVER_URL: str | None = os.environ.get("MUSIC_RESOLVER_URL") or None
+APPS_HOST: str | None = os.environ.get("APPS_PUBLIC_HOST") or None
+
+
+def delegate_command() -> list[str]:
+    cmd = [*ROOT_MODULE, "voice_agent.mcp_servers.delegate"]
+    if DELEGATE_STATE_DIR:
+        cmd += ["--state-dir", DELEGATE_STATE_DIR]
+    if DELEGATE_CONFIG:
+        cmd += ["--config", DELEGATE_CONFIG]
+    return cmd
+
+
+def music_command() -> list[str] | None:
+    """The music MCP server (Pi side), or None without a resolver address."""
+    if not MUSIC_RESOLVER_URL:
+        return None
+    return [*ROOT_MODULE, "voice_agent.mcp_servers.music", "--resolver-url", MUSIC_RESOLVER_URL]
+
+
+def configure(
+    *,
+    apps_root: str | None = None,
+    apps_host: str | None = None,
+    delegate_state_dir: str | None = None,
+    delegate_config: str | None = None,
+) -> None:
+    """Endpoints given as flags (agent_server --apps-root ...) override the environment."""
+    global APPS_ROOT, APPS_HOST, DELEGATE_STATE_DIR, DELEGATE_CONFIG
+    if apps_root:
+        APPS_ROOT = Path(apps_root).expanduser()
+    if apps_host:
+        APPS_HOST = apps_host
+    if delegate_state_dir:
+        DELEGATE_STATE_DIR = delegate_state_dir
+    if delegate_config:
+        DELEGATE_CONFIG = delegate_config
+
+
+DELEGATE_COMMAND = delegate_command()
 TIME_COMMAND = [sys.executable, "-m", "mcp_server_time", "--local-timezone", "Asia/Manila"]
 PI_URL_FALLBACK = "http://169.254.230.219:8790/mcp"
 
@@ -192,11 +230,39 @@ def closest_app(name: str, have: list[str]) -> str | None:
     return scored[0][1] if scored and scored[0][0] >= 0.8 else None
 
 
+# One async callable per turn, installed by agent_server.handle: sends an event to the client on the
+# turn's websocket (the way notices are pushed). Tools running on the Pi use it for things that
+# must happen on the laptop (open a page in its browser, play music).
+EventSink = Callable[[dict[str, Any]], Awaitable[None]]
+EVENT_SINK: EventSink | None = None
+
+
+def set_event_sink(sink: EventSink | None) -> None:
+    global EVENT_SINK
+    EVENT_SINK = sink
+
+
+async def emit_event(event: dict[str, Any]) -> bool:
+    """Send `event` to the client of the turn in progress; False when there is none."""
+    if EVENT_SINK is None:
+        return False
+    try:
+        await EVENT_SINK(event)
+    except Exception:
+        return False
+    return True
+
+
 def open_app(
-    name: str, asked: str, root: Path | None = None, port: int | None = None
+    name: str,
+    asked: str,
+    root: Path | None = None,
+    port: int | None = None,
+    host: str | None = None,
 ) -> tuple[str, str | None]:
-    """(the sentence to say, the URL opened or None). Nothing is opened unless `asked` is a
-    request to open or play it and `name` is an existing app."""
+    """(the sentence to say, the URL to open or None). Nothing is opened unless `asked` is a
+    request to open or play it and `name` is an existing app. With `host` (HARNESS=pi, the apps
+    server is on the Pi) nothing is started here: the URL is for the client's browser."""
     base, port = (APPS_ROOT if root is None else root), (APPS_PORT if port is None else port)
     have = app_names(base)
     name = name.strip()
@@ -230,7 +296,9 @@ def open_app(
     name = found
     if not OPEN_REQUEST.search(asked):
         return "I open apps when you ask me to. Say open it and I will.", None
-    url = f"http://127.0.0.1:{port}/{name}/"
+    url = f"http://{host or '127.0.0.1'}:{port}/{name}/"
+    if host:
+        return f"Opening {name.replace('_', ' ')} in your browser.", url
     subprocess.Popen(  # noqa: S603 - fixed command, URL built from a checked name
         [OPEN_COMMAND, url],
         stdin=subprocess.DEVNULL,
@@ -239,6 +307,82 @@ def open_app(
         start_new_session=True,
     )
     return f"Opening {name.replace('_', ' ')} in your browser.", url
+
+
+# The Pi's music MCP server has one tool; the model does not see it (it keeps using smart_home),
+# the home commands PLAY_MUSIC, PAUSE, STOP, NEXT, VOLUME_UP and VOLUME_DOWN reach it.
+MUSIC_TOOL = "music"
+MODEL_HIDDEN = frozenset({MUSIC_TOOL})
+MUSIC_INTENTS = {
+    "PLAY_MUSIC": "play",
+    "PAUSE": "pause",
+    "STOP": "stop",
+    "NEXT": "next",
+    "VOLUME_UP": "volume_up",
+    "VOLUME_DOWN": "volume_down",
+}
+
+
+async def call_music(music: FunctionSchema, action: str, query: str) -> dict[str, Any] | None:
+    """The music tool's answer ({ok, sentence, event?, inactive?}), or None if it did not answer."""
+    got: list[Any] = []
+
+    async def done(result: Any, *args: Any, **kwargs: Any) -> None:
+        got.append(result)
+
+    params = SimpleNamespace(
+        function_name=MUSIC_TOOL,
+        tool_call_id="music",
+        arguments={"action": action, "query": query},
+        result_callback=done,
+    )
+    assert music.handler is not None
+    await music.handler(params)  # type: ignore[arg-type]
+    if not got:
+        return None
+    result = got[0]
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except ValueError:
+            return None
+    return result if isinstance(result, dict) else None
+
+
+def with_music(
+    home: FunctionSchema, music: FunctionSchema, record: list[dict[str, Any]]
+) -> FunctionSchema:
+    """smart_home whose music intents go to the music tool while music is active (PLAY_MUSIC
+    always); with nothing playing PAUSE, STOP, NEXT and the volume keep the old behaviour. The
+    tool's event (play this stream) goes to the client; its sentence is the whole reply."""
+    inner = home.handler
+    assert inner is not None
+
+    async def handler(params: FunctionCallParams) -> None:
+        intent = str(params.arguments.get("intent", ""))
+        action = MUSIC_INTENTS.get(intent)
+        if action is None:
+            await inner(params)
+            return
+        slot = params.arguments.get("slot")
+        answer = await call_music(music, action, str(slot or "") if intent == "PLAY_MUSIC" else "")
+        if answer is None or answer.get("inactive"):
+            await inner(params)
+            return
+        record.append({"intent": intent, "slot": slot})
+        sentence = str(answer.get("sentence") or "Done.")
+        event = answer.get("event")
+        if isinstance(event, dict) and not await emit_event(event):
+            sentence = "I can't play audio right now."
+        await params.result_callback(sentence, properties=NO_SECOND_REQUEST)
+
+    return FunctionSchema(
+        name=home.name,
+        description=home.description,
+        properties=home.properties,
+        required=home.required,
+        handler=handler,
+    )
 
 
 def stdio_server(command: list[str], env: dict[str, str] | None = None) -> MCPClient:
@@ -263,17 +407,26 @@ def pi_device_server(url: str | None = PI_URL, token: str | None = None) -> MCPC
     return MCPClient(server_params=params)
 
 
+def local_device_server() -> MCPClient:
+    """The device tools as a stdio child (HARNESS=pi: the agent runs on the Pi itself)."""
+    return stdio_server(
+        [MCP_PYTHON or sys.executable, str(REPO_ROOT / "scripts/pi_device_mcp.py"), "--stdio"]
+    )
+
+
 def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list[MCPClient]]:
     """(required, optional) servers: docs, time, web_info, tavily_search; delegate and the Pi's
     (if reachable) are optional."""
-    pi = pi_device_server(pi_url)
+    pi = local_device_server() if pi_url == "local" else pi_device_server(pi_url)
     required = [
         docs_server(),
         stdio_server(TIME_COMMAND),
         stdio_server(WEB_INFO_COMMAND),
         stdio_server(TAVILY_COMMAND),
     ]
-    optional = [stdio_server(DELEGATE_COMMAND)]
+    optional = [stdio_server(delegate_command())]
+    if (music := music_command()) is not None:
+        optional.append(stdio_server(music))
     return required, optional + ([pi] if pi is not None else [])
 
 
@@ -355,7 +508,15 @@ async def build_tools(
     )
 
     async def open_handler(params: FunctionCallParams) -> None:
-        said, _url = open_app(str(params.arguments.get("name") or ""), question.current)
+        said, url = open_app(
+            str(params.arguments.get("name") or ""), question.current, host=APPS_HOST
+        )
+        if (
+            url is not None
+            and APPS_HOST
+            and not await emit_event({"event": "open_url", "url": url})
+        ):
+            said = "I can't open a page from here right now."
         await params.result_callback(said)
 
     tools: list[FunctionSchema] = [
@@ -385,7 +546,10 @@ async def build_tools(
         except Exception as exc:  # the Pi is off or unreachable: start without its tools
             print(f"MCP server left out ({type(exc).__name__}: {exc})", file=sys.stderr)
             continue
-        tools += [_recorded(s, record) for s in schemas]
+        tools += [s if s.name == MUSIC_TOOL else _recorded(s, record) for s in schemas]
+    music = next((t for t in tools if t.name == MUSIC_TOOL), None)
+    if music is not None:
+        tools[0] = with_music(tools[0], music, record)
     return ToolsSchema(standard_tools=tools)
 
 

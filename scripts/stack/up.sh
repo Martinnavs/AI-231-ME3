@@ -38,7 +38,7 @@ check_free() {
   local p; for p in "$@"; do port_listening "$p" && die "port $p is already in use: run make down first"; done
   return 0
 }
-router_health() { curl -sf "http://127.0.0.1:$PORT_ROUTER/health" >/dev/null; }
+router_health() { curl -sf "http://$ROUTER_HOST:$PORT_ROUTER/health" >/dev/null; }
 
 start_router() {
   check_free "$PORT_ROUTER"
@@ -47,7 +47,7 @@ start_router() {
   [ "$DRY" = 1 ] || [ -f "$model" ] || die "router model not found: $model (ROUTER_MODEL=$ROUTER_MODEL)"
   echo "router model: $ROUTER_MODEL   cable address: $LAPTOP_IP"
   LD_LIBRARY_PATH=$g/llama.cpp/build/bin bg router "$LOGS/router.log" "$g/llama.cpp/build/bin/llama-server" --jinja -c 8192 -np 1 -fa on \
-    -t "$ROUTER_THREADS" -tb "$ROUTER_THREADS" -m "$model" --port "$PORT_ROUTER" --api-key-file "$TOKEN_FILE"
+    -t "$ROUTER_THREADS" -tb "$ROUTER_THREADS" -m "$model" --host "$ROUTER_HOST" --port "$PORT_ROUTER" --api-key-file "$TOKEN_FILE"
   wait_for router "$LOGS/router.log" 60 router_health
 }
 start_speech() {
@@ -59,7 +59,29 @@ start_speech() {
     --kitten-voice "$KITTEN_VOICE" ${SPEECH_ARGS:-}
   wait_for "speech server" "$LOGS/speech.log" 120 port_listening "$PORT_SPEECH"
 }
+start_resolver() {
+  # HARNESS=pi: the music search (yt-dlp) stays on the laptop; the Pi's music MCP server calls it with the token
+  check_free "$PORT_RESOLVER"
+  need_token
+  bg resolver "$LOGS/resolver.log" uv run --offline --group laptop python -m voice_agent.music_resolver --host "$LAPTOP_IP" --port "$PORT_RESOLVER"
+  resolver_ready() { port_listening "$PORT_RESOLVER"; }
+  wait_for "music resolver" "$LOGS/resolver.log" 30 resolver_ready
+}
+start_pi_harness() {
+  # HARNESS=pi: the agent server and the apps server run on the Pi (the device tools are a local child), under the same timeout as the speaker
+  local env="LAN_SPEECH_TOKEN=\$(cat ~/.config/lan_speech_token) MCP_PYTHON=\$PWD/.venv/bin/python PYTHONPATH=\$PWD/pipeline/src:\$PWD/src ROUTER_URL=http://$LAPTOP_IP:$PORT_ROUTER MUSIC_RESOLVER_URL=http://$LAPTOP_IP:$PORT_RESOLVER APPS_PUBLIC_HOST=$PI_V4 PORT_APPS=$PORT_APPS"
+  pi_ssh "cd $(printf '%q' "$PI_REPO") && mkdir -p ~/agent_sandbox/workspace/apps && export $env
+    nohup timeout $PI_RUN_SECONDS .venv/bin/python -u -m voice_agent.apps_server --host $PI_V4 --port $PORT_APPS > /tmp/pi_apps.log 2>&1 < /dev/null &
+    echo \$! > /tmp/pi_apps.pid
+    nohup timeout $PI_RUN_SECONDS .venv/bin/python -u -m voice_pipeline.agent_server --host $PI_V4 --port $PORT_AGENT --pi-url local --apps-host $PI_V4 --ipv4 --hedge -1 ${AGENT_ARGS:-} > /tmp/pi_agent.log 2>&1 < /dev/null &
+    echo \$! > /tmp/pi_agent.pid
+    sleep 6; tail -n 3 /tmp/pi_apps.log /tmp/pi_agent.log" || die "starting the Pi agent over ssh failed"
+  if [ "$DRY" = 1 ]; then echo "+ (wait for $PI_V4:$PORT_AGENT)"; return 0; fi
+  local i; for i in $(seq 60); do pi_port_open "$PORT_AGENT" && { echo "Pi agent server :$PORT_AGENT reachable"; return 0; }; sleep 2; done
+  die "the Pi agent server did not come up: ssh in and read /tmp/pi_agent.log"
+}
 start_apps() {
+  [ "$HARNESS" = pi ] && return 0   # served from the Pi (start_pi_harness)
   # the web apps the delegate writes (apps/<name>/index.html), 127.0.0.1 only, CSP on every response
   mkdir -p "$HOME/agent_sandbox/workspace/apps"
   bg apps "$LOGS/apps.log" uv run --offline python -m voice_agent.apps_server --port "$PORT_APPS"
@@ -67,6 +89,7 @@ start_apps() {
   wait_for "apps server" "$LOGS/apps.log" 30 apps_ready
 }
 start_agent() {
+  if [ "$HARNESS" = pi ]; then start_pi_harness; return 0; fi
   need_token
   # shellcheck disable=SC2086
   say_dry "agent environment: PI_DEVICE_URL=http://$PI_V4:$PORT_PI_DEVICE/mcp"
@@ -94,27 +117,34 @@ start_pi() {
   if [ "$PI_START" = systemd ]; then
     pi_ssh 'systemctl --user start pi-speaker pi-device-mcp' || die "systemd start failed on the Pi (was deploy/install-pi.sh run?)"
   else
-    local ld=${PI_LD_LIBRARY_PATH:-}
+    local ld=${PI_LD_LIBRARY_PATH:-} device_start=""
+    # HARNESS=pi: the device tools are a stdio child of the Pi's agent server, not a service of their own
+    [ "$HARNESS" = pi ] || device_start="nohup timeout $PI_RUN_SECONDS .venv/bin/python -u scripts/pi_device_mcp.py --port $PORT_PI_DEVICE > /tmp/pi_device.log 2>&1 < /dev/null & echo \$! > /tmp/pi_device.pid"
     pi_ssh "cd $(printf '%q' "$PI_REPO") && export LAN_SPEECH_TOKEN=\$(cat ~/.config/lan_speech_token) LD_LIBRARY_PATH=$(printf '%q' "$ld")
       nohup timeout $PI_RUN_SECONDS .venv/bin/python -u scripts/pi_speaker.py --device $(printf '%q' "$PI_AUDIO_DEVICE") --rate ${PI_SPEAKER_RATE:-48000} --port $PORT_PI_SPEAKER > /tmp/pi_speaker.log 2>&1 < /dev/null &
       echo \$! > /tmp/pi_speaker.pid
-      nohup timeout $PI_RUN_SECONDS .venv/bin/python -u scripts/pi_device_mcp.py --port $PORT_PI_DEVICE > /tmp/pi_device.log 2>&1 < /dev/null &
-      echo \$! > /tmp/pi_device.pid
+      $device_start
       sleep 4; tail -n 3 /tmp/pi_speaker.log /tmp/pi_device.log" || die "starting the Pi services over ssh failed"
   fi
   if [ "$DRY" = 1 ]; then echo "+ (wait for $PI_V4:$PORT_PI_SPEAKER and :$PORT_PI_DEVICE)"; return 0; fi
   local p name
-  for p in "$PORT_PI_SPEAKER:pi speaker" "$PORT_PI_DEVICE:pi device tools"; do
+  local ports=("$PORT_PI_SPEAKER:pi speaker" "$PORT_PI_DEVICE:pi device tools")
+  [ "$HARNESS" = pi ] && ports=("$PORT_PI_SPEAKER:pi speaker")
+  for p in "${ports[@]}"; do
     name=${p#*:}
     local i; for i in 1 2 3 4 5 6 7 8; do pi_port_open "${p%%:*}" && break; sleep 1; done
     pi_port_open "${p%%:*}" && echo "$name :${p%%:*} reachable" || die "$name :${p%%:*} not reachable: ssh in and read /tmp/pi_speaker.log /tmp/pi_device.log"
   done
 }
 
-case "$MODE" in all | laptop) check_free "$PORT_ROUTER" "$PORT_SPEECH" "$PORT_AGENT" "$PORT_APPS" ;; esac
+if [ "$HARNESS" = pi ]; then
+  case "$MODE" in all | laptop) check_free "$PORT_ROUTER" "$PORT_SPEECH" ;; esac
+else
+  case "$MODE" in all | laptop) check_free "$PORT_ROUTER" "$PORT_SPEECH" "$PORT_AGENT" "$PORT_APPS" ;; esac
+fi
 case "$MODE" in
-  all)    start_router; start_speech; start_pi; start_apps; start_agent ;;
-  laptop) start_router; start_speech; start_apps; start_agent ;;
+  all)    start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_pi; start_apps; start_agent ;;
+  laptop) start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_apps; start_agent ;;
   pi)     start_pi ;;
   agent)  stop_agent; start_agent ;;
   apps)   start_apps ;;

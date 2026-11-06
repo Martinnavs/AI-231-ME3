@@ -112,3 +112,13 @@ def test_resolve_maps_only_files_inside_the_app(root: Path) -> None:
     assert resolve(root, "/flappy_bird/") == root / "flappy_bird" / "index.html"
     assert resolve(root, "/flappy_bird") == "/flappy_bird/"
     assert resolve(root, "/flappy_bird/../x") is None
+
+
+def test_it_refuses_to_bind_every_interface(root: Path) -> None:
+    import pytest
+
+    for host in ("0.0.0.0", "", "::"):  # noqa: S104
+        with pytest.raises(ValueError):
+            make_server(root, 0, host)
+    server = make_server(root, 0, "127.0.0.1")
+    server.server_close()
