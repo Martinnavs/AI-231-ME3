@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 .PHONY: help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
-        pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall \
+        pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall pi-tune \
         spotify-login
 
 help: ## List documented targets
@@ -59,6 +59,9 @@ pi-env: ## (laptop) copy config/pi.env to the Pi's repo
 
 pi-firewall: ## (laptop, sudo) open the router, speech and music-resolver ports to the Pi in the cable's firewalld zone
 	scripts/stack/pi_firewall.sh
+
+pi-tune: ## (laptop, sudo on the Pi) latency: Pi CPU governor performance + Wi-Fi power save off (both persistent), laptop power profile performance
+	scripts/stack/pi_tune.sh
 
 # Root project: speech side (lan_speech, doc_chat, audio_engine, bench, voice_agent).
 check:
