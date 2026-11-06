@@ -19,6 +19,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -89,6 +90,9 @@ LOOKUP_ACK_S = 1.0
 ACKED_LOOKUPS = frozenset({"web_answer"})
 # Spoken at once when the router sends a web lookup (routed turns have no model `say`); listed in
 # config/fast_phrases.json so the client plays it from memory.
+OFFLINE_SAY = "I can't reach the internet right now, but I can still do home and device things."
+LOOKUP_FAIL_SAY = "I couldn't get that from the internet right now."
+LOOKUP_GIVE_S = 4.0  # a routed lookup that failed after this long is not handed to Gemini again
 LOOKUP_SAY = "Let me look that up."
 MUSIC_SAY = (
     "Finding some music."  # a routed PLAY_MUSIC still running after MUSIC_SAY_S (a music search)
@@ -116,6 +120,30 @@ def token_guard(token: str) -> Callable[[ServerConnection, HttpRequest], HttpRes
     return check
 
 
+class OnlineProbe:
+    """Whether Gemini's API is reachable: a TCP connect every `every` s; offline after two
+    failures in a row, online again after one success. A turn that needs Gemini while offline is
+    answered at once instead of waiting out the LLM timeout (15 s with the retry)."""
+
+    def __init__(self, host: str = "generativelanguage.googleapis.com", every: float = 5.0) -> None:
+        self.host, self.every, self.online, self._fails = host, every, True, 0
+
+    async def check(self) -> bool:
+        try:
+            _, writer = await asyncio.wait_for(asyncio.open_connection(self.host, 443), 2.0)
+        except (TimeoutError, OSError):
+            return False
+        writer.close()
+        return True
+
+    async def run(self) -> None:
+        while True:
+            ok = await self.check()
+            self._fails = 0 if ok else self._fails + 1
+            self.online = ok or self._fails < 2
+            await asyncio.sleep(self.every)
+
+
 class AgentServer:
     """Serves `agent` turns over WebSocket and logs each one."""
 
@@ -138,6 +166,7 @@ class AgentServer:
         self.unacked: dict[int, dict[str, str]] = {}
         self.notice_ids = 0
         self.test_delay: tuple[str, float] | None = None  # (word, seconds): --test-delay-word
+        self.probe: OnlineProbe | None = None  # set by run(); None: always online (tests)
         self.router_lines: dict[str, str] = {}  # reply we spoke -> the router lines behind it
         self.agent = agent
         self.record = record
@@ -427,6 +456,23 @@ class AgentServer:
             **({"race": routed.race} if routed.race else {}),
         }
 
+    def offline(self) -> bool:
+        return self.probe is not None and not self.probe.online
+
+    async def spoken(self, text: str, on_text: Any, **info: Any) -> dict[str, Any]:
+        await on_text(text)
+        return {"status": "ok", "text": text, **info}
+
+    async def gemini(
+        self, messages: list[dict[str, Any]], on_text: Any, on_tool: Any, on_say: Any
+    ) -> dict[str, Any]:
+        if self.offline():
+            return await self.spoken(OFFLINE_SAY, on_text, offline=True)
+        result: dict[str, Any] = await self.agent.ask(
+            messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say
+        )
+        return result
+
     async def routed_turn(
         self, messages: list[dict[str, Any]], on_text: Any, on_tool: Any, on_say: Any
     ) -> dict[str, Any]:
@@ -463,9 +509,13 @@ class AgentServer:
         done = await local(lambda: True)
         if done is not None:
             return done
-        result = await self.agent.ask(
-            messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say
+        looked_up = re.match(
+            r"\s*(web_answer|wiki_summary|weather)\|", str(info.get("router_lines", ""))
         )
+        if looked_up and (self.offline() or time.perf_counter() - started > LOOKUP_GIVE_S):
+            # the link is slow or down: Gemini would only repeat the same slow trip
+            return await self.spoken(LOOKUP_FAIL_SAY, on_text, **info)
+        result = await self.gemini(messages, on_text, on_tool, on_say)
         return {**result, **info}
 
     def collect_notices(self) -> None:
@@ -559,9 +609,7 @@ class AgentServer:
             ):
                 work = self.routed_turn(messages, on_text, on_tool, on_say)
             else:
-                work = self.agent.ask(
-                    messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say
-                )
+                work = self.gemini(messages, on_text, on_tool, on_say)
             turn = asyncio.create_task(self.delayed(work, question.current))
             closed = asyncio.create_task(ws.wait_closed())
             await asyncio.wait({turn, closed}, return_when=asyncio.FIRST_COMPLETED)
@@ -670,6 +718,8 @@ async def run(
         hide_idle_delegate,
     )
     server.test_delay = test_delay
+    server.probe = OnlineProbe()
+    probe_task = asyncio.create_task(server.probe.run())
     try:
         guard = token_guard(token) if token else None
         async with serve(server.handle, host, port, process_request=guard):
@@ -677,6 +727,7 @@ async def run(
             print(f"agent server on ws://{host}:{port}{note}, log {log}", flush=True)
             await asyncio.Future()
     finally:
+        probe_task.cancel()
         await close_llm_sessions()
     return 0
 

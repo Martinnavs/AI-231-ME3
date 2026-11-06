@@ -583,6 +583,18 @@ def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
     return None
 
 
+_DAYPART = re.compile(r"\b(p\.?m|evening|night|tonight|afternoon|noon|later today)\b", re.I)
+_PM_TIME = re.compile(r"\b([4-9]|1[01])(:\d\d)?\s*PM\b", re.I)
+
+
+def alarm_slot(slot: str, user: str) -> str:
+    """The router writes PM for "wake me at seven fifteen" (no time of day said): an alarm from
+    4 to 11 with no PM, evening or night in the user's words is a morning one."""
+    if _DAYPART.search(user):
+        return slot
+    return _PM_TIME.sub(lambda m: m.group(0)[:-2] + "AM", slot)
+
+
 def plan(calls: list[Any], user: str, available: set[str]) -> list[Planned]:
     """The tool and arguments each call runs with. The router was trained on `wiki_summary`; the
     web answer replaces it (Wikipedia is its fallback). A swapped lookup that is the turn's only
@@ -595,6 +607,8 @@ def plan(calls: list[Any], user: str, available: set[str]) -> list[Planned]:
         if home:
             args: dict[str, Any] = {"intent": call.name}
             if call.args:
+                if call.name == "ALARM":
+                    call.args[0] = alarm_slot(call.args[0], user)  # the spoken confirmation too
                 args["slot"] = call.args[0]
             out.append(Planned(call, "smart_home", args, True))
             continue
