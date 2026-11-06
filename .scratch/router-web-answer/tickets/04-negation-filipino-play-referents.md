@@ -11,6 +11,10 @@ nothing, and sends **job questions to a web lookup**. The laptop now has call-po
 the hosted model, so they are no longer acted on wrongly; but each costs 0.5-1 s more than a router answer. This retrain is
 to let the router answer them itself (or escalate them on its own). Same recipe as ticket 03, new adapter.
 
+**Revision 2 (2026-11-06, before any training):** tasks 1-6 are unchanged; tasks 7-8 are new (a confirmation after the
+hosted model's offer, and fixed ack/statement replies, from ticket 03's own note); old tasks 7-9 are now 9-11, and the
+acceptance checks are extended. Read the whole ticket before generating data, and generate all seeds in one go.
+
 ## What the laptop saw (patterns; the wordings are laptop test cases)
 Describe each pattern in your data with your own phrasings; never copy wording from the laptop's test material (see the
 "Do not look at" section).
@@ -63,12 +67,23 @@ Describe each pattern in your data with your own phrasings; never copy wording f
    "did the <job> finish", "how is the <thing you are making> going" -> `escalate|tools` (never `web_answer`); "run / do / give
    me a directory listing / list the files / run <a command> in the sandbox" -> `escalate|tools`. Contrast, unchanged:
    current-fact questions using "done", "finished", "ready" about the world keep `web_answer`.
-7. **Tests** in `tests/test_data.py`: `s_negated` targets are never a home call and replies are at most 6 words; every
+7. **Confirmation-after-offer seed** `s_confirm_offer` (weight about 3): a history whose last assistant turn is an offer or a
+   question from the hosted model (an `escalate` turn in the history, followed by an assistant reply ending in "?" or an offer
+   such as "Want me to open it?", "Would you like me to make one?", "Shall I start it?") and then a short confirmation or
+   refusal ("yes", "sure, go ahead", "okay do it", "open it in a tab", "no thanks", "oo", "sige") -> `escalate|other`.
+   The router cannot act on an offer it did not make. Contrasts, unchanged: the same words after the **router's own** question
+   ("To how many degrees?" then "twenty-four") keep the follow-up target; the same words with no offer before them keep the
+   ack target.
+8. **Fixed ack and statement replies** (ticket 03's note, "Fix in the next data round"): `s_ack_after_anything` and
+   `s_statement` draw their reply from one fixed phrase per kind ("Okay." for an ack, "Alright." for a statement), not from a
+   random list, so strict exact match can reach 100%. Keep the at-most-6-words rule.
+9. **Tests** in `tests/test_data.py`: `s_confirm_offer` targets are all `escalate|other` and its contrasts keep their targets;
+   ack and statement replies are the one fixed phrase each; `s_negated` targets are never a home call and replies are at most 6 words; every
    `s_filipino` example's target equals the target of its paired English form; `s_near_miss` never produces NEXT for a
    backward request or STOP/PAUSE for a resume; `s_play_target` targets are all `escalate|tools` and the bare-music contrasts
    all PLAY_MUSIC; `s_no_referent` targets are `none|` questions ending in "?"; no seed contains corpus names (the list kept
    in the test from ticket 03).
-8. **Data and training, the ticket-03 recipe** (`finetune/README.md`, "Cluster session 2026-11-04"), run names `web4`:
+10. **Data and training, the ticket-03 recipe** (`finetune/README.md`, "Cluster session 2026-11-04"), run names `web4`:
    ```bash
    python3 data/generate.py --out data/generated --n 30000 --seed 0
    python3 data/generate.py --out data/generated-s1 --n 40000 --seed 1
@@ -78,16 +93,18 @@ Describe each pattern in your data with your own phrasings; never copy wording f
    CUDA_VISIBLE_DEVICES=<n> .venv-kernels/bin/python train/train.py --model ibm-granite/granite-4.0-h-350m --data data/distill --out runs/kd-350m-web4-s0 --seed 0 --batch 8 --accum 8 --teacher-cache data/distill/teacher_top128.pt
    ```
    Never GPU 6. Check the **teacher** on the new seeds before distilling; if the 1B teacher also fails a family, say so.
-9. **Push** the student adapter as `martinnavs/granite-4.0-h-350m-router-kd-web4-s0-unverified` (private).
+11. **Push** the student adapter as `martinnavs/granite-4.0-h-350m-router-kd-web4-s0-unverified` (private).
 
 ## Acceptance criteria (cluster side)
 - [ ] `pytest` in `finetune/` green, including the new tests.
-- [ ] Dev split exact reported **per new seed** (negated, Filipino, near miss, play target, no referent, job requests) and
+- [ ] Dev split exact reported **per new seed** (negated, Filipino, near miss, play target, no referent, job requests,
+      confirm offer) and ack/statement strict exact (was 13/36 and 9/44), and
       overall, next to kd-web3-s0 (full dev 98.7% with ack/statement wording free; old kinds 98.4%); old kinds must not drop
       by more than 1 point.
 - [ ] A held-out check you write yourself, through the **student** with generation, with names and phrasings not in the
       banks: 60 cases (12 negated, 15 Filipino incl. 3-word forms, 8 near miss, 10 play target incl. bare-music contrasts,
-      8 no referent with and without a resolving history, 7 job requests); report the wrong ones one by one.
+      8 no referent with and without a resolving history, 7 job requests) plus 10 confirm-offer cases (6 after an offer,
+      4 contrasts after the router's own question); report the wrong ones one by one.
 - [ ] Ticket-03 held-out (70 cases) and its 40 multi-turn repeats re-run: no regression.
 - [ ] Data counts per seed, before and after; report commands, results table, spend ($0 expected), anything not done.
 
