@@ -59,6 +59,11 @@ start_speech() {
     --kitten-voice "$KITTEN_VOICE" ${SPEECH_ARGS:-}
   wait_for "speech server" "$LOGS/speech.log" 120 port_listening "$PORT_SPEECH"
 }
+wait_pi_agent() {
+  if [ "$DRY" = 1 ]; then echo "+ (wait for $PI_V4:$PORT_AGENT)"; return 0; fi
+  local i; for i in $(seq 90); do pi_port_open "$PORT_AGENT" && { echo "Pi agent server :$PORT_AGENT reachable"; return 0; }; sleep 2; done
+  die "the Pi agent server did not come up: ssh in, journalctl --user -u pi-agent"
+}
 start_resolver() {
   # HARNESS=pi: the music search (yt-dlp) stays on the laptop; the Pi's music MCP server calls it with the token
   check_free "$PORT_RESOLVER"
@@ -67,11 +72,25 @@ start_resolver() {
   resolver_ready() { port_listening "$PORT_RESOLVER"; }
   wait_for "music resolver" "$LOGS/resolver.log" 30 resolver_ready
 }
+start_librespot() {
+  [ "${MUSIC_SOURCE:-$(music_source)}" = spotify ] || return 0
+  if [ "$DRY" != 1 ] && ! command -v librespot >/dev/null 2>&1; then
+    echo "stack: librespot not installed (MUSIC_SOURCE=spotify)"
+    return 0
+  fi
+  local fifo=${SPOTIFY_FIFO:-$HOME/.cache/me3/librespot.pcm}
+  mkdir -p "$(dirname "$fifo")" "$HOME/.cache/librespot"
+  [ -p "$fifo" ] || mkfifo -m 600 "$fifo" 2>/dev/null || true
+  # librespot's first login (Spotify Connect) is the owner's job
+  bg librespot "$LOGS/librespot.log" librespot --name "ME3 Laptop" --backend pipe --device "$fifo" --bitrate 160 --initial-volume 100 --cache "$HOME/.cache/librespot"
+}
 start_pi_harness() {
+  [ "$PI_START" = systemd ] && { wait_pi_agent; return 0; }  # the pi-agent unit was started by start_pi
   # HARNESS=pi: the agent server and the apps server run on the Pi (the device tools are a local child), under the same timeout as the speaker
-  local env="LAN_SPEECH_TOKEN=\$(cat ~/.config/lan_speech_token) MCP_PYTHON=\$PWD/.venv/bin/python PYTHONPATH=\$PWD/pipeline/src:\$PWD/src ROUTER_URL=http://$LAPTOP_IP:$PORT_ROUTER MUSIC_RESOLVER_URL=http://$LAPTOP_IP:$PORT_RESOLVER APPS_PUBLIC_HOST=$PI_V4 PORT_APPS=$PORT_APPS"
+  local env="LAN_SPEECH_TOKEN=\$(cat ~/.config/lan_speech_token) MCP_PYTHON=\$PWD/.venv-mcp/bin/python PYTHONPATH=\$PWD/pipeline/src:\$PWD/src ROUTER_URL=http://$LAPTOP_IP:$PORT_ROUTER MUSIC_RESOLVER_URL=http://$LAPTOP_IP:$PORT_RESOLVER APPS_PUBLIC_HOST=$PI_V4 PORT_APPS=$PORT_APPS"
+  [ "${MUSIC_SOURCE:-$(music_source)}" = spotify ] && env="$env MUSIC_SOURCE=spotify"
   pi_ssh "cd $(printf '%q' "$PI_REPO") && mkdir -p ~/agent_sandbox/workspace/apps && export $env
-    nohup timeout $PI_RUN_SECONDS .venv/bin/python -u -m voice_agent.apps_server --host $PI_V4 --port $PORT_APPS > /tmp/pi_apps.log 2>&1 < /dev/null &
+    nohup timeout $PI_RUN_SECONDS .venv-mcp/bin/python -u -m voice_agent.apps_server --host $PI_V4 --port $PORT_APPS > /tmp/pi_apps.log 2>&1 < /dev/null &
     echo \$! > /tmp/pi_apps.pid
     nohup timeout $PI_RUN_SECONDS .venv-agent/bin/python -u -m voice_pipeline.agent_server --host $PI_V4 --port $PORT_AGENT --pi-url local --apps-host $PI_V4 --ipv4 --hedge -1 ${AGENT_ARGS:-} > /tmp/pi_agent.log 2>&1 < /dev/null &
     echo \$! > /tmp/pi_agent.pid
@@ -115,7 +134,8 @@ start_pi() {
     echo "+ (compare the first 12 characters of sha256(token) on both sides)"
   fi
   if [ "$PI_START" = systemd ]; then
-    pi_ssh 'systemctl --user start pi-speaker pi-device-mcp' || die "systemd start failed on the Pi (was deploy/install-pi.sh run?)"
+    local units="pi-speaker pi-device-mcp"; [ "$HARNESS" = pi ] && units="pi-speaker pi-agent"
+    pi_ssh "systemctl --user restart $units" || die "systemd start failed on the Pi (was deploy/install-pi.sh run?)"
   else
     local ld=${PI_LD_LIBRARY_PATH:-} device_start=""
     # HARNESS=pi: the device tools are a stdio child of the Pi's agent server, not a service of their own
@@ -143,8 +163,8 @@ else
   case "$MODE" in all | laptop) check_free "$PORT_ROUTER" "$PORT_SPEECH" "$PORT_AGENT" "$PORT_APPS" ;; esac
 fi
 case "$MODE" in
-  all)    start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_pi; start_apps; start_agent ;;
-  laptop) start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_apps; start_agent ;;
+  all)    start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_pi; start_apps; start_agent ;;
+  laptop) start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_apps; start_agent ;;
   pi)     start_pi ;;
   agent)  stop_agent; start_agent ;;
   apps)   start_apps ;;

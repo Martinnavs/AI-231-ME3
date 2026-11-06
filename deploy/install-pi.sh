@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Run ON the Pi: install the speaker, device-tool and (HARNESS=pi) agent services as user systemd units that start at boot.
-# With --venvs it first builds .venv-agent and adds the MCP packages to .venv (pip; no uv on the Pi).
+# With --venvs it first builds .venv-agent and builds .venv-mcp for the MCP children (pip; no uv on the Pi).
 # Needs config/pi.env here first (laptop: make pi-detect pi-env). Enables them; starting is a separate, explicit step.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/.." && pwd)"
 if [ "${1:-}" = "--venvs" ]; then
   cd "$repo"
-  [ -d .venv ] || python3 -m venv .venv
-  .venv/bin/pip install -r deploy/pi-mcp-requirements.txt
+  python3 -m venv .venv-mcp  # not .venv: that one is uv-made (3.12, no pip) and runs the speaker
+  .venv-mcp/bin/python -m pip install -q -r deploy/pi-mcp-requirements.txt
   python3 -m venv .venv-agent
-  .venv-agent/bin/pip install -r deploy/pi-agent-requirements.txt
+  .venv-agent/bin/python -m pip install -q -r deploy/pi-agent-requirements.txt
 fi
 "$repo/scripts/stack/pi_check.sh" || { echo "fix the problems above first" >&2; exit 1; }
 mkdir -p ~/.config/systemd/user

@@ -386,7 +386,10 @@ def with_music(
 
 
 def stdio_server(command: list[str], env: dict[str, str] | None = None) -> MCPClient:
-    """MCP client for a server started over stdio from the repo root."""
+    """MCP client for a server started over stdio from the repo root. With MCP_PYTHON (the Pi:
+    nothing is installed) the child gets the repo's src on its path."""
+    if MCP_PYTHON:
+        env = {"PYTHONPATH": str(REPO_ROOT / "src"), **(env or {})}
     params = StdioServerParameters(
         command=command[0], args=command[1:], cwd=str(REPO_ROOT), env=env
     )
@@ -409,8 +412,13 @@ def pi_device_server(url: str | None = PI_URL, token: str | None = None) -> MCPC
 
 def local_device_server() -> MCPClient:
     """The device tools as a stdio child (HARNESS=pi: the agent runs on the Pi itself)."""
+    # wpctl needs the user PipeWire socket; a stdio child gets a bare env
+    audio = {
+        k: os.environ[k] for k in ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS") if k in os.environ
+    }
     return stdio_server(
-        [MCP_PYTHON or sys.executable, str(REPO_ROOT / "scripts/pi_device_mcp.py"), "--stdio"]
+        [MCP_PYTHON or sys.executable, str(REPO_ROOT / "scripts/pi_device_mcp.py"), "--stdio"],
+        audio or None,
     )
 
 

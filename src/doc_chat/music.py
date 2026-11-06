@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import subprocess
 import threading
 import time
 from collections.abc import Callable
 from math import gcd
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -25,6 +27,9 @@ DUCK_DB = -15.0
 RESTORE_S = 0.5
 REF_RATE = 16000
 FFMPEG = "ffmpeg"
+SPOTIFY_FIFO = Path(
+    os.environ.get("SPOTIFY_FIFO", str(Path.home() / ".cache" / "me3" / "librespot.pcm"))
+)
 
 
 class Ducker:
@@ -77,6 +82,35 @@ def _decoder(url: str, rate: int) -> subprocess.Popen[bytes]:
     )
 
 
+def _pipe_decoder(path: Path, rate: int) -> subprocess.Popen[bytes]:
+    return subprocess.Popen(
+        [
+            FFMPEG,
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-f",
+            "s16le",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            "-i",
+            str(path),
+            "-f",
+            "s16le",
+            "-ac",
+            "1",
+            "-ar",
+            str(rate),
+            "-",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+    )
+
+
 class MusicPlayer:
     """Plays at most one track. `handle(event)` takes the music events of the agent server."""
 
@@ -87,12 +121,15 @@ class MusicPlayer:
         user_speaking: Callable[[], bool] = lambda: False,
         tts_playing: Callable[[], bool] = lambda: False,
         decoder: Callable[[str, int], Any] = _decoder,
+        pipe_decoder: Callable[[Path, int], Any] = _pipe_decoder,
     ) -> None:
         self._connect = connect  # returns a ws with send(); its hello gives the rate
         self._canceller = canceller
         self._user = user_speaking
         self._tts = tts_playing
         self._decoder = decoder
+        self._pipe_decoder = pipe_decoder
+        self._proc: Any = None
         self._lock = threading.Lock()
         self._ws: Any = None
         self._rate = 0
@@ -110,7 +147,10 @@ class MusicPlayer:
         if action == "play":
             self.stop()
             self._level_db = float(event.get("db", self._level_db))
-            self._start(str(event["url"]))
+            if event.get("source") == "spotify":
+                self._start(SPOTIFY_FIFO, is_pipe=True)
+            else:
+                self._start(str(event["url"]), is_pipe=False)
         elif action == "pause":
             self._paused.set()
             self._flush()
@@ -142,7 +182,7 @@ class MusicPlayer:
         if self._canceller is not None:
             self._canceller.clear_music()
 
-    def _start(self, url: str) -> None:
+    def _start(self, target: str | Path, is_pipe: bool = False) -> None:
         if self._ws is None:
             ws = self._connect()
             self._rate = int(json.loads(ws.recv(timeout=5))["rate"])
@@ -154,11 +194,19 @@ class MusicPlayer:
         self._gen += 1
         self.playing = True
         self._send_gain(force=True)
-        threading.Thread(target=self._run, args=(url, self._gen), daemon=True).start()
+        threading.Thread(target=self._run, args=(target, self._gen, is_pipe), daemon=True).start()
 
     def stop(self) -> None:
         self._gen += 1
         self.playing = False
+        with self._lock:
+            proc, self._proc = self._proc, None
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                if hasattr(proc, "stdout") and proc.stdout:
+                    proc.stdout.close()
         if self._ws is not None:
             self._flush()
 
@@ -171,13 +219,17 @@ class MusicPlayer:
                 ws.close()
 
     # ---- the decode / pace loop
-    def _run(self, url: str, gen: int) -> None:
+    def _run(self, target: str | Path, gen: int, is_pipe: bool = False) -> None:
         from scipy.signal import resample_poly
 
         rate = self._rate
         slice_bytes = int(rate * SLICE_S) * 2
         g = gcd(REF_RATE, rate)
-        proc = self._decoder(url, rate)
+        proc = (
+            self._pipe_decoder(Path(target), rate) if is_pipe else self._decoder(str(target), rate)
+        )
+        with self._lock:
+            self._proc = proc
         t0, sent = 0.0, 0
         try:
             while gen == self._gen:
@@ -213,5 +265,8 @@ class MusicPlayer:
         finally:
             with contextlib.suppress(Exception):
                 proc.kill()
+            with self._lock:
+                if self._proc is proc:
+                    self._proc = None
             if gen == self._gen:
                 self.playing = False

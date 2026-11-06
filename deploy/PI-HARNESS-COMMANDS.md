@@ -39,16 +39,21 @@ Check `corpus/` and `assets/` are small enough before the first copy: `du -sh co
 
     cd <PI_REPO> && deploy/install-pi.sh --venvs
 
-This runs `pip install -r deploy/pi-mcp-requirements.txt` into `.venv` and
+This runs `pip install -r deploy/pi-mcp-requirements.txt` into a new `.venv-mcp` (the Pi's `.venv` is uv-made, has no pip, and stays the speaker's) and
 `pip install -r deploy/pi-agent-requirements.txt` into a new `.venv-agent` (two venvs because
 mcp-server-time needs mcp>=2.3 and fastmcp needs mcp<2), then `pi_check.sh`, then installs and
 enables the `pi-speaker`, `pi-device-mcp` and `pi-agent` user units (linger on). Starting is separate.
 
 ## 4. Start and check (laptop)
 
+    make pi-firewall                         # once per laptop (sudo): the Pi must reach 8089, 8770, 8796 over the cable
     HARNESS=pi make up PI_START=systemd      # router on the cable address, speech, resolver, then the Pi units
     HARNESS=pi make status
     HARNESS=pi scripts/stack/talk.sh         # doc_chat with --agent-url ws://<PI_V4>:8781
+
+`make pi-firewall` opens the three ports in the cable interface's firewalld zone. That zone is often shared with Wi-Fi
+("public"), so the firewall stops blocking those ports on Wi-Fi too; the services still bind to the cable address only,
+which is what keeps them off Wi-Fi.
 
 Without systemd: `HARNESS=pi make up` starts the Pi agent and apps server over ssh (with the same
 timeout as the speaker).
