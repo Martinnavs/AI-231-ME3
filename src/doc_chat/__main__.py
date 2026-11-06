@@ -453,8 +453,11 @@ class Session:
             self._music = MusicPlayer(
                 connect,
                 canceller=self.client.canceller,
+                # the mic's loudness check also hears the music itself, which kept it ducked;
+                # so only the agent's own speech ducks it unless MUSIC_DUCK_ON_VOICE=1
                 user_speaking=lambda: (
-                    time.perf_counter() - self.client.last_voiced < 0.4
+                    os.environ.get("MUSIC_DUCK_ON_VOICE") == "1"
+                    and time.perf_counter() - self.client.last_voiced < 0.4
                     and self.client.last_voiced > 0
                 ),
                 tts_playing=lambda: self._player is not None,

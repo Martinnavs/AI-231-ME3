@@ -6,6 +6,7 @@ from voice_agent.spotify_api import SpotifyError
 CFG_SPOTIFY = {
     "source": "spotify",
     "spotify_device": "ME3 Laptop",
+    "spotify_control": "connect",
     "default_query": "relaxing music mix",
     "level_db": -6.0,
     "step_db": 3.0,
@@ -186,3 +187,49 @@ def test_youtube_path_unchanged() -> None:
         "sentence": "Paused.",
         "event": {"event": "music", "action": "pause"},
     }
+
+
+def test_titles_not_in_latin_script_are_said_as_the_song() -> None:
+    from voice_agent.mcp_servers.music import spoken_title
+
+    assert spoken_title("バードランドの子守唄") == "the song"
+    assert spoken_title("Plastic Love") == "Plastic Love"
+    assert spoken_title("Café del Mar") == "Café del Mar"
+
+
+def test_spotify_local_control_needs_no_device_and_sends_the_uri() -> None:
+    class Stub:
+        def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+            return [
+                {
+                    "kind": "track",
+                    "uri": "spotify:track:x",
+                    "title": "Misty",
+                    "subtitle": "",
+                    "duration_s": 180,
+                }
+            ]
+
+        def device_id(self, name: str) -> str | None:
+            raise AssertionError("local control must not look for a Connect device")
+
+    ctrl = MusicControl(lambda q: [], {**CFG_SPOTIFY, "spotify_control": "local"}, spotify=Stub())  # type: ignore[arg-type]
+    out = ctrl.act("play", "misty")
+    assert out["sentence"] == "Playing Misty." and out["event"]["uri"] == "spotify:track:x"
+    assert ctrl.act("pause")["event"] == {"event": "music", "action": "pause"}
+    assert ctrl.act("resume")["event"] == {"event": "music", "action": "resume"}
+    assert ctrl.act("next")["event"] == {"event": "music", "action": "next", "source": "spotify"}
+
+
+def test_bare_play_after_a_stop_replays_the_last_request() -> None:
+    queries: list[str] = []
+
+    def search(q: str) -> list[dict[str, Any]]:
+        queries.append(q)
+        return [{"title": "Crazy", "stream_url": "u", "duration": 160}]
+
+    ctrl = MusicControl(search, CFG_YT)
+    ctrl.act("play", "crazy patsy cline")
+    ctrl.act("stop")
+    ctrl.act("play", "")
+    assert queries == ["crazy patsy cline", "crazy patsy cline"]

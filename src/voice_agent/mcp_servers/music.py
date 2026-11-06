@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,16 @@ def short_title(title: str, words: int = 7, chars: int = 50) -> str:
     if len(cut) > chars:
         cut = cut[:chars].rsplit(" ", 1)[0]
     return cut.rstrip(" -,.") or "your music"
+
+
+def spoken_title(title: str) -> str:
+    """The title to say: "the song" when it is not in the Latin alphabet (TTS cannot say it)."""
+    if any(
+        ch.isalpha() and not ch.isascii() and "LATIN" not in unicodedata.name(ch, "")
+        for ch in title
+    ):
+        return "the song"
+    return short_title(title)
 
 
 def resolver_search(url: str, token: str) -> Search:
@@ -77,13 +88,18 @@ class MusicControl:
         if self.source == "spotify" and self.spotify is None:
             raise ValueError("source 'spotify' requires a SpotifyClient")
         self.spotify_device = str(config.get("spotify_device", "ME3 Laptop"))
+        # "local": the laptop's client plays the found track through the app's MPRIS interface
+        # (the app drops out of Spotify Connect's device list when idle); "connect": the Web API
+        self.local = str(config.get("spotify_control", "local")) == "local"
         self.default_query = str(config["default_query"])
         self.level_db = float(config["level_db"])
         self.step_db = float(config["step_db"])
         self.min_db = float(config["min_db"])
+        self.max_db = float(config.get("max_db", 0.0))
         self.results: list[dict[str, Any]] = []
         self.index = 0
         self.state = "idle"  # idle | playing | paused
+        self.last_query = ""  # a bare "play" after a stop plays this again, not the default
 
     @staticmethod
     def _done(
@@ -102,13 +118,13 @@ class MusicControl:
         self.state = "playing"
         title = short_title(hit["title"])
         return self._done(
-            f"Playing {title}.",
+            f"Playing {spoken_title(hit['title'])}.",
             {"action": "play", "url": hit["stream_url"], "title": title, "db": self.level_db},
         )
 
     def _volume(self, action: str) -> dict[str, Any]:
         step = self.step_db if action == "volume_up" else -self.step_db
-        new = max(self.min_db, min(0.0, self.level_db + step))
+        new = max(self.min_db, min(self.max_db, self.level_db + step))
         if new == self.level_db:
             return self._done(
                 "That is as loud as the music goes."
@@ -137,27 +153,32 @@ class MusicControl:
         if action == "play":
             if not query.strip() and self.state == "paused":
                 return self.act("resume")
-            target_q = query.strip() or self.default_query
+            if not query.strip() and self.state == "playing":
+                return self._done("It's already playing.")
+            target_q = query.strip() or self.last_query or self.default_query
+            self.last_query = target_q
             hits = self.spotify.search(target_q)
             if not hits:
                 return self._done("I couldn't find that on Spotify.", ok=False)
-            device = self.spotify.device_id(self.spotify_device)
-            if not device:
-                return self._done("The laptop's Spotify player isn't running.", ok=False)
             hit = hits[0]
-            self.spotify.play(device, hit["uri"])
-            self.state = "playing"
-            title = short_title(hit["title"])
-            return self._done(
-                f"Playing {title}.",
-                {"action": "play", "source": "spotify", "title": title, "db": self.level_db},
-            )
-        if action == "resume":
-            if self.state == "paused":
+            if not self.local:
                 device = self.spotify.device_id(self.spotify_device)
                 if not device:
                     return self._done("The laptop's Spotify player isn't running.", ok=False)
-                self.spotify.resume(device)
+                self.spotify.play(device, hit["uri"])
+            self.state = "playing"
+            title = short_title(hit["title"])
+            event = {"action": "play", "source": "spotify", "title": title, "db": self.level_db}
+            if self.local:
+                event["uri"] = hit["uri"]
+            return self._done(f"Playing {spoken_title(hit['title'])}.", event)
+        if action == "resume":
+            if self.state == "paused":
+                if not self.local:
+                    device = self.spotify.device_id(self.spotify_device)
+                    if not device:
+                        return self._done("The laptop's Spotify player isn't running.", ok=False)
+                    self.spotify.resume(device)
                 self.state = "playing"
                 return self._done("Resuming.", {"action": "resume"})
             return self.act("play") if self.state == "idle" else self._inactive()
@@ -166,16 +187,20 @@ class MusicControl:
         if action == "pause":
             if self.state == "paused":
                 return self._done("It is already paused.")
-            self.spotify.pause()
+            if not self.local:
+                self.spotify.pause()
             self.state = "paused"
             return self._done("Paused.", {"action": "pause"})
         if action == "stop":
-            self.spotify.pause()
+            if not self.local:
+                self.spotify.pause()
             self.state = "idle"
             return self._done("Music stopped.", {"action": "stop"})
         if action == "next":
-            self.spotify.next()
-            return {"ok": True, "sentence": "Next."}
+            if not self.local:
+                self.spotify.next()
+                return {"ok": True, "sentence": "Next."}
+            return self._done("Next.", {"action": "next", "source": "spotify"})
         if action in ("volume_up", "volume_down"):
             return self._volume(action)
         return self._done("I don't know that music command.", ok=False)
@@ -186,7 +211,10 @@ class MusicControl:
         if action == "play":
             if not query.strip() and self.state == "paused":
                 return self.act("resume")
-            return self._play(query.strip() or self.default_query)
+            if not query.strip() and self.state == "playing":
+                return self._done("It's already playing.")
+            self.last_query = query.strip() or self.last_query or self.default_query
+            return self._play(self.last_query)
         if action == "resume":
             if self.state == "paused":
                 self.state = "playing"

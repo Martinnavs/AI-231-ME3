@@ -74,11 +74,19 @@ start_resolver() {
 }
 start_librespot() {
   [ "${MUSIC_SOURCE:-$(music_source)}" = spotify ] || return 0
+  local fifo=${SPOTIFY_FIFO:-$HOME/.cache/me3/librespot.pcm}
+  if [ "${SPOTIFY_PLAYER:-app}" = app ]; then
+    # the Spotify desktop app plays into a private sink; doc_chat records its monitor (librespot's
+    # audio keys are refused for some accounts, librespot issue #1664), so no FIFO may remain
+    rm -f "$fifo"
+    pactl list short sinks 2>/dev/null | grep -q "\b${SPOTIFY_SINK:-me3_spotify}\b" ||
+      run pactl load-module module-null-sink "sink_name=${SPOTIFY_SINK:-me3_spotify}" "sink_properties=device.description=ME3-Spotify" >/dev/null
+    return 0
+  fi
   if [ "$DRY" != 1 ] && ! command -v librespot >/dev/null 2>&1; then
     echo "stack: librespot not installed (MUSIC_SOURCE=spotify)"
     return 0
   fi
-  local fifo=${SPOTIFY_FIFO:-$HOME/.cache/me3/librespot.pcm}
   mkdir -p "$(dirname "$fifo")" "$HOME/.cache/librespot"
   [ -p "$fifo" ] || mkfifo -m 600 "$fifo" 2>/dev/null || true
   # librespot's first login (Spotify Connect) is the owner's job

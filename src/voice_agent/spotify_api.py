@@ -124,6 +124,7 @@ class SpotifyClient:
         self._store = store
         self._http = http or httpx.Client(timeout=5.0)
         self._clock = clock
+        self._albums: dict[str, str] = {}  # track uri -> album uri, from search
 
     def _refresh(self, token: dict[str, Any]) -> dict[str, Any]:
         refr = token.get("refresh_token")
@@ -192,6 +193,8 @@ class SpotifyClient:
             if t:
                 subs = ", ".join(a["name"] for a in t.get("artists", []) if "name" in a)
                 d = (t["duration_ms"] // 1000) if t.get("duration_ms") is not None else None
+                if (t.get("album") or {}).get("uri"):
+                    self._albums[t["uri"]] = t["album"]["uri"]
                 tracks.append(_item("track", t["uri"], t["name"], subs, d))
         exact_a: list[dict[str, Any]] = []
         other_a: list[dict[str, Any]] = []
@@ -216,7 +219,15 @@ class SpotifyClient:
         return None
 
     def play(self, device_id: str, uri: str) -> None:
-        body = {"uris": [uri]} if uri.startswith("spotify:track:") else {"context_uri": uri}
+        # the desktop app ignores a bare {"uris": [track]}: start the track's album at that track
+        album = self._albums.get(uri)
+        body: dict[str, Any] = (
+            {"context_uri": album, "offset": {"uri": uri}}
+            if album
+            else {"uris": [uri]}
+            if uri.startswith("spotify:track:")
+            else {"context_uri": uri}
+        )
         self._request("PUT", "/me/player/play", params={"device_id": device_id}, json_body=body)
 
     def pause(self) -> None:

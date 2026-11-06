@@ -167,7 +167,7 @@ class Mixer:
             self._music_applied = self._music_gain
         if tts is None and music is None and not (fade and out.any()):
             return None
-        return np.clip(out, -32768, 32767).astype(np.int16).tobytes()
+        return _soft_limit(out).astype(np.int16).tobytes()
 
     def run_once(self, now: float | None = None) -> bool:
         """One iteration of the writer: open the output if needed, write a slice, close after a
@@ -203,3 +203,15 @@ class Mixer:
         if self._sink is not None:
             self._sink[1]()
             self._sink = None
+
+
+def _soft_limit(x: np.ndarray, knee: float = 24576.0) -> np.ndarray:
+    """Samples above the knee are bent smoothly towards full scale instead of clipped (music at
+    up to +6 dB would otherwise distort on its peaks)."""
+    top = 32767.0 - knee
+    over = np.abs(x) > knee
+    if over.any():
+        x = x.copy()
+        x[over] = np.sign(x[over]) * (knee + top * np.tanh((np.abs(x[over]) - knee) / top))
+    limited: np.ndarray = np.clip(x, -32768, 32767)
+    return limited
