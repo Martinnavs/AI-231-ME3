@@ -24,7 +24,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from doc_chat.playback import Player  # noqa: E402
+from doc_chat.mixer import Mixer  # noqa: E402
 
 
 def _device(arg: str | None) -> str | int | None:
@@ -36,10 +36,18 @@ async def serve_speaker(
     port: int,
     token: str | None,
     rate: int,
-    make_player: Callable[[int], Any] = Player,
+    make_player: Callable[[int], Any] | None = None,
     ready: asyncio.Event | None = None,
+    mixer: Any = None,
 ) -> None:
-    """Serve forever. ``make_player(rate)`` returns an object with push/abort/close."""
+    """Serve forever. Replies and music go through one `Mixer` (one output stream). Tests may pass
+    ``make_player(rate)`` (push/abort/close) and/or a ``mixer`` with music_* methods."""
+    if mixer is None and make_player is None:
+        mixer = Mixer(rate)
+        mixer.start()
+    if make_player is None:
+        make_player = lambda _rate: mixer.tts_channel()  # noqa: E731
+
     from websockets.asyncio.server import serve
 
     def authorise(connection: Any, request: Any) -> Any:
@@ -53,15 +61,25 @@ async def serve_speaker(
     async def handle(ws: Any) -> None:
         await ws.send(json.dumps({"type": "hello", "rate": rate}))
         player: Any = None
+        music = False  # this connection is the laptop's music channel
         try:
             async for msg in ws:
                 if isinstance(msg, bytes):
-                    if player is not None:
+                    if music:
+                        if mixer is not None:
+                            mixer.music_push(msg)
+                    elif player is not None:
                         player.push(msg)
                     continue
                 data = json.loads(msg)
                 kind = data.get("type")
-                if kind == "begin":
+                if kind == "music":
+                    music = True
+                elif kind == "music_gain" and mixer is not None:
+                    mixer.music_set_gain(float(data["db"]))
+                elif kind == "music_flush" and mixer is not None:
+                    mixer.music_flush()
+                elif kind == "begin":
                     if player is not None:
                         await asyncio.to_thread(player.close)
                     player = make_player(rate)
@@ -75,6 +93,8 @@ async def serve_speaker(
                     await asyncio.to_thread(player.close)
                     player = None
         finally:
+            if music and mixer is not None:
+                mixer.music_flush()
             if player is not None:
                 player.abort()
                 await asyncio.to_thread(player.close)

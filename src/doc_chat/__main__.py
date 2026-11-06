@@ -15,6 +15,7 @@ import sys
 import time
 import wave
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from dataclasses import replace as dc_replace
 from pathlib import Path
@@ -418,6 +419,9 @@ class Session:
         if event.get("event") == "open_url":
             self.open_url(str(event.get("url", "")))
             return
+        if event.get("event") == "music":
+            self.music_event(event)
+            return
         if self._loop is None:
             return
         if event.get("event") == "tool":
@@ -426,6 +430,36 @@ class Session:
             )
         elif event.get("event") == "text" and self._turn_fillers is not None:
             self._loop.call_soon_threadsafe(self._turn_fillers.text_arrived)
+
+    _music: Any = None
+    _music_pool: Any = field(default_factory=lambda: ThreadPoolExecutor(1))
+
+    def music_event(self, event: dict[str, Any]) -> None:
+        """Music runs on the Pi speaker's second channel; this machine decodes and paces it."""
+        url = getattr(self.args, "play_remote", None)
+        if not url:
+            return
+        if self._music is None:
+            from doc_chat.music import MusicPlayer
+
+            def connect() -> Any:
+                from websockets.sync.client import connect as ws_connect
+
+                token = os.environ.get("LAN_SPEECH_TOKEN")
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+                cm = ws_connect(url, additional_headers=headers, open_timeout=5)
+                return cm.__enter__()
+
+            self._music = MusicPlayer(
+                connect,
+                canceller=self.client.canceller,
+                user_speaking=lambda: (
+                    time.perf_counter() - self.client.last_voiced < 0.4
+                    and self.client.last_voiced > 0
+                ),
+                tts_playing=lambda: self._player is not None,
+            )
+        self._music_pool.submit(self._music.handle, event)  # one worker: events stay in order
 
     def open_url(self, url: str) -> bool:
         """Open `url` in the default browser if, and only if, it is a page of an app served by the

@@ -420,3 +420,18 @@ def test_harness_pi_talk_status_and_down(world):
 def test_a_bad_harness_is_refused(world):
     r = run_script("up.sh", stack_env(world, HARNESS="cloud"), "all")
     assert r.returncode != 0 and "HARNESS must be laptop or pi" in r.stderr
+
+
+def test_pi_harness_packaging_is_consistent() -> None:
+    for script in ("scripts/stack/pi_service.sh", "deploy/install-pi.sh", "scripts/stack/up.sh"):
+        assert subprocess.run(["bash", "-n", str(REPO / script)]).returncode == 0
+    unit = (REPO / "deploy/systemd/pi-agent.service").read_text()
+    assert "pi_service.sh agent" in unit and "@REPO@" in unit
+    service = (REPO / "scripts/stack/pi_service.sh").read_text()
+    assert ".venv-agent/bin/python" in service and "--pi-url local" in service
+    assert "pi-agent" in (REPO / "deploy/install-pi.sh").read_text()
+    for req in ("pi-agent-requirements.txt", "pi-mcp-requirements.txt"):
+        lines = [
+            ln for ln in (REPO / "deploy" / req).read_text().splitlines() if not ln.startswith("#")
+        ]
+        assert not [ln for ln in lines if ln.startswith(("torch", "yt-dlp", "nvidia"))]

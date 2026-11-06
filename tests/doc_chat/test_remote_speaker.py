@@ -174,3 +174,54 @@ def test_connecting_loads_the_resampler_before_the_first_reply(
     speaker = RemoteSpeaker(f"ws://127.0.0.1:{PORT}", "secret")
     speaker.close()
     assert "scipy.signal" in loaded
+
+
+def test_the_music_channel_reaches_the_mixer() -> None:
+    class FakeMixer:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, Any]] = []
+
+        def music_push(self, pcm: bytes) -> None:
+            self.calls.append(("push", len(pcm)))
+
+        def music_set_gain(self, db: float) -> None:
+            self.calls.append(("gain", db))
+
+        def music_flush(self) -> None:
+            self.calls.append(("flush", None))
+
+        def tts_channel(self) -> Any:
+            return FakePlayer(DEVICE_RATE)
+
+    from websockets.sync.client import connect
+
+    mixer = FakeMixer()
+    ready = asyncio.Event()
+    loop = asyncio.new_event_loop()
+    port = 8797
+
+    def run() -> None:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(
+            pi_speaker.serve_speaker(
+                "127.0.0.1", port, "tok", DEVICE_RATE, ready=ready, mixer=mixer
+            )
+        )
+
+    threading.Thread(target=run, daemon=True).start()
+    for _ in range(100):
+        if ready.is_set():
+            break
+        time.sleep(0.05)
+    with connect(
+        f"ws://127.0.0.1:{port}", additional_headers={"Authorization": "Bearer tok"}
+    ) as ws:
+        ws.recv(timeout=5)
+        ws.send('{"type": "music"}')
+        ws.send(b"\x00\x01" * 100)
+        ws.send('{"type": "music_gain", "db": -9}')
+        ws.send('{"type": "music_flush"}')
+        time.sleep(0.3)
+    time.sleep(0.2)
+    assert mixer.calls[:3] == [("push", 200), ("gain", -9.0), ("flush", None)]
+    loop.call_soon_threadsafe(loop.stop)
