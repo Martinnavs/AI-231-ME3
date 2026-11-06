@@ -92,6 +92,7 @@ ACKED_LOOKUPS = frozenset({"web_answer"})
 # config/fast_phrases.json so the client plays it from memory.
 OFFLINE_SAY = "I can't reach the internet right now, but I can still do home and device things."
 LOOKUP_FAIL_SAY = "I couldn't get that from the internet right now."
+OFFLINE_LOOKUP_S = 1.0  # offline, a lookup gets this long (a cached forecast answers in ~0.1 s)
 LOOKUP_GIVE_S = 4.0  # a routed lookup that failed after this long is not handed to Gemini again
 LOOKUP_SAY = "Let me look that up."
 MUSIC_SAY = (
@@ -237,6 +238,12 @@ class AgentServer:
     ) -> Any:
         """`call_tool`, telling the client after LOOKUP_ACK_S that a slow lookup is under way
         (`said`: a sentence for it was already spoken, so the client plays no filler line)."""
+        if not home and self.offline():
+            # offline: a cached forecast still answers at once; anything else fails fast
+            try:
+                return await asyncio.wait_for(self.call_tool(tool, args), OFFLINE_LOOKUP_S)
+            except TimeoutError:
+                return "The service did not answer."
         if home or on_tool is None or tool not in ACKED_LOOKUPS:
             return await self.call_tool(tool, args)
 
@@ -408,7 +415,12 @@ class AgentServer:
                     result = await self.said_if_slow(tool, args, on_say)
                 else:
                     result = await self.acked_call(tool, args, on_tool, home, announced)
-                if not home and TRANSIENT.search(str(result)) and not claimed:
+                if (
+                    not home
+                    and TRANSIENT.search(str(result))
+                    and not claimed
+                    and not self.offline()
+                ):
                     result = await self.call_tool(
                         tool, args
                     )  # lookups are read-only: retry a blip once
@@ -489,6 +501,9 @@ class AgentServer:
         async def local(claim: Callable[[], bool]) -> dict[str, Any] | None:
             routed = await router.route(self.history(messages), user, set(self.tools))
             info.update(router_s=routed.seconds, router_lines=routed.lines)
+            if self.offline() and re.match(r"\s*(web_answer|wiki_summary)\|", routed.lines):
+                info["router_reason"] = "offline lookup"  # no cache: fail at once
+                return None
             if routed.reason is None:
                 done = await self.run_routed(
                     routed, started, on_text, claim, on_tool, None if hedged else on_say
