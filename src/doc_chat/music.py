@@ -181,6 +181,8 @@ class MusicPlayer:
     # ---- events
     def handle(self, event: dict[str, Any]) -> None:
         action = event.get("action")
+        if event.get("source") == "spotify":
+            self._spotify = True
         if action == "play":
             self.stop()
             self._level_db = float(event.get("db", self._level_db))
@@ -267,6 +269,8 @@ class MusicPlayer:
             self._flush()
 
     def close(self) -> None:
+        if self._spotify:
+            spotify_local("pause")
         self.stop()
         with self._lock:
             ws, self._ws = self._ws, None

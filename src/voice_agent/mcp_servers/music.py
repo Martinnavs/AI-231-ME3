@@ -154,7 +154,9 @@ class MusicControl:
             if not query.strip() and self.state == "paused":
                 return self.act("resume")
             if not query.strip() and self.state == "playing":
-                return self._done("It's already playing.")
+                # a new client does not know: tell it to record the app's sink again
+                attach = {"action": "play", "source": "spotify", "db": self.level_db}
+                return self._done("It's already playing.", attach if self.local else None)
             target_q = query.strip() or self.last_query or self.default_query
             self.last_query = target_q
             hits = self.spotify.search(target_q)
@@ -180,7 +182,7 @@ class MusicControl:
                         return self._done("The laptop's Spotify player isn't running.", ok=False)
                     self.spotify.resume(device)
                 self.state = "playing"
-                return self._done("Resuming.", {"action": "resume"})
+                return self._done("Resuming.", {"action": "resume", "source": "spotify"})
             return self.act("play") if self.state == "idle" else self._inactive()
         if self.state == "idle":
             return self._inactive()
@@ -190,12 +192,12 @@ class MusicControl:
             if not self.local:
                 self.spotify.pause()
             self.state = "paused"
-            return self._done("Paused.", {"action": "pause"})
+            return self._done("Paused.", {"action": "pause", "source": "spotify"})
         if action == "stop":
             if not self.local:
                 self.spotify.pause()
             self.state = "idle"
-            return self._done("Music stopped.", {"action": "stop"})
+            return self._done("Music stopped.", {"action": "stop", "source": "spotify"})
         if action == "next":
             if not self.local:
                 self.spotify.next()

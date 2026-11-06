@@ -79,6 +79,9 @@ start_librespot() {
     # the Spotify desktop app plays into a private sink; doc_chat records its monitor (librespot's
     # audio keys are refused for some accounts, librespot issue #1664), so no FIFO may remain
     rm -f "$fifo"
+    # a librespot still running (e.g. its one-time login) becomes the active Spotify device and the
+    # app then only remote-controls it: playback goes silent
+    pgrep -x librespot >/dev/null 2>&1 && echo "stack: a librespot is running; stop it (pkill -x librespot) or Spotify plays silently"
     pactl list short sinks 2>/dev/null | grep -q "\b${SPOTIFY_SINK:-me3_spotify}\b" ||
       run pactl load-module module-null-sink "sink_name=${SPOTIFY_SINK:-me3_spotify}" "sink_properties=device.description=ME3-Spotify" >/dev/null
     return 0

@@ -133,7 +133,7 @@ def test_spotify_pause_resume_next_stop() -> None:
     assert out_pause == {
         "ok": True,
         "sentence": "Paused.",
-        "event": {"event": "music", "action": "pause"},
+        "event": {"event": "music", "action": "pause", "source": "spotify"},
     }
     assert ctrl.state == "paused"
     assert ctrl.act("pause")["sentence"] == "It is already paused."
@@ -142,7 +142,7 @@ def test_spotify_pause_resume_next_stop() -> None:
     assert out_resume == {
         "ok": True,
         "sentence": "Resuming.",
-        "event": {"event": "music", "action": "resume"},
+        "event": {"event": "music", "action": "resume", "source": "spotify"},
     }
     assert ctrl.state == "playing"
     assert stub.resumed == ["dev_laptop"]
@@ -156,7 +156,7 @@ def test_spotify_pause_resume_next_stop() -> None:
     assert out_stop == {
         "ok": True,
         "sentence": "Music stopped.",
-        "event": {"event": "music", "action": "stop"},
+        "event": {"event": "music", "action": "stop", "source": "spotify"},
     }
     assert ctrl.state == "idle"
 
@@ -216,8 +216,12 @@ def test_spotify_local_control_needs_no_device_and_sends_the_uri() -> None:
     ctrl = MusicControl(lambda q: [], {**CFG_SPOTIFY, "spotify_control": "local"}, spotify=Stub())  # type: ignore[arg-type]
     out = ctrl.act("play", "misty")
     assert out["sentence"] == "Playing Misty." and out["event"]["uri"] == "spotify:track:x"
-    assert ctrl.act("pause")["event"] == {"event": "music", "action": "pause"}
-    assert ctrl.act("resume")["event"] == {"event": "music", "action": "resume"}
+    assert ctrl.act("pause")["event"] == {"event": "music", "action": "pause", "source": "spotify"}
+    assert ctrl.act("resume")["event"] == {
+        "event": "music",
+        "action": "resume",
+        "source": "spotify",
+    }
     assert ctrl.act("next")["event"] == {"event": "music", "action": "next", "source": "spotify"}
 
 

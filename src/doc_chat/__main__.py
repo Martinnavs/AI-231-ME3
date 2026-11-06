@@ -1463,6 +1463,8 @@ async def async_main(args: argparse.Namespace) -> int:
                 feed_task.cancel()
             if hub is not None:
                 hub.stop()
+            if session._music is not None:  # Spotify must not keep playing into the private sink
+                session._music.close()
             await client.close()
 
     _summary(session.records)
