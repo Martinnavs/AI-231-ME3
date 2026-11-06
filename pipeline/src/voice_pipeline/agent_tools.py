@@ -7,6 +7,7 @@ Pi's is optional: without a token, or when the Pi is unreachable, the agent star
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import os
@@ -112,6 +113,15 @@ NO_SECOND_REQUEST = FunctionCallResultProperties(run_llm=False)
 # What a started delegate job is answered with: no second model request, so no invented duration
 # and no raw JSON (R2). TurnTap puts "Started. " in front when the model's own `say` is missing.
 DELEGATE_STARTED = "I'll tell you when it's done."
+# a delegate task that deletes or overwrites files needs the user's yes first (a misheard fragment
+# once deleted every app in the workspace)
+DESTRUCTIVE = re.compile(r"\b(delete|remove|erase|wipe|clear out|rm|empty|overwrite|reset)\b", re.I)
+CONFIRMED = re.compile(
+    r"\b(yes|yeah|yep|yup|sure|go ahead|do it|confirm(ed)?|please do|oo|sige)\b", re.I
+)
+ASK_DESTRUCTIVE = "That would delete or overwrite files in the shared folder. Should I go ahead?"
+DELEGATE_GRACE_S = 1.5
+_pending_destructive: str | None = None
 
 
 def job_started(result: Any) -> bool:
@@ -464,6 +474,16 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             params.result_callback = status_callback
         elif schema.name == "delegate":
             deliver_job = params.result_callback
+            task = str(args.get("task", ""))
+            global _pending_destructive
+            if DESTRUCTIVE.search(task):
+                if _pending_destructive is None or not CONFIRMED.search(question.current or ""):
+                    _pending_destructive = task
+                    await deliver_job(ASK_DESTRUCTIVE, properties=NO_SECOND_REQUEST)
+                    return
+                _pending_destructive = None
+            # a turn that is cut off and resumed is cancelled during this wait, before a job starts
+            await asyncio.sleep(DELEGATE_GRACE_S)
 
             async def job_callback(result: Any, *, properties: Any = None) -> None:
                 if job_started(result):

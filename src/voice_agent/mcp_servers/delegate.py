@@ -17,6 +17,8 @@ import asyncio
 import contextlib
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import tomllib
@@ -106,6 +108,9 @@ async def resolve_model(
     return Model(base, model_id, *prices, spec.get("extra", {})), key
 
 
+SNAPSHOTS_KEPT = 10  # workspace snapshots kept, one per job
+
+
 class Delegator:
     """The three tools' logic: jobs run as background tasks, each in its own sandbox folder."""
 
@@ -158,10 +163,23 @@ class Delegator:
                     pool=pool,
                 )
 
+    def snapshot(self, job_id: str, keep: int = SNAPSHOTS_KEPT) -> None:
+        """A hard-link copy of the workspace before each job (sandbox_root/snapshots/<job>), so a
+        job that deletes files by mistake can be undone; the oldest beyond `keep` are removed."""
+        root = self.sandbox / "snapshots"
+        if not self.workspace.is_dir():
+            return
+        root.mkdir(parents=True, exist_ok=True)
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(["cp", "-al", str(self.workspace), str(root / job_id)], check=True)
+        for old in sorted(root.iterdir(), key=lambda p: p.stat().st_mtime)[:-keep]:
+            shutil.rmtree(old, ignore_errors=True)
+
     async def work(self, job_id: str) -> None:
         job = self.table.jobs[job_id]
         names = [self.config["backend"]["default"], self.config["backend"].get("fallback")]
         result = RunResult()
+        self.snapshot(job_id)
         for tried, name in enumerate(n for n in names if n):
             job.backend = name
             job.folder = str(self.sandbox / (job_id if tried == 0 else f"{job_id}-{name}"))
