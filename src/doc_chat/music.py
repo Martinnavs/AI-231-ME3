@@ -30,6 +30,45 @@ FFMPEG = "ffmpeg"
 SPOTIFY_FIFO = Path(
     os.environ.get("SPOTIFY_FIFO", str(Path.home() / ".cache" / "me3" / "librespot.pcm"))
 )
+# The Spotify desktop app plays into this private PipeWire sink (made by the stack); its monitor
+# is recorded instead of librespot's pipe unless SPOTIFY_FIFO is a real FIFO (librespot's audio
+# keys are refused for some accounts: librespot issue #1664).
+SPOTIFY_SINK = os.environ.get("SPOTIFY_SINK", "me3_spotify")
+SPOTIFY_APP = "spotify"  # application.name of the desktop app's stream
+ROUTE_S = 4.0  # how long to look for the app's stream after a play event
+
+
+MPRIS = [
+    "dbus-send",
+    "--session",
+    "--type=method_call",
+    "--dest=org.mpris.MediaPlayer2.spotify",
+    "/org/mpris/MediaPlayer2",
+]
+
+
+def spotify_local(command: str, uri: str = "", run: Callable[..., Any] = subprocess.run) -> bool:
+    """Tell the desktop app over MPRIS: open (play `uri`), pause, play (resume) or next."""
+    method = {"open": "OpenUri", "pause": "Pause", "play": "Play", "next": "Next"}[command]
+    argv = [*MPRIS, f"org.mpris.MediaPlayer2.Player.{method}"]
+    if command == "open":
+        argv.append(f"string:{uri}")
+    try:
+        return bool(run(argv, capture_output=True, timeout=3).returncode == 0)
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def route_spotify(run: Callable[..., Any] = subprocess.run, sink: str = SPOTIFY_SINK) -> bool:
+    """Move the Spotify app's playback stream into `sink`; False if no such stream yet."""
+    out = run(["pactl", "-f", "json", "list", "sink-inputs"], capture_output=True, text=True)
+    moved = False
+    for item in json.loads(out.stdout or "[]"):
+        props = item.get("properties", {})
+        if str(props.get("application.name", "")).lower() == SPOTIFY_APP:
+            run(["pactl", "move-sink-input", str(item["index"]), sink], capture_output=True)
+            moved = True
+    return moved
 
 
 class Ducker:
@@ -89,14 +128,11 @@ def _pipe_decoder(path: Path, rate: int) -> subprocess.Popen[bytes]:
             "-nostdin",
             "-loglevel",
             "error",
-            "-f",
-            "s16le",
-            "-ar",
-            "44100",
-            "-ac",
-            "2",
-            "-i",
-            str(path),
+            *(
+                ["-f", "s16le", "-ar", "44100", "-ac", "2", "-i", str(path)]
+                if path.is_fifo()
+                else ["-f", "pulse", "-i", f"{SPOTIFY_SINK}.monitor"]
+            ),
             "-f",
             "s16le",
             "-ac",
@@ -140,6 +176,7 @@ class MusicPlayer:
         self._offset = 0.0
         self._applied = 0.0
         self.playing = False
+        self._spotify = False  # the current track plays in the desktop Spotify app
 
     # ---- events
     def handle(self, event: dict[str, Any]) -> None:
@@ -147,20 +184,39 @@ class MusicPlayer:
         if action == "play":
             self.stop()
             self._level_db = float(event.get("db", self._level_db))
-            if event.get("source") == "spotify":
+            self._spotify = event.get("source") == "spotify"
+            if self._spotify:
+                if event.get("uri"):
+                    spotify_local("open", str(event["uri"]))
                 self._start(SPOTIFY_FIFO, is_pipe=True)
+                if not SPOTIFY_FIFO.is_fifo():
+                    threading.Thread(target=self._route, daemon=True).start()
             else:
                 self._start(str(event["url"]), is_pipe=False)
         elif action == "pause":
             self._paused.set()
             self._flush()
+            if self._spotify:
+                spotify_local("pause")
         elif action == "resume":
             self._paused.clear()
+            if self._spotify:
+                spotify_local("play")
+        elif action == "next" and self._spotify:
+            spotify_local("next")
         elif action == "stop":
+            if self._spotify:
+                spotify_local("pause")
             self.stop()
         elif action == "volume":
             self._level_db = float(event["db"])
             self._send_gain(force=True)
+
+    def _route(self) -> None:
+        end = time.monotonic() + ROUTE_S
+        with contextlib.suppress(OSError, ValueError, subprocess.SubprocessError):
+            while time.monotonic() < end and not route_spotify():
+                time.sleep(0.2)
 
     def _send(self, data: bytes | str) -> None:
         with self._lock:

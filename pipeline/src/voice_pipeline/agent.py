@@ -330,6 +330,8 @@ class TurnTap(FrameProcessor):
             frame.properties = replace(props, run_llm=None)
             self._arm_stall(frame)
             return
+        if sentence.startswith("Playing ") and self.said and not self.say_text:
+            sentence = ""  # the model's `say` already announced the music; once is enough
         if sentence == DELEGATE_STARTED:  # the model's own line first, else say that it started
             if self.say_text:
                 await self._speak_say()

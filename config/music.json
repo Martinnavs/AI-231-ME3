@@ -1,11 +1,13 @@
 {
-  "_note": "Music (ticket set Y3). default_query: what bare PLAY_MUSIC plays when nothing is paused. max_minutes: results longer than this are skipped unless the query asks for a mix or something long. Search runs on the laptop (src/voice_agent/music_resolver.py); YouTube's terms forbid this use: personal, unpublished only. source: youtube or spotify; spotify_device: player name.",
-  "source": "youtube",
-  "spotify_device": "ME3 Laptop",
+  "_note": "Music (ticket set Y3). default_query: what bare PLAY_MUSIC plays when nothing is paused. max_minutes: results longer than this are skipped unless the query asks for a mix or something long. Search runs on the laptop (src/voice_agent/music_resolver.py); YouTube's terms forbid this use: personal, unpublished only. source: youtube or spotify; spotify_device: player name. max_db: the loudest music level (soft-limited on the Pi). spotify_control: local (the laptop plays through the app's MPRIS interface) or connect (the Web API).",
+  "source": "spotify",
+  "spotify_device": "bertie-hpelitebook840g8notebookpc",
   "default_query": "relaxing music mix",
   "max_minutes": 15,
   "results": 5,
   "level_db": -6.0,
   "step_db": 3.0,
-  "min_db": -30.0
+  "min_db": -30.0,
+  "max_db": 6.0,
+  "spotify_control": "local"
 }

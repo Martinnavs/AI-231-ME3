@@ -140,7 +140,8 @@ def test_the_sum_is_clipped_not_wrapped() -> None:
     mixer = Mixer(RATE, Sink().factory)
     mixer.tts_channel().push(const(30000))
     mixer.music_push(const(30000))
-    assert set(samples(mixer.step())) == {32767}
+    got = set(samples(mixer.step()))  # soft-limited near full scale, never wrapped negative
+    assert len(got) == 1 and 32700 <= got.pop() <= 32767
 
 
 def test_the_output_opens_with_the_first_audio_and_closes_after_a_quiet_second() -> None:

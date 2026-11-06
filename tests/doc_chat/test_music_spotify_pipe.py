@@ -105,3 +105,23 @@ def test_stop_ends_pipe_playback() -> None:
     elapsed = time.time() - t0
     assert elapsed < 1.0
     assert not player.playing
+
+
+def test_route_spotify_moves_only_the_spotify_stream() -> None:
+    from doc_chat.music import route_spotify
+
+    calls: list[list[str]] = []
+
+    class Out:
+        stdout = (
+            '[{"index": 7, "properties": {"application.name": "Spotify"}},'
+            ' {"index": 9, "properties": {"application.name": "Firefox"}}]'
+        )
+
+    def run(argv: list[str], **_: object) -> Out:
+        calls.append(argv)
+        return Out()
+
+    assert route_spotify(run, sink="me3_spotify") is True
+    assert calls[1] == ["pactl", "move-sink-input", "7", "me3_spotify"]
+    assert len(calls) == 2
