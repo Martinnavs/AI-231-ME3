@@ -40,6 +40,19 @@ check_free() {
 }
 router_health() { curl -sf "http://$ROUTER_HOST:$PORT_ROUTER/health" >/dev/null; }
 
+# tune: the laptop's power profile (no sudo), and on the Pi the CPU governor and Wi-Fi power save
+# without asking for a password (sudo -n); if the Pi needs it, `make pi-tune` once makes it permanent
+tune() {
+  [ "$DRY" = 1 ] && { echo "+ tune: powerprofilesctl set performance; Pi governor and Wi-Fi power save"; return 0; }
+  command -v powerprofilesctl >/dev/null && powerprofilesctl set performance 2>/dev/null
+  local state
+  state=$(pi_ssh 'g=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)
+    [ "$g" = performance ] || { for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance | sudo -n tee "$f" >/dev/null 2>&1; done; }
+    /usr/sbin/iw dev wlan0 get power_save 2>/dev/null | grep -q on && sudo -n /usr/sbin/iw dev wlan0 set power_save off 2>/dev/null
+    echo "$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor) $(/usr/sbin/iw dev wlan0 get power_save 2>/dev/null | cut -d: -f2)"' 2>/dev/null) || state=""
+  echo "tuning: laptop $(powerprofilesctl get 2>/dev/null || echo ?), Pi governor/Wi-Fi power save: ${state:-unreachable}"
+  case "$state" in performance*off) ;; "") ;; *) echo "stack: the Pi is not tuned; run make pi-tune once (asks for its sudo password)" ;; esac
+}
 start_router() {
   check_free "$PORT_ROUTER"
   need_token
@@ -174,7 +187,7 @@ else
   case "$MODE" in all | laptop) check_free "$PORT_ROUTER" "$PORT_SPEECH" "$PORT_AGENT" "$PORT_APPS" ;; esac
 fi
 case "$MODE" in
-  all)    start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_pi; start_apps; start_agent ;;
+  all)    tune; start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_pi; start_apps; start_agent ;;
   laptop) start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_apps; start_agent ;;
   pi)     start_pi ;;
   agent)  stop_agent; start_agent ;;
