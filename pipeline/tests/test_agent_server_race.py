@@ -297,3 +297,19 @@ async def test_the_sentence_is_spoken_once_for_two_lookups(tmp_path):
         server, routed("web_answer|who sold the truck?\nweb_answer|who bought it?")
     )
     assert [k for k, _ in events].count("say") <= 1
+
+
+async def test_a_slow_routed_play_music_says_a_sentence_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(agent_server, "MUSIC_SAY_S", 0.02)
+    server, *_ = make(tmp_path)
+    server.tools["smart_home"] = Tool("smart_home", "Playing Some Song.", delay=0.1)
+    done, events = await run_say(server, routed("PLAY_MUSIC"))
+    assert [k for k, _ in events] == ["say", "text"]
+    assert events[0][1] == agent_server.MUSIC_SAY + " "
+
+
+async def test_a_quick_routed_play_music_says_no_sentence(tmp_path):
+    server, *_ = make(tmp_path)
+    server.tools["smart_home"] = Tool("smart_home", "Resuming.")
+    done, events = await run_say(server, routed("PLAY_MUSIC"))
+    assert [k for k, _ in events] == ["text"]

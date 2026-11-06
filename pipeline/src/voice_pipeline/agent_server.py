@@ -90,6 +90,10 @@ ACKED_LOOKUPS = frozenset({"web_answer"})
 # Spoken at once when the router sends a web lookup (routed turns have no model `say`); listed in
 # config/fast_phrases.json so the client plays it from memory.
 LOOKUP_SAY = "Let me look that up."
+MUSIC_SAY = (
+    "Finding some music."  # a routed PLAY_MUSIC still running after MUSIC_SAY_S (a music search)
+)
+MUSIC_SAY_S = 0.7
 NOTICE_POLL_S = 0.25  # how often the notices file is read while a client listens for them
 
 
@@ -216,6 +220,14 @@ class AgentServer:
             return await self.call_tool(tool, args)
         finally:
             ack.cancel()
+
+    async def said_if_slow(self, tool: str, args: dict[str, Any], on_say: Any) -> Any:
+        """`call_tool`; if it is still running after MUSIC_SAY_S, MUSIC_SAY is spoken first."""
+        call = asyncio.ensure_future(self.call_tool(tool, args))
+        done, _ = await asyncio.wait({call}, timeout=MUSIC_SAY_S)
+        if not done:
+            await on_say(MUSIC_SAY + " ")
+        return await call
 
     async def lookup(self, tool: str, args: dict[str, Any]) -> Any:
         """The web lookup, its blip retried once; None when it failed."""
@@ -362,7 +374,11 @@ class AgentServer:
                     continue
                 if home and not take():
                     return None
-                result = await self.acked_call(tool, args, on_tool, home, announced)
+                if home and name == "PLAY_MUSIC" and on_say is not None and not announced:
+                    announced = True
+                    result = await self.said_if_slow(tool, args, on_say)
+                else:
+                    result = await self.acked_call(tool, args, on_tool, home, announced)
                 if not home and TRANSIENT.search(str(result)) and not claimed:
                     result = await self.call_tool(
                         tool, args
