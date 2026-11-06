@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 .PHONY: help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
-        pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall pi-tune \
+        pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall pi-tune pi-netem \
         spotify-login
 
 help: ## List documented targets
@@ -62,6 +62,9 @@ pi-firewall: ## (laptop, sudo) open the router, speech and music-resolver ports 
 
 pi-tune: ## (laptop, sudo on the Pi) latency: Pi CPU governor performance + Wi-Fi power save off (both persistent), laptop power profile performance
 	scripts/stack/pi_tune.sh
+
+pi-netem: ## (laptop, sudo on the Pi) simulate a poor link on the Pi's Wi-Fi: MODE=cellular|bad|offline|off|status (auto-removed after 30 min)
+	scripts/stack/pi_netem.sh $(or $(MODE),status)
 
 # Root project: speech side (lan_speech, doc_chat, audio_engine, bench, voice_agent).
 check:
