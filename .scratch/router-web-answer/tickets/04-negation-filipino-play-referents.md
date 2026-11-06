@@ -126,3 +126,10 @@ banks. Use your own names and phrasings; the laptop tests with different ones.
 
 ## Execution Log
 (append dated entries below; never rewrite earlier ones)
+
+### 2026-11-06 cluster, ticket 04 (revision 2)
+- Done: seeds s_negated, s_filipino, s_near_miss, s_play_target, s_no_referent, s_confirm_offer, job additions, fixed ack/statement replies; tests 73 pass; run `web4` (recipe in the ticket, kernels venv, cached top-128 teacher logits).
+- Teacher h1b-lora-web4-s0 (GPU 4, 63 min): held-out 70/70. Student kd-350m-web4-s0 (GPU 7, 57 min): ticket-04 held-out 70/70; dev 1455/1474 strict (old kinds 99.1%), ack 24/24 and statement 42/42 strict (was 13/36, 9/44); ticket-03 held-out 68/70, 0/40 repeats (the 2 misses: "play something relaxing" now escalates, as the play-target rule asks).
+- Dev misses on new kinds: "mainit ba ngayon" x4, "patigilin mo ang music" (PAUSE), "last like song please" (NEXT, wrong for a backward request), "once more".
+- Adapter martinnavs/granite-4.0-h-350m-router-kd-web4-s0-unverified (private). Spend $0. Not pushed to GitHub.
+- Owner's decision: whether "play something relaxing" should escalate (trained so) or stay PLAY_MUSIC; "do that again" after an action is untrained (no data either way). Details: finetune/README.md.
