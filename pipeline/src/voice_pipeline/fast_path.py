@@ -211,6 +211,8 @@ def local_answer(found: Match, now: datetime) -> str:
 
 def spoken_result(found: Match, result: Any) -> str:
     """What to say after the tool ran: the fixed confirmation, or the tool's own words."""
+    if isinstance(result, str) and result.strip():  # the music tool's sentence ("Playing X.")
+        return result.strip()
     if isinstance(result, dict):
         if result.get("ok") is False:
             return f"Sorry, that didn't work: {result.get('message', 'unknown error')}."

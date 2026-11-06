@@ -36,18 +36,28 @@ class EchoCanceller:
         self._lead = lead_ms // 10
         self._frames: deque[bytes] = deque(maxlen=300)
         self._pending = b""
+        # music (Y3) is a second source playing at the same time as a reply: its own queue, summed
+        # with the reply's frame per 10 ms, never queued behind it
+        self._music_frames: deque[bytes] = deque(maxlen=300)
+        self._music_pending = b""
         self._active = False
         self._lock = threading.Lock()
         self.gain = 1.0  # what the speaker is doing to the reference now (1.0 = nothing)
+        self.music_gain = 1.0  # the same for the music (its level and its ducking)
 
-    def reference(self, pcm: bytes) -> None:
-        """16-bit 16 kHz mono audio that is being sent to the speaker (any length, any thread)."""
+    def reference(self, pcm: bytes, music: bool = False) -> None:
+        """16-bit 16 kHz mono audio that is being sent to the speaker (any length, any thread).
+        `music`: the music channel, which plays under a reply instead of after it."""
         with self._lock:
-            self._pending += pcm
-            whole = len(self._pending) // FRAME_BYTES * FRAME_BYTES
+            pending = (self._music_pending if music else self._pending) + pcm
+            frames = self._music_frames if music else self._frames
+            whole = len(pending) // FRAME_BYTES * FRAME_BYTES
             for i in range(0, whole, FRAME_BYTES):
-                self._frames.append(self._pending[i : i + FRAME_BYTES])
-            self._pending = self._pending[whole:]
+                frames.append(pending[i : i + FRAME_BYTES])
+            if music:
+                self._music_pending = pending[whole:]
+            else:
+                self._pending = pending[whole:]
 
     def clear(self) -> None:
         """Forget reference not yet used (the speaker was told to go silent)."""
@@ -55,11 +65,24 @@ class EchoCanceller:
             self._frames.clear()
             self._pending = b""
 
+    def clear_music(self) -> None:
+        """Forget music reference not yet used (the music was paused, stopped or skipped)."""
+        with self._lock:
+            self._music_frames.clear()
+            self._music_pending = b""
+
     def _render(self, frame: bytes) -> None:
         if self.gain != 1.0:
             x = np.frombuffer(frame, dtype=np.int16).astype(np.float32) * self.gain
             frame = np.clip(x, -32768, 32767).astype(np.int16).tobytes()
         self._apm.process_reverse_stream(rtc.AudioFrame(frame, RATE, 1, FRAME))
+
+    def _render_mixed(self, frame: bytes, music: bytes) -> None:
+        """The reply's frame at its gain plus the music's frame at its gain, as one reference."""
+        x = np.frombuffer(frame, dtype=np.int16).astype(np.float32) * self.gain
+        x = x + np.frombuffer(music, dtype=np.int16).astype(np.float32) * self.music_gain
+        mixed = np.clip(x, -32768, 32767).astype(np.int16).tobytes()
+        self._apm.process_reverse_stream(rtc.AudioFrame(mixed, RATE, 1, FRAME))
 
     def _feed_render(self) -> None:
         with self._lock:
@@ -69,11 +92,15 @@ class EchoCanceller:
             else:
                 head = []
             frame = self._frames.popleft() if self._frames else None
+            music = self._music_frames.popleft() if self._music_frames else None
             if frame is None:
                 self._active = False
         for h in head:
             self._render(h)
-        self._render(frame if frame is not None else SILENCE)
+        if music is not None:
+            self._render_mixed(frame if frame is not None else SILENCE, music)
+        else:
+            self._render(frame if frame is not None else SILENCE)
 
     def process(self, block: bytes) -> bytes:
         """The microphone block with the echo taken out (same length; a partial frame passes)."""

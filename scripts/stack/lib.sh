@@ -42,7 +42,11 @@ load_env() {
   done
   PORT_ROUTER=${PORT_ROUTER:-8089}; PORT_SPEECH=${PORT_SPEECH:-8770}; PORT_AGENT=${PORT_AGENT:-8781}
   PORT_PI_SPEAKER=${PORT_PI_SPEAKER:-8780}; PORT_PI_DEVICE=${PORT_PI_DEVICE:-8790}
-  PORT_APPS=${PORT_APPS:-8795}
+  PORT_APPS=${PORT_APPS:-8795}; PORT_RESOLVER=${PORT_RESOLVER:-8796}
+  # HARNESS=laptop (default): the agent server runs here. HARNESS=pi: it, its MCP servers and the apps server run on the Pi.
+  HARNESS=${HARNESS:-laptop}
+  case "$HARNESS" in laptop | pi) ;; *) die "HARNESS must be laptop or pi, not $HARNESS" ;; esac
+  if [ "$HARNESS" = pi ]; then AGENT_URL=ws://$PI_V4:$PORT_AGENT; ROUTER_HOST=$LAPTOP_IP; else AGENT_URL=ws://127.0.0.1:$PORT_AGENT; ROUTER_HOST=127.0.0.1; fi
   mkdir -p "$STACK_DIR/logs" "$STACK_DIR/pids" 2>/dev/null || true
 }
 

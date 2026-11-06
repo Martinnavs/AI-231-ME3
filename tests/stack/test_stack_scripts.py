@@ -377,3 +377,46 @@ def test_down_stops_the_apps_server_by_pid_file(world):
     (pids / "apps").write_text("23456")
     r = run_script("down.sh", env, "laptop")
     assert "kill -TERM -- -23456" in r.stdout and "pkill" not in r.stdout
+
+
+def test_harness_defaults_to_the_laptop_and_talk_uses_the_loopback_agent(world):
+    r = run_script("talk.sh", stack_env(world))
+    assert "--agent-url ws://127.0.0.1:8781" in r.stdout
+    up = run_script("up.sh", stack_env(world), "all")
+    assert "voice_pipeline.agent_server" in up.stdout and "music_resolver" not in up.stdout
+    assert "--pi-url local" not in up.stdout
+
+
+def test_harness_pi_runs_the_agent_on_the_pi_and_the_router_on_the_cable_address(world):
+    env = stack_env(world, HARNESS="pi")
+    up = run_script("up.sh", env, "all")
+    assert up.returncode == 0, up.stderr
+    out = up.stdout
+    router_line = next(line for line in out.splitlines() if "llama-server" in line)
+    assert "--host 169.254.1.1" in router_line and "--api-key-file" in router_line
+    assert "music_resolver --host 169.254.1.1 --port 8796" in out
+    # the agent and the apps server start over ssh on the Pi, bound to the Pi's cable address
+    assert "voice_pipeline.agent_server --host 169.254.7.7 --port 8781 --pi-url local" in out
+    assert "voice_agent.apps_server --host 169.254.7.7 --port 8795" in out
+    assert (
+        "ROUTER_URL=http://169.254.1.1:8089" in out
+        and "MUSIC_RESOLVER_URL=http://169.254.1.1:8796" in out
+    )
+    assert "APPS_PUBLIC_HOST=169.254.7.7" in out and "MCP_PYTHON=" in out
+    assert "scripts/pi_device_mcp.py --port" not in out  # the device tools are a local child now
+    # the laptop no longer starts an agent server or an apps server
+    assert "uv run python -m voice_pipeline.agent_server" not in out
+    assert "uv run --offline python -m voice_agent.apps_server" not in out
+    assert TOKEN not in out
+
+
+def test_harness_pi_talk_status_and_down(world):
+    env = stack_env(world, HARNESS="pi")
+    assert "--agent-url ws://169.254.7.7:8781" in run_script("talk.sh", env).stdout
+    down = run_script("down.sh", env, "pi")
+    assert "pi_agent.pid" in down.stdout and "pi_apps.pid" in down.stdout
+
+
+def test_a_bad_harness_is_refused(world):
+    r = run_script("up.sh", stack_env(world, HARNESS="cloud"), "all")
+    assert r.returncode != 0 and "HARNESS must be laptop or pi" in r.stderr

@@ -32,7 +32,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as HttpRequest
 from websockets.http11 import Response as HttpResponse
 
-from voice_pipeline import call_policy, fast_path, question
+from voice_pipeline import agent_tools, call_policy, fast_path, question
 from voice_pipeline.agent import (
     KEEPALIVE_S,
     SAY_DELAY_SLOW,
@@ -44,12 +44,15 @@ from voice_pipeline.agent import (
 from voice_pipeline.agent_tools import (
     FAILURE,
     IDLE_DELEGATE_TOOLS,
+    MODEL_HIDDEN,
     PI_URL,
     TRANSIENT,
     build_tools,
+    configure,
     has_delegate_jobs,
     standard_servers,
     with_builtin_search,
+    without_tools,
 )
 from voice_pipeline.device_say import device_sentence
 from voice_pipeline.doc_answer import (
@@ -81,6 +84,7 @@ _logger = logging.getLogger(__name__)
 # way and plays that tool's pre-recorded line ("Let me look that up."), as for a model tool call.
 # Simulated on 65 measured lookups: first sound 1.8 s -> 1.2 s and answer start 2.8 s -> 2.2 s for
 # the questions that need a search; quick ones (median 0.8 s) finish before it would fire.
+LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
 LOOKUP_ACK_S = 1.0
 ACKED_LOOKUPS = frozenset({"web_answer"})
 # Spoken at once when the router sends a web lookup (routed turns have no model `say`); listed in
@@ -365,6 +369,9 @@ class AgentServer:
                     )  # lookups are read-only: retry a blip once
                 if not home and FAILURE.search(str(result)) and not claimed:
                     return None
+                if home and isinstance(result, str):  # the music tool's own sentence
+                    spoken.append(result)
+                    continue
                 if home:
                     ok = isinstance(result, dict) and result.get("ok") is not False
                     if ok:
@@ -494,6 +501,9 @@ class AgentServer:
 
         payloads = PayloadFilter()
 
+        async def send_event(event: dict[str, Any]) -> None:
+            await ws.send(json.dumps(event))
+
         async def on_text(text: str) -> None:
             if text := payloads.feed(text):
                 with contextlib.suppress(ConnectionClosed):
@@ -510,6 +520,7 @@ class AgentServer:
                 await ws.send(json.dumps({"event": "tool", "name": name, "said": said}))
 
         async with self.lock:
+            agent_tools.set_event_sink(send_event)
             if self.jobs_file is not None:
                 self.agent.hide(
                     frozenset() if has_delegate_jobs(self.jobs_file) else IDLE_DELEGATE_TOOLS
@@ -542,6 +553,7 @@ class AgentServer:
             if cancelled:
                 await self.agent.cancel()
             result = await turn
+            agent_tools.set_event_sink(None)
             closed.cancel()
             for held in payloads.finish():
                 await on_text(held)
@@ -581,12 +593,17 @@ async def run(
     hide_idle_delegate: Path | None = None,
     say_delays: dict[str, float] | None = None,
     test_delay: tuple[str, float] | None = None,
+    host: str = "127.0.0.1",
 ) -> int:
     record: list[dict[str, Any]] = []
     servers, optional = standard_servers(pi_url)
     tools = await build_tools(record, live=live, servers=servers, optional=optional)
     system = system_file.read_text()
-    llm_tools = with_builtin_search if builtin_search else (lambda t: t)  # what the model sees
+    seen_by_model = with_builtin_search if builtin_search else (lambda t: t)
+
+    def llm_tools(t: Any) -> Any:  # what the model sees: no music tool (smart_home reaches it)
+        return without_tools(seen_by_model(t), MODEL_HIDDEN)
+
     if builtin_search:  # the model has to know the date to know what can have changed
         system = system.replace(
             "{today}", f"{datetime.now(ZoneInfo(fast_path.TIMEZONE)):%A, %B %-d, %Y}"
@@ -639,9 +656,9 @@ async def run(
     server.test_delay = test_delay
     try:
         guard = token_guard(token) if token else None
-        async with serve(server.handle, "127.0.0.1", port, process_request=guard):
+        async with serve(server.handle, host, port, process_request=guard):
             note = "" if token else ", NO TOKEN (--no-token)"
-            print(f"agent server on ws://127.0.0.1:{port}{note}, log {log}", flush=True)
+            print(f"agent server on ws://{host}:{port}{note}, log {log}", flush=True)
             await asyncio.Future()
     finally:
         await close_llm_sessions()
@@ -650,7 +667,26 @@ async def run(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("AGENT_HOST", "127.0.0.1"),
+        help="address to listen on ($AGENT_HOST): 127.0.0.1 (the laptop stack) or the Pi's cable "
+        "address (HARNESS=pi); anything but loopback needs the session token",
+    )
     parser.add_argument("--port", type=int, default=8781)
+    parser.add_argument(
+        "--apps-root",
+        default=None,
+        help="the web apps folder (default ~/agent_sandbox/workspace/apps; $APPS_ROOT)",
+    )
+    parser.add_argument(
+        "--apps-host",
+        default=os.environ.get("APPS_PUBLIC_HOST"),
+        help="open_app sends the client http://<this host>:8795/<name>/ instead of opening a "
+        "browser here (HARNESS=pi: the Pi's cable address; $APPS_PUBLIC_HOST)",
+    )
+    parser.add_argument("--delegate-state-dir", default=None, help="jobs.json, notices.jsonl")
+    parser.add_argument("--delegate-config", default=None, help="a delegate.toml (paths, limits)")
     parser.add_argument(
         "--no-token",
         action="store_true",
@@ -699,7 +735,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--router-url",
-        default=None,
+        default=os.environ.get("ROUTER_URL") or None,
         help="llama-server of the fine-tuned router (router.py): it answers simple turns itself "
         "and hands the rest to Gemini; off by default",
     )
@@ -743,6 +779,14 @@ def main(argv: list[str] | None = None) -> int:
     token = None if args.no_token else os.environ.get("LAN_SPEECH_TOKEN")
     if not token and not args.no_token:
         parser.error("LAN_SPEECH_TOKEN is not set (pass --no-token only for tests)")
+    if args.no_token and args.host not in LOOPBACK:
+        parser.error("--no-token is only for loopback (--host 127.0.0.1)")
+    configure(
+        apps_root=args.apps_root,
+        apps_host=args.apps_host,
+        delegate_state_dir=args.delegate_state_dir,
+        delegate_config=args.delegate_config,
+    )
     try:
         return asyncio.run(
             run(
@@ -771,6 +815,7 @@ def main(argv: list[str] | None = None) -> int:
                 else None,
                 {"today": SAY_DELAY_TODAY, "slow": SAY_DELAY_SLOW}.get(args.say_delays),
                 (args.test_delay_word.lower(), args.test_delay_s) if args.test_delay_word else None,
+                args.host,
             )
         )
     except KeyboardInterrupt:

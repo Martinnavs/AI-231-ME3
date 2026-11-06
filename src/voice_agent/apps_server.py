@@ -1,6 +1,7 @@
 """Static server for the web apps the delegate writes: http://127.0.0.1:8795/<name>/.
 
-Serves only ~/agent_sandbox/workspace/apps/<name>/ (names [a-z0-9_-]), read-only, GET and HEAD,
+Serves only ~/agent_sandbox/workspace/apps/<name>/ (names [a-z0-9_-]) on one address (127.0.0.1,
+or the Pi's cable address in HARNESS=pi, never every interface), read-only, GET and HEAD,
 no directory listing, no symlinks, no dotfiles. Agent-written JavaScript runs in the owner's
 browser, so every response carries a Content-Security-Policy that stops it from fetching, opening
 a WebSocket or loading anything outside its own folder: it cannot reach the other localhost
@@ -126,20 +127,25 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write(f"{self.log_date_time_string()} {self.address_string()} {format % args}\n")
 
 
-def make_server(root: Path = ROOT, port: int = PORT) -> ThreadingHTTPServer:
-    """Bound to 127.0.0.1 only."""
+def make_server(
+    root: Path = ROOT, port: int = PORT, host: str = "127.0.0.1"
+) -> ThreadingHTTPServer:
+    """Bound to one address: 127.0.0.1, or (HARNESS=pi) the Pi's cable address. Never 0.0.0.0."""
+    if host in ("0.0.0.0", "", "::"):  # noqa: S104 - refused, not bound
+        raise ValueError("bind one address, not every interface")
     handler = type("AppsHandler", (Handler,), {"root": root})
-    return ThreadingHTTPServer(("127.0.0.1", port), handler)
+    return ThreadingHTTPServer((host, port), handler)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--host", default="127.0.0.1", help="the one address to bind")
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args(argv)
     args.root.mkdir(parents=True, exist_ok=True)
-    server = make_server(args.root, args.port)
-    print(f"apps server on http://127.0.0.1:{args.port}/<name>/ from {args.root}", flush=True)
+    server = make_server(args.root, args.port, args.host)
+    print(f"apps server on http://{args.host}:{args.port}/<name>/ from {args.root}", flush=True)
     with contextlib.suppress(KeyboardInterrupt):
         server.serve_forever()
     return 0

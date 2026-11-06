@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import json
 import math
+import os
 import platform
 import re
 import subprocess
@@ -18,6 +19,7 @@ from dataclasses import dataclass, field
 from dataclasses import replace as dc_replace
 from pathlib import Path
 from typing import IO, Any
+from urllib.parse import urlsplit
 
 from doc_chat.bargein import (
     BargeInGuard,
@@ -243,6 +245,7 @@ class Interruption:
 
 
 RESUME_GAP_S = 0.2  # silence put between a cut-off turn and what the user said next
+APPS_PORT = 8795  # the apps server's port (--apps-port)
 NOTICE_COOLDOWN_S = 1.5  # no notice this soon after the user spoke, interrupted or said stop
 # (longer than most pauses in the middle of a thought)
 NOTICE_CHECK_S = 0.2  # how often a waiting notice is checked against the user being idle
@@ -410,7 +413,11 @@ class Session:
         return ""
 
     def on_agent_event(self, event: dict[str, Any]) -> None:
-        """A message from the agent server (any thread): a tool call may play its filler."""
+        """A message from the agent server (any thread): a tool call may play its filler; an
+        `open_url` event opens a page of the Pi's apps server in this machine's browser."""
+        if event.get("event") == "open_url":
+            self.open_url(str(event.get("url", "")))
+            return
         if self._loop is None:
             return
         if event.get("event") == "tool":
@@ -419,6 +426,25 @@ class Session:
             )
         elif event.get("event") == "text" and self._turn_fillers is not None:
             self._loop.call_soon_threadsafe(self._turn_fillers.text_arrived)
+
+    def open_url(self, url: str) -> bool:
+        """Open `url` in the default browser if, and only if, it is a page of an app served by the
+        host this client talks to (--agent-url) on the apps port: http://<host>:8795/<name>/."""
+        host = urlsplit(str(getattr(self.args, "agent_url", "") or "")).hostname
+        port = int(getattr(self.args, "apps_port", APPS_PORT) or APPS_PORT)
+        allowed = re.fullmatch(rf"http://{re.escape(host or '')}:{port}/[a-z0-9_-]{{1,40}}/", url)
+        if not host or not allowed:
+            print(f"  [refused to open {url!r}]", flush=True)
+            return False
+        print(f"      (opening {url})", flush=True)
+        subprocess.Popen(  # noqa: S603 - fixed command, URL validated above
+            [os.environ.get("OPEN_APP_COMMAND") or "xdg-open", url],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
 
     def _tool_filler(self, name: str, said: bool = False) -> None:
         turn = self._turn_fillers
@@ -1355,8 +1381,8 @@ async def async_main(args: argparse.Namespace) -> int:
             print(f"recording {len(fillers.lines())} filler lines...", flush=True)
             await fillers.synthesise(record)  # once, so a filler starts without waiting
             session.fillers = fillers
-            if agent_llm is not None:
-                agent_llm.on_event = session.on_agent_event
+        if agent_llm is not None:  # open_url and music events arrive whether or not fillers are on
+            agent_llm.on_event = session.on_agent_event
         if agent_llm is not None and getattr(args, "preload_phrases", True):
             phrases = load_fast_phrases()
             if phrases:  # the fast path's fixed replies start with no TTS wait

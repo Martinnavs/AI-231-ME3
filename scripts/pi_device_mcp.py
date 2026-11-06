@@ -5,6 +5,8 @@ laptop connects over streamable HTTP with the session's bearer token, as `pi_spe
 
     LAN_SPEECH_TOKEN=... .venv/bin/python -u scripts/pi_device_mcp.py --port 8790
 
+With --stdio the agent server on the Pi starts it as a child (HARNESS=pi).
+
 Tools: get_volume, set_volume (0-100, through `wpctl` on the speaker's sink), device_status (CPU
 temperature, uptime, load, free memory, whether the speaker is connected).
 """
@@ -139,7 +141,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--host", default="0.0.0.0")  # the cable and Wi-Fi; the token guards it
     ap.add_argument("--port", type=int, default=8790)
     ap.add_argument("--sink", default=SINK, help="substring of the speaker sink's name")
+    ap.add_argument(
+        "--stdio",
+        action="store_true",
+        help="serve over stdin/stdout to the parent process (the agent running on this Pi); no "
+        "network, no token",
+    )
     args = ap.parse_args(argv)
+    if args.stdio:
+        build_server(sink=args.sink).run(transport="stdio")
+        return 0
     token = os.environ.get("LAN_SPEECH_TOKEN")
     if not token:
         print("LAN_SPEECH_TOKEN is not set; refusing to serve device tools without a token")
