@@ -8,6 +8,10 @@ if [ "$HARNESS" = pi ]; then LAPTOP_PORTS=("$PORT_ROUTER:router" "$PORT_SPEECH:s
 for p in "${LAPTOP_PORTS[@]}"; do
   port_listening "${p%%:*}" && echo "  ${p##*:} (:${p%%:*}) up" || echo "  ${p##*:} (:${p%%:*}) down"
 done
+if [ "${MUSIC_SOURCE:-$(music_source)}" = spotify ]; then
+  p=$STACK_DIR/pids/librespot
+  [ -f "$p" ] && [ -d "/proc/$(cat "$p" 2>/dev/null)" ] && echo "  librespot up" || echo "  librespot down"
+fi
 { [ -r "$TOKEN_FILE" ] && printf 'header = "Authorization: Bearer %s"\n' "$(cat "$TOKEN_FILE")"; } |
   curl -s -K - "http://$ROUTER_HOST:$PORT_ROUTER/props" 2>/dev/null | grep -o '"model_path":"[^"]*"' | head -1
 if [ "$HARNESS" = pi ]; then PI_PORTS=("$PORT_PI_SPEAKER:pi-speaker" "$PORT_AGENT:pi-agent" "$PORT_APPS:pi-apps"); else PI_PORTS=("$PORT_PI_SPEAKER:pi-speaker" "$PORT_PI_DEVICE:pi-device"); fi

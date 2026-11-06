@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
-        pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env
+        pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall \
+        spotify-login
 
 help: ## List documented targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:[^#]*## /\t/' | sort | awk -F'\t' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -56,6 +57,9 @@ pi-clips: ## (laptop) regenerate tests/fixtures/pi_echo and rsync it to the Pi
 pi-env: ## (laptop) copy config/pi.env to the Pi's repo
 	scripts/stack/pi_env.sh
 
+pi-firewall: ## (laptop, sudo) open the router, speech and music-resolver ports to the Pi in the cable's firewalld zone
+	scripts/stack/pi_firewall.sh
+
 # Root project: speech side (lan_speech, doc_chat, audio_engine, bench, voice_agent).
 check:
 	uv run ruff check .
@@ -88,3 +92,6 @@ agent-server:
 check-all: check pipeline-check
 
 test-all: test pipeline-test
+spotify-login: ## (laptop) one-time Spotify OAuth login via browser
+	uv run --offline python scripts/spotify_login.py
+

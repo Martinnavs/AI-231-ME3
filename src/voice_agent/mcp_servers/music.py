@@ -18,12 +18,15 @@ import argparse
 import json
 import os
 import re
+import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 import httpx
 from fastmcp import FastMCP
+
+from voice_agent.spotify_api import SpotifyClient, SpotifyError
 
 CONFIG = Path(__file__).resolve().parents[3] / "config" / "music.json"
 TOKEN_FILE = Path.home() / ".config" / "lan_speech_token"
@@ -62,8 +65,18 @@ def resolver_search(url: str, token: str) -> Search:
 class MusicControl:
     """The state machine behind the tool; `search` is replaced in tests."""
 
-    def __init__(self, search: Search, config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        search: Search,
+        config: dict[str, Any],
+        spotify: SpotifyClient | None = None,
+    ) -> None:
         self.search = search
+        self.source = config.get("source", "youtube")
+        self.spotify = spotify
+        if self.source == "spotify" and self.spotify is None:
+            raise ValueError("source 'spotify' requires a SpotifyClient")
+        self.spotify_device = str(config.get("spotify_device", "ME3 Laptop"))
         self.default_query = str(config["default_query"])
         self.level_db = float(config["level_db"])
         self.step_db = float(config["step_db"])
@@ -93,7 +106,83 @@ class MusicControl:
             {"action": "play", "url": hit["stream_url"], "title": title, "db": self.level_db},
         )
 
+    def _volume(self, action: str) -> dict[str, Any]:
+        step = self.step_db if action == "volume_up" else -self.step_db
+        new = max(self.min_db, min(0.0, self.level_db + step))
+        if new == self.level_db:
+            return self._done(
+                "That is as loud as the music goes."
+                if action == "volume_up"
+                else "That is as quiet as it goes."
+            )
+        self.level_db = new
+        sentence = "Louder." if action == "volume_up" else "Quieter."
+        return self._done(sentence, {"action": "volume", "db": new})
+
+    def _act_spotify(self, action: str, query: str = "") -> dict[str, Any]:
+        try:
+            return self._do_act_spotify(action, query)
+        except SpotifyError as err:
+            sentences = {
+                "premium": "Spotify needs a Premium account for that.",
+                "no_device": "The laptop's Spotify player isn't running.",
+                "auth": "Spotify needs me to log in again.",
+                "rate": "Spotify is busy, try again in a moment.",
+            }
+            sentence = sentences.get(err.kind, "I can't reach Spotify right now.")
+            return self._done(sentence, ok=False)
+
+    def _do_act_spotify(self, action: str, query: str = "") -> dict[str, Any]:
+        assert self.spotify is not None
+        if action == "play":
+            if not query.strip() and self.state == "paused":
+                return self.act("resume")
+            target_q = query.strip() or self.default_query
+            hits = self.spotify.search(target_q)
+            if not hits:
+                return self._done("I couldn't find that on Spotify.", ok=False)
+            device = self.spotify.device_id(self.spotify_device)
+            if not device:
+                return self._done("The laptop's Spotify player isn't running.", ok=False)
+            hit = hits[0]
+            self.spotify.play(device, hit["uri"])
+            self.state = "playing"
+            title = short_title(hit["title"])
+            return self._done(
+                f"Playing {title}.",
+                {"action": "play", "source": "spotify", "title": title, "db": self.level_db},
+            )
+        if action == "resume":
+            if self.state == "paused":
+                device = self.spotify.device_id(self.spotify_device)
+                if not device:
+                    return self._done("The laptop's Spotify player isn't running.", ok=False)
+                self.spotify.resume(device)
+                self.state = "playing"
+                return self._done("Resuming.", {"action": "resume"})
+            return self.act("play") if self.state == "idle" else self._inactive()
+        if self.state == "idle":
+            return self._inactive()
+        if action == "pause":
+            if self.state == "paused":
+                return self._done("It is already paused.")
+            self.spotify.pause()
+            self.state = "paused"
+            return self._done("Paused.", {"action": "pause"})
+        if action == "stop":
+            self.spotify.pause()
+            self.state = "idle"
+            return self._done("Music stopped.", {"action": "stop"})
+        if action == "next":
+            self.spotify.next()
+            return {"ok": True, "sentence": "Next."}
+        if action in ("volume_up", "volume_down"):
+            return self._volume(action)
+        return self._done("I don't know that music command.", ok=False)
+
     def act(self, action: str, query: str = "") -> dict[str, Any]:
+        if self.source == "spotify":
+            return self._act_spotify(action, query)
         if action == "play":
             if not query.strip() and self.state == "paused":
                 return self.act("resume")
@@ -119,17 +208,7 @@ class MusicControl:
             self.index += 1
             return self._start(self.results[self.index])
         if action in ("volume_up", "volume_down"):
-            step = self.step_db if action == "volume_up" else -self.step_db
-            new = max(self.min_db, min(0.0, self.level_db + step))
-            if new == self.level_db:
-                return self._done(
-                    "That is as loud as the music goes."
-                    if action == "volume_up"
-                    else "That is as quiet as it goes."
-                )
-            self.level_db = new
-            sentence = "Louder." if action == "volume_up" else "Quieter."
-            return self._done(sentence, {"action": "volume", "db": new})
+            return self._volume(action)
         return self._done("I don't know that music command.", ok=False)
 
     def _play(self, query: str) -> dict[str, Any]:
@@ -174,12 +253,32 @@ def _token() -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--resolver-url", required=True)
+    ap.add_argument("--resolver-url", default="")
+    ap.add_argument("--source", choices=["youtube", "spotify"], default=None)
     args = ap.parse_args(argv)
     config = json.loads(CONFIG.read_text())
-    build_server(MusicControl(resolver_search(args.resolver_url, _token()), config)).run(
-        show_banner=False
-    )
+    source = args.source or config.get("source", "youtube")
+    config["source"] = source
+    spotify_client: SpotifyClient | None = None
+    search_fn: Search
+    if source == "spotify":
+        from voice_agent.spotify_api import Credentials, TokenStore
+
+        try:
+            spotify_client = SpotifyClient(Credentials.load(), TokenStore())
+        except SpotifyError as err:
+            print(str(err), file=sys.stderr)
+            return 2
+
+        def _empty_search(q: str) -> list[dict[str, Any]]:
+            return []
+
+        search_fn = _empty_search
+    else:
+        if not args.resolver_url:
+            ap.error("--resolver-url is required when source is youtube")
+        search_fn = resolver_search(args.resolver_url, _token())
+    build_server(MusicControl(search_fn, config, spotify=spotify_client)).run(show_banner=False)
     return 0
 
 

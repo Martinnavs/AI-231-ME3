@@ -60,6 +60,8 @@ pi_ssh() {
   run ssh "${o[@]}" "$PI_USER@$PI_V4" "$@"
 }
 
+# music_source: "source" in config/music.json (youtube | spotify); MUSIC_SOURCE overrides it
+music_source() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("source","youtube"))' "$STACK_REPO/config/music.json" 2>/dev/null || echo youtube; }
 port_listening() { ss -ltn 2>/dev/null | grep -q ":$1 "; }
 pi_port_open() { (exec 3<>"/dev/tcp/$PI_V4/$1") 2>/dev/null; }
 

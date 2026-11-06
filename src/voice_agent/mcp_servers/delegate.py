@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import os
 import re
 import sys
 import time
@@ -138,7 +139,9 @@ class Delegator:
             args.append("--network")
         if self.pylibs is not None:
             args += ["--pylibs", str(self.pylibs)]
-        spec = McpServerSpec(command=sys.executable, args=tuple(args))
+        # the MCP client starts children with a minimal environment; the Pi has no editable install
+        env = {"PYTHONPATH": os.environ["PYTHONPATH"]} if os.environ.get("PYTHONPATH") else {}
+        spec = McpServerSpec(command=sys.executable, args=tuple(args), env=env)
         async with McpClientManager({"code": spec}) as registry:
             if registry.unavailable:
                 return RunResult(status="error", summary="the code tools did not start")

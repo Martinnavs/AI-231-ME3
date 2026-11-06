@@ -102,3 +102,17 @@ def test_host_and_router_defaults_come_from_the_environment(
     args = captured["args"]
     assert isinstance(args, tuple)
     assert "http://169.254.1.1:8089" in args and "local" in args and args[-1] == "169.254.7.7"
+
+
+def test_stdio_children_get_the_repo_src_on_their_path_when_nothing_is_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from voice_pipeline import agent_tools
+
+    monkeypatch.setattr(agent_tools, "MCP_PYTHON", "/pi/.venv-mcp/bin/python")
+    client = agent_tools.stdio_server(["/pi/.venv-mcp/bin/python", "-m", "x"])
+    env = client._server_params.env  # type: ignore[attr-defined]
+    assert env is not None and env["PYTHONPATH"].endswith("/src")
+    monkeypatch.setattr(agent_tools, "MCP_PYTHON", None)
+    client = agent_tools.stdio_server(["uv", "run"])
+    assert client._server_params.env is None  # type: ignore[attr-defined]

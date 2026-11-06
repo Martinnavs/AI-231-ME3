@@ -14,11 +14,13 @@ case "${1:-}" in
     # the harness: apps server in the background (cable address only), agent server in the foreground;
     # the MCP children run in .venv (MCP_PYTHON), the harness itself in .venv-agent
     : "${PI_V4:?config/pi.env has no PI_V4}" "${LAPTOP_IP:?config/pi.env has no LAPTOP_IP}"
-    export MCP_PYTHON=$here/.venv/bin/python PYTHONPATH=$here/pipeline/src:$here/src
+    export MCP_PYTHON=$here/.venv-mcp/bin/python PYTHONPATH=$here/pipeline/src:$here/src
     export ROUTER_URL=http://$LAPTOP_IP:${PORT_ROUTER:-8089} MUSIC_RESOLVER_URL=http://$LAPTOP_IP:${PORT_RESOLVER:-8796}
     export APPS_PUBLIC_HOST=$PI_V4 PORT_APPS=${PORT_APPS:-8795}
     mkdir -p "$HOME/agent_sandbox/workspace/apps"
-    .venv/bin/python -u -m voice_agent.apps_server --host "$PI_V4" --port "$PORT_APPS" &
+    # at boot the link-local cable address comes up after network-online: wait for it (up to 2 min)
+    for _ in $(seq 1 120); do ip -o addr show | grep -q " $PI_V4/" && break; sleep 1; done
+    .venv-mcp/bin/python -u -m voice_agent.apps_server --host "$PI_V4" --port "$PORT_APPS" &
     trap 'kill $! 2>/dev/null' EXIT
     .venv-agent/bin/python -u -m voice_pipeline.agent_server --host "$PI_V4" --port "${PORT_AGENT:-8781}" \
       --pi-url local --apps-host "$PI_V4" --ipv4 --hedge -1 ;;
