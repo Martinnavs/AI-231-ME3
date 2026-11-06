@@ -47,6 +47,7 @@ enables the `pi-speaker`, `pi-device-mcp` and `pi-agent` user units (linger on).
 ## 4. Start and check (laptop)
 
     make pi-firewall                         # once per laptop (sudo): the Pi must reach 8089, 8770, 8796 over the cable
+    make pi-tune                             # once (sudo on the Pi): CPU governor performance, Wi-Fi power save off, laptop profile performance
     HARNESS=pi make up PI_START=systemd      # router on the cable address, speech, resolver, then the Pi units
     HARNESS=pi make status
     HARNESS=pi scripts/stack/talk.sh         # doc_chat with --agent-url ws://<PI_V4>:8781
