@@ -34,7 +34,9 @@ HOME_PLACE = os.environ.get("VOICE_AGENT_HOME_PLACE", "Quezon City")
 USER_AGENT = "me3-voice-agent/0.1 (https://github.com/Martinnavs/AI-231-ME3; course project)"
 TIMEOUT_S = 4.0
 KEEPALIVE_S = 120.0  # keep the connection open between turns (httpx closes it after 5 s)
-FORECAST_TTL_S = 600.0
+FORECAST_TTL_S = 3600.0  # an hour; an older one (up to STALE_S) is used when the service is down
+STALE_S = 24 * 3600.0
+HOME_REFRESH_S = 3000.0  # the home forecast is fetched in the background, so it works offline
 # A lookup of a new place on cold connections took 2.7-5.7 s (2026-11-03, Manila): the geocoding
 # and forecast hosts each cost 0.8-1.2 s of TCP and TLS, against 0.55-1.0 s on warm ones. So both
 # connections are opened at start and a request to each host's root (no forecast is fetched) goes
@@ -113,12 +115,55 @@ def build_server(
                         await client().get(url, timeout=5.0)
             await asyncio.sleep(every)
 
+    async def fetch(name: str) -> tuple[dict[str, Any], dict[str, Any]] | str:
+        """(place, daily forecast) or a sentence; a forecast up to STALE_S old stands in when the
+        service does not answer (a demo on a poor connection)."""
+        http = client()
+        where = places.get(name.lower())
+        key = (where["latitude"], where["longitude"]) if where else None
+        cached = forecasts.get(key) if key else None
+        if cached is not None and clock() - cached[0] < FORECAST_TTL_S:
+            return where, cached[1]  # type: ignore[return-value]
+        try:
+            if where is None:
+                geo = await http.get(GEOCODE_URL, params={"name": name, "count": 1})
+                found = geo.json().get("results") or []
+                if not found:
+                    return f"I couldn't find a place called {name}."
+                where = places[name.lower()] = found[0]
+                key = (where["latitude"], where["longitude"])
+            params: dict[str, Any] = {
+                "latitude": where["latitude"],
+                "longitude": where["longitude"],
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
+                "precipitation_probability_max",
+                "timezone": "auto",
+                "forecast_days": 2,
+            }
+            daily = (await http.get(FORECAST_URL, params=params)).json()["daily"]
+            forecasts[(where["latitude"], where["longitude"])] = (clock(), daily)
+            return where, daily
+        except (httpx.HTTPError, KeyError, ValueError):
+            stale = forecasts.get(key) if key else None
+            if where is not None and stale is not None and clock() - stale[0] < STALE_S:
+                return where, stale[1]
+            return "The weather service did not answer, so I can't say right now."
+
+    async def refresh_home() -> None:
+        while True:
+            with contextlib.suppress(Exception):
+                await fetch(home)
+            await asyncio.sleep(HOME_REFRESH_S)
+
     @contextlib.asynccontextmanager
     async def lifespan(_: FastMCP) -> AsyncIterator[None]:
         task = asyncio.create_task(keep_warm(ping_every_s)) if ping_every_s else None
+        homely = asyncio.create_task(refresh_home()) if ping_every_s else None
         try:
             yield
         finally:
+            if homely is not None:
+                homely.cancel()
             if task is not None:
                 task.cancel()
             for c in clients:
@@ -137,32 +182,10 @@ def build_server(
         last_use[0] = clock()
         name = (place or home).strip()
         offset = 1 if day.strip().lower() == "tomorrow" else 0
-        http = client()
-        try:
-            where = places.get(name.lower())
-            if where is None:
-                geo = await http.get(GEOCODE_URL, params={"name": name, "count": 1})
-                found = geo.json().get("results") or []
-                if not found:
-                    return f"I couldn't find a place called {name}."
-                where = places[name.lower()] = found[0]
-            key = (where["latitude"], where["longitude"])
-            cached = forecasts.get(key)
-            if cached is not None and clock() - cached[0] < FORECAST_TTL_S:
-                daily = cached[1]
-            else:
-                params: dict[str, Any] = {
-                    "latitude": where["latitude"],
-                    "longitude": where["longitude"],
-                    "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-                    "precipitation_probability_max",
-                    "timezone": "auto",
-                    "forecast_days": 2,
-                }
-                daily = (await http.get(FORECAST_URL, params=params)).json()["daily"]
-                forecasts[key] = (clock(), daily)
-        except (httpx.HTTPError, KeyError, ValueError):
-            return "The weather service did not answer, so I can't say right now."
+        got = await fetch(name)
+        if isinstance(got, str):
+            return got
+        where, daily = got
         sky = WEATHER_WORDS.get(int(daily["weather_code"][offset]), "mixed weather")
         low = round(daily["temperature_2m_min"][offset])
         high = round(daily["temperature_2m_max"][offset])
