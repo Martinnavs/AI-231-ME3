@@ -34,6 +34,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `ROUTER-WEB-AND-DOCS-RACE.md` | the router's web lookups (cluster tickets 01/02, kd-web2 candidate), the documents-vs-web race in the harness, measurements and a latency estimate (2026-11-03) |
 | `PROGRESS-2026-11-04.md` | what landed on 2026-11-04 (laptop tickets A-F, spoken tests, one-command Pi and laptop start), what is open |
 | `PROGRESS-2026-11-05.md` | kd-web3 retest and default, spoken v4, tickets G (no dropped turns) and H (delegate terminal work), latency studies (Nemotron, adaptive hold) |
+| `PROGRESS-2026-11-06.md` | the harness on the Pi (v4 47/8/4, 1.50 s tuned), kd-web4 router, Spotify through the desktop app, delegate safety after the deletion incident, latency tuning, network-resilience test |
 | `../finetune/README.md` | start here on the cluster: the router fine-tuning project (contract, evaluation sets, baselines, tasks, rules); code in `finetune/` |
 
 ## Speech and the test client
