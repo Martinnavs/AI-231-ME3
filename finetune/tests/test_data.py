@@ -20,7 +20,7 @@ ROUTER_NAMES = {t.name for t in T.TOOLS if t.group in ("home", "info", "pi", "co
 }
 
 
-def run(out: Path, n: int = 600, seed: int = 0) -> dict[str, list[dict]]:
+def run(out: Path, n: int = 1500, seed: int = 0) -> dict[str, list[dict]]:
     subprocess.run(
         [sys.executable, str(HERE / "data/generate.py"), "--out", str(out), "--n", str(n), "--seed", str(seed)],
         check=True,
@@ -170,6 +170,12 @@ NEW_KINDS = {
     "pi-contrast": G.s_pi_contrast,
     "delegate": G.s_delegate_request,
     "statement": G.s_statement,
+    "negated": G.s_negated,
+    "filipino": G.s_filipino,
+    "near-miss": G.s_near_miss,
+    "play-target": G.s_play_target,
+    "no-referent": G.s_no_referent,
+    "confirm-offer": G.s_confirm_offer,
 }
 CORPUS_NAMES = [  # the sample corpus's author, novels and characters: never in the data (handled in the harness)
     "mccarthy", "cormac", "blood meridian", "suttree", "the road", "judge holden", "outer dark", "orchard keeper",
@@ -324,5 +330,147 @@ def test_new_seeds_hold_no_corpus_names(kind):
 
 def test_new_seeds_appear_in_the_mix_with_the_intended_weights():
     weights = {m.__name__: w for w, m in G.MIX}
-    assert weights["s_topic_switch"] == 8 and weights["s_pi_contrast"] == 6 and weights["s_delegate_request"] == 4
+    assert weights["s_topic_switch"] == 8 and weights["s_pi_contrast"] == 6
     assert weights["s_garble"] <= 2 and weights["s_statement"] == 3
+    assert weights["s_negated"] == 4 and weights["s_filipino"] == 6 and weights["s_near_miss"] == 3
+    assert weights["s_play_target"] == 4 and weights["s_no_referent"] == 3 and weights["s_confirm_offer"] == 3
+    assert weights["s_delegate_request"] == 6
+
+
+# ------------------------------------------------------------------------------------------ ticket 04
+def of_kind(maker, kind: str, n: int = 600, seed: int = 5) -> list[dict]:
+    return [e for e in draw(maker, n, seed) if e["kind"] == kind]
+
+
+def test_acks_and_statements_use_one_fixed_phrase_each():
+    for e in draw(G.s_ack_after_anything, 400):
+        if e["kind"] == "ack":
+            assert e["target"] == "none|Okay."
+    for e in draw(G.s_statement, 400):
+        assert e["target"] == "none|Alright."
+
+
+def test_negated_commands_are_never_a_home_call_and_the_reply_is_short():
+    negated = of_kind(G.s_negated, "negated")
+    assert len(negated) > 200
+    for e in negated:
+        parsed = T.parse_line(e["target"])
+        assert parsed.name == "none" and len(parsed.args[0].split()) <= 6, e
+    contrasts = of_kind(G.s_negated, "negated-contrast")
+    assert {e["target"] for e in contrasts} >= {"STOP", "none|Okay."}
+    for e in contrasts:
+        if e["user"] in G.B.STOP_MUSIC:
+            assert e["target"] == "STOP"
+
+
+def test_filipino_examples_have_the_target_of_their_english_form():
+    plain = {e: n for n, texts in G.B.NO_SLOT.items() for e in texts}
+    plain["continue the music"] = "PLAY_MUSIC"
+    for _, english, tool in G.B.FIL_NOSLOT:
+        assert plain[english] == tool, english
+    seen = 0
+    for e in of_kind(G.s_filipino, "filipino", 1500):
+        seen += 1
+        english, target = e["en"], e["target"]
+        if english in plain:
+            assert target == plain[english]
+        elif english.startswith(("call ", "text ")):
+            who = english.split(" ", 1)[1]
+            want = (
+                f"{'CALL' if english.startswith('call') else 'MESSAGE'}|{who}"
+                if who in e["phonebook"]
+                else f"none|{who} is not in the phonebook."
+            )
+            assert target == want
+        elif english.startswith("set a timer for "):
+            assert call_names(target) == ["TIMER"]
+        elif english.startswith("set an alarm for "):
+            assert call_names(target) == ["ALARM"]
+        elif english.startswith("what time is it"):
+            assert call_names(target) == ["get_current_time"]
+        else:
+            assert english.startswith("what's the weather") and call_names(target) == ["weather"]
+            assert ("tomorrow" in english) == ("tomorrow" in target)
+            assert (" in " in english) == (target.split("|")[1:2] not in ([], [""], ["tomorrow"]))
+    assert seen > 600
+    for e in of_kind(G.s_filipino, "filipino-contrast", 1500):
+        assert e["target"] in ("none|Okay.", "none|Alright.") or e["user"] in dict(G.B.FIL_GREETINGS)
+
+
+def test_near_misses_never_skip_or_stop_when_the_user_asked_otherwise():
+    for e in of_kind(G.s_near_miss, "near-miss", 800):
+        name = call_names(e["target"])[0]
+        if e["user"] in G.B.GO_BACK:
+            assert e["target"] == "none|I can only skip forward." and len(e["target"].split("|")[1].split()) <= 8
+        if e["user"] in G.B.RESUME_MUSIC:
+            assert e["target"] == "PLAY_MUSIC"
+        if e["user"] in G.B.DIM_NO_LEVEL:
+            assert name == "none" and e["target"].endswith("?")
+        assert name not in ("NEXT", "STOP", "PAUSE", "LIGHT_OFF")
+    assert {e["target"] for e in of_kind(G.s_near_miss, "near-miss-contrast", 800)} >= {"NEXT", "LIGHT_OFF", "PAUSE"}
+
+
+def test_play_targets_escalate_and_bare_music_stays_a_call():
+    targets = of_kind(G.s_play_target, "play-target", 800)
+    assert len(targets) > 400 and all(e["target"] == "escalate|tools" for e in targets)
+    bare = of_kind(G.s_play_target, "play-bare", 800)
+    assert bare and all(e["target"] == "PLAY_MUSIC" and e["user"] in G.B.PLAY_BARE for e in bare)
+
+
+def test_commands_with_no_referent_ask_and_resolved_ones_keep_their_calls():
+    asks = of_kind(G.s_no_referent, "no-referent", 800)
+    assert len(asks) > 300
+    for e in asks:
+        parsed = T.parse_line(e["target"])
+        assert parsed.name == "none" and parsed.args[0].endswith("?") and e["history"] == []
+    contrasts = of_kind(G.s_no_referent, "no-referent-contrast", 800)
+    assert contrasts
+    for e in contrasts:
+        assert call_names(e["target"])[0] != "none"
+        if "degrees" in e["user"]:
+            assert call_names(e["target"]) == ["TEMPERATURE"]
+        elif e["history"] == []:
+            raise AssertionError(e)
+        else:
+            assert e["history"]
+
+
+def test_confirmations_after_an_offer_escalate_and_the_contrasts_keep_their_targets():
+    offers = of_kind(G.s_confirm_offer, "confirm-offer", 800)
+    assert len(offers) > 300
+    for e in offers:
+        assert e["target"] == "escalate|other"
+        last = e["history"][-1][1]
+        assert last.startswith("none|") and last.endswith("?") and len(last) <= 100
+    contrasts = of_kind(G.s_confirm_offer, "confirm-contrast", 800)
+    assert contrasts
+    for e in contrasts:
+        last = e["history"][-1][1]
+        if e["target"] == "none|Okay.":
+            assert not last.endswith("?")  # no offer before it: a pleasantry
+        else:
+            assert call_names(e["target"])[0] in ("TIMER", "ALARM", "CALL", "MESSAGE")
+            assert last.startswith("none|") and last.endswith("?")  # the router's own question
+
+
+def test_job_requests_about_games_and_listings_escalate_while_world_facts_stay_lookups():
+    hits = [
+        e for e in draw(G.s_delegate_request, 1500) if "game you are making" in e["user"] or "directory" in e["user"]
+    ]
+    assert hits and all(e["target"] == "escalate|tools" for e in hits)
+
+
+def test_no_label_conflict_in_the_new_seeds_without_history():
+    new = {G.s_negated, G.s_filipino, G.s_near_miss, G.s_play_target, G.s_no_referent, G.s_confirm_offer}
+    known = {"it's dark in here"}  # older data: s_noslot says LIGHT_ON, s_chat_fact asks (not from the new seeds)
+    seen: dict[str, dict[str, set[str]]] = {}
+    for _, maker in G.MIX:
+        for e in draw(maker, 1500, seed=4):
+            if e["history"]:
+                continue
+            target = e["target"] if "\n" in e["target"] else without_contact(e["target"])
+            seen.setdefault(e["user"].lower(), {}).setdefault(target, set()).add(maker.__name__)
+    names = {m.__name__ for m in new}
+    for user, targets in seen.items():
+        if len(targets) > 1 and user not in known and any(n in names for ns in targets.values() for n in ns):
+            raise AssertionError((user, targets))

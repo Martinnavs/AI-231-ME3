@@ -198,6 +198,36 @@ CUDA_VISIBLE_DEVICES=7 .venv-kernels/bin/python eval/ticket03_check.py --model i
 
 `merge_distill_data.py` now holds out the whole prompt (history and final turn), not only the last user text, so a short reply such as "okay" is held out only after the same history. Adapter (private, unverified): `martinnavs/granite-4.0-h-350m-router-kd-web3-s0-unverified`. Laptop acceptance (OnIt >= 75/77, pack >= 78/92, earlier fresh sets unchanged, 30 fresh multi-turn cases with 0 repeats, fresh Pi / delegate / statement sets) is still open. The held-out cases are mine, written after seeing the data banks, so they are optimistic.
 
+## Cluster session 2026-11-06 (ticket 04): negation, Filipino, play targets, no referent, offers
+
+Run `web4`, the ticket-03 recipe (kernels venv for both runs, cached top-128 teacher logits, 99.0% of the teacher mass at T=2).
+New seeds in `data/generate.py` (MIX weight): `s_negated` 4, `s_filipino` 6, `s_near_miss` 3, `s_play_target` 4, `s_no_referent` 3,
+`s_confirm_offer` 3, `s_delegate_request` 4->6 (job words, listings); ack and statement replies are one fixed phrase each
+("Okay.", "Alright."). Hosted-model replies sit in the history as `none|<reply>` (as the pipeline writes them), so an offer is a
+`none|...?` line; the router's own questions look the same, the wording tells them apart.
+
+| Check | kd-350m-web4-s0 (student) | 1B web4 teacher |
+|---|---|---|
+| Ticket-04 held-out (70 hand-written, none in the data) | 70/70 | 70/70 |
+| Ticket-03 held-out (70) | 68/70, 0/40 repeats | not run |
+| Full dev (1474), strict | 1455/1474 (98.7%) | subset of 60 per kind: 1029/1072 |
+| Old kinds in dev (1282) | 1270/1282 (99.1%) | |
+| ack / statement strict | 24/24, 42/42 (was 13/36, 9/44) | 24/24, 42/42 |
+
+Dev per new kind (student): negated 28/28, filipino 49/54, near-miss 17/18, play-target 36/36, play-bare 7/7, no-referent 10/11,
+no-referent-contrast 7/7, confirm-offer 19/19, confirm-contrast 11/11, delegate 83/83.
+Dev misses on new kinds: "mainit ba ngayon" (4x, answered as a statement), "patigilin mo ang music" (PAUSE for STOP),
+"last like song please" (NEXT; a backward request answered with a skip, the one that matters), "once more" (question wording).
+Ticket-03 held-out regressions (2): "play something relaxing" after a speaker or message turn now escalates (`escalate|tools`),
+which is what ticket 04's play-target rule asks for (a mood is a target); that old case expected PLAY_MUSIC.
+Data counts, train (web3 -> web4): merged distillation 31068 -> 33128; new kinds in the merged train: negated 787+103, filipino
+1189+118, near-miss 481+62, play-target 914, play-bare 60, no-referent 304+223, confirm 472+378, delegate 1092 -> 1467.
+Teacher 63 min (kernels, 5 s/it), student 57 min (GPU 7, 2 s/it). Adapter `martinnavs/granite-4.0-h-350m-router-kd-web4-s0-unverified` (private).
+Caveats: held-out cases are my own (optimistic); the dev is template data; `no-referent` with a history is only trained for
+"set it to N" after a temperature or brightness turn and the existing follow-ups, not "do that again" after an action;
+"it's dark in here" has two labels in older seeds; `WEB_STATUS_WORDS` questions I added differ in wording from what the
+teacher writes (a trailing "yet"), a cosmetic dev miss class.
+
 ## Rules that apply here (the owner's standing agreements)
 
 - Never read or print API keys (`~/.secrets/*`, `.env`, any `*key*` file); code reads them at run time and prints only OK or failure.

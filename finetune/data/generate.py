@@ -617,7 +617,7 @@ def s_ack_after_anything(rng: random.Random) -> Example:
             pairs = pairs_of(asked)
         else:
             pairs = earlier_exchanges(rng)
-    reply = rng.choice(B.ACK_REPLIES[tone])
+    reply = B.ACK_REPLY
     return ex("ack", f"ack:{phrase}:{pairs[-1][0]}", phrase, [line("none", reply)], book, pairs)
 
 
@@ -738,7 +738,7 @@ def s_statement(rng: random.Random) -> Example:
     text = rng.choice(B.STATEMENTS)
     with shared_book(rng) as book:
         pairs = earlier_exchanges(rng) if rng.random() < 0.85 else []
-    reply = rng.choice(B.STATEMENT_REPLIES)
+    reply = B.STATEMENT_REPLY
     return ex(
         "statement", f"statement:{text}:{pairs[-1][0] if pairs else ''}", text, [line("none", reply)], book, pairs
     )
@@ -750,6 +750,232 @@ def s_statement_contrast(rng: random.Random) -> Example:
     with shared_book(rng) as book:
         pairs = earlier_exchanges(rng) if rng.random() < 0.7 else []
     return ex("statement-contrast", f"stcontrast:{text}", text, [line(tool, arg)], book, pairs)
+
+
+# ------------------------------------------------------------------------------------------ ticket 04
+def not_repeat(pairs: list[tuple[str, str]], final_target: str) -> list[tuple[str, str]]:
+    """A final turn that would repeat the previous call is shown without that history (topic-switch rule)."""
+    return [] if pairs and final_target.splitlines()[0] == pairs[-1][1].splitlines()[-1] else pairs
+
+
+def book_name(rng: random.Random, book: dict[str, str], missing: float = 0.0) -> str:
+    return rng.choice(B.NOT_IN_BOOK) if rng.random() < missing else rng.choice(list(book))
+
+
+def s_negated(rng: random.Random) -> Example:
+    """A negated command is not carried out (short reply); plain imperatives, STOP and "never mind" are unchanged."""
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.3 else []
+        roll = rng.random()
+        if roll < 0.2:  # contrasts
+            which = rng.choices(["plain", "stop", "never"], [6, 3, 1])[0]
+            if which == "plain":
+                act, tool = rng.choice([a for a in B.NEG_ACTS if a[1]])
+                name = rng.choice(list(book))
+                text = act.format(n=name)
+                target = line(tool, name) if tool in ("CALL", "MESSAGE") else line(tool)
+            elif which == "stop":
+                text, target = rng.choice(B.STOP_MUSIC), line("STOP")
+            else:
+                text, target = "never mind", line("none", B.ACK_REPLY)
+            return ex("negated-contrast", f"negc:{text}", text, [target], book, not_repeat(pairs, target))
+        name = book_name(rng, book, 0.15)
+        if roll < 0.62:
+            act, _ = rng.choice(B.NEG_ACTS)
+            text, reply = rng.choice(B.NEG_PREFIXES).format(a=act.format(n=name)), B.NEG_REPLY
+        elif roll < 0.76:
+            text, reply = rng.choice(B.NEG_STOP_ACTS).format(n=name), B.NEG_STOP_REPLY
+        else:
+            text, reply = rng.choice(B.NEG_TAGALOG).format(n=name), B.NEG_REPLY
+    return ex("negated", f"neg:{text}", text, [line("none", reply)], book, pairs)
+
+
+def filipino_pair(rng: random.Random, book: dict[str, str]) -> tuple[str, str, str]:
+    """(Filipino wording, the English wording with the same target, that target)."""
+    roll = rng.random()
+    if roll < 0.36:
+        tagalog, english, tool = rng.choice(B.FIL_NOSLOT)
+        return rng.choice(tagalog), english, line(tool)
+    if roll < 0.52:
+        verb = rng.choice(["CALL", "MESSAGE"])
+        name = book_name(rng, book, 0.15)
+        pool, english = (B.FIL_CALL, f"call {name}") if verb == "CALL" else (B.FIL_MESSAGE, f"text {name}")
+        target = line(verb, name) if name in book else line("none", f"{name} is not in the phonebook.")
+        return rng.choice(pool).format(n=name), english, target
+    if roll < 0.60:
+        d = rng.choice(B.DURATIONS)
+        say = spoken_slot("TIMER", d, rng)
+        return rng.choice(B.FIL_TIMER).format(d=say), f"set a timer for {say}", line("TIMER", d)
+    if roll < 0.67:
+        hour, minute, ampm = rng.randint(1, 12), rng.choice([0, 15, 30, 45]), rng.choice(["AM", "PM"])
+        say = time_forms(hour, minute, ampm, rng)
+        return (
+            rng.choice(B.FIL_ALARM).format(t=say),
+            f"set an alarm for {say}",
+            line("ALARM", f"{hour}:{minute:02d} {ampm}"),
+        )
+    if roll < 0.75:
+        return rng.choice(B.FIL_TIME), "what time is it", line("get_current_time")
+    if roll < 0.80:
+        city = rng.choice(list(B.CITIES))
+        return (
+            rng.choice(B.FIL_TIME_CITY).format(c=city),
+            f"what time is it in {city}",
+            line("get_current_time", B.CITIES[city]),
+        )
+    place = rng.choice(B.WEATHER_PLACES)
+    which = rng.choice(["none", "place", "tomorrow", "both"])
+    if which == "none":
+        return rng.choice(B.FIL_WEATHER), "what's the weather", line("weather")
+    if which == "place":
+        return rng.choice(B.FIL_WEATHER_PLACE).format(p=place), f"what's the weather in {place}", line("weather", place)
+    if which == "tomorrow":
+        return rng.choice(B.FIL_WEATHER_TOMORROW), "what's the weather tomorrow", line("weather", "", "tomorrow")
+    return (
+        rng.choice(B.FIL_WEATHER_PLACE_TOMORROW).format(p=place),
+        f"what's the weather in {place} tomorrow",
+        line("weather", place, "tomorrow"),
+    )
+
+
+def s_filipino(rng: random.Random) -> Example:
+    """Tagalog and Taglish forms of the home and info commands, with exactly the target of the English form."""
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.25 else []
+        if rng.random() < 0.12:  # contrast: not a command
+            if rng.random() < 0.25:
+                text, reply = rng.choice(B.FIL_GREETINGS)
+            else:
+                text, tone = rng.choice(B.FIL_CONTRAST)
+                reply = B.STATEMENT_REPLY if tone == "statement" else B.ACK_REPLY
+            return ex("filipino-contrast", f"filc:{text}", text, [line("none", reply)], book, pairs)
+        text, english, target = filipino_pair(rng, book)
+    e = ex("filipino", f"fil:{text}", text, [target], book, not_repeat(pairs, target))
+    e["en"] = english
+    return e
+
+
+def s_near_miss(rng: random.Random) -> Example:
+    """Dim / go back / resume: each was read as its neighbour (LIGHT_OFF, NEXT, STOP)."""
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.25 else []
+        roll = rng.random()
+        if roll < 0.22:
+            n = rng.randrange(10, 101, 5)
+            text = rng.choice(B.DIM_LEVEL_TEMPLATES).format(slot=spoken_slot("BRIGHTNESS", f"{n} percent", rng))
+            target = line("BRIGHTNESS", f"{n} percent")
+        elif roll < 0.42:
+            text, target = rng.choice(B.DIM_NO_LEVEL), line("none", B.DIM_QUESTION)
+        elif roll < 0.62:
+            text, target = rng.choice(B.GO_BACK), line("none", B.GO_BACK_REPLY)
+        elif roll < 0.84:
+            text, target = rng.choice(B.RESUME_MUSIC), line("PLAY_MUSIC")
+        else:
+            name = rng.choice(["LIGHT_OFF", "NEXT", "PAUSE", "LIGHT_ON", "VOLUME_DOWN"])
+            text, target = rng.choice(B.NO_SLOT[name]), line(name)
+            return ex("near-miss-contrast", f"nearc:{text}", text, [target], book, not_repeat(pairs, target))
+    return ex("near-miss", f"near:{text}", text, [target], book, not_repeat(pairs, target))
+
+
+def s_play_target(rng: random.Random) -> Example:
+    """Play or open a game, app, artist, genre, song or playlist goes to the hosted model; bare music is a call."""
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.2 else []
+        roll = rng.random()
+        if roll < 0.15:
+            text = rng.choice(B.PLAY_BARE)
+            return ex(
+                "play-bare", f"playbare:{text}", text, [line("PLAY_MUSIC")], book, not_repeat(pairs, "PLAY_MUSIC")
+            )
+        if roll < 0.40:
+            text = rng.choice(B.PLAY_THING_TEMPLATES).format(x=rng.choice(B.PLAY_GAMES))
+        elif roll < 0.58:
+            text = rng.choice(B.PLAY_THING_TEMPLATES).format(x=rng.choice(B.PLAY_THINGS))
+        elif roll < 0.74:
+            text = rng.choice(B.PLAY_ARTIST_TEMPLATES).format(a=rng.choice(B.PLAY_ARTISTS))
+        elif roll < 0.86:
+            text = rng.choice(B.PLAY_GENRE_TEMPLATES).format(g=rng.choice(B.PLAY_GENRES))
+        elif roll < 0.96:
+            text = rng.choice(B.PLAY_SONG_TEMPLATES).format(s=rng.choice(B.PLAY_SONGS), a=rng.choice(B.PLAY_ARTISTS))
+        else:
+            text = rng.choice(B.PLAY_PLAYLIST_TEMPLATES).format(p=rng.choice(B.PLAY_PLAYLISTS))
+    return ex("play-target", f"playt:{text}", text, [line("escalate", "tools")], book, pairs)
+
+
+def set_number(rng: random.Random, lo: int, hi: int, step: int = 1) -> tuple[int, str]:
+    n = rng.randrange(lo, hi + 1, step)
+    return n, rng.choice([str(n), spoken_number(n, rng)])
+
+
+def s_no_referent(rng: random.Random) -> Example:
+    """A command that refers to nothing gets a question; after a history that resolves it, it stays a call."""
+    roll = rng.random()
+    if roll < 0.18:  # follow-ups that the history resolves: the existing targets
+        return {**s_follow_up(rng), "kind": "no-referent-contrast"}
+    with shared_book(rng) as book:
+        if roll < 0.30:  # "set it to N" right after a slot action sets that same slot
+            slot_name = rng.choice(["TEMPERATURE", "BRIGHTNESS"])
+            for _ in range(80):
+                e = s_slot(rng)
+                if T.parse_line(e["target"]).name == slot_name:
+                    break
+            pairs = (earlier_exchanges(rng) if rng.random() < 0.3 else []) + pairs_of(e)
+            if slot_name == "TEMPERATURE":
+                n, say = set_number(rng, 16, 30)
+                target = line("TEMPERATURE", f"{n} degrees")
+            else:
+                n, say = set_number(rng, 10, 100, 5)
+                target = line("BRIGHTNESS", f"{n} percent")
+            text = rng.choice(B.SET_AFTER_TEMPERATURE).format(n=say)
+            if target != pairs[-1][1]:
+                return ex("no-referent-contrast", f"noref-set:{text}:{pairs[-1][0]}", text, [target], book, pairs)
+        if roll < 0.36:  # an explicit unit says what it is
+            n, say = set_number(rng, 16, 30)
+            text = rng.choice(["set it to {n} degrees", "put it at {n} degrees", "make it {n} degrees"]).format(n=say)
+            return ex("no-referent-contrast", f"noref-deg:{text}", text, [line("TEMPERATURE", f"{n} degrees")], book)
+        if roll < 0.62:
+            n, say = set_number(rng, 5, 90)
+            text = rng.choice(B.NO_REFERENT_SET).format(n=say)
+            return ex(
+                "no-referent", f"noref:{text}", text, [line("none", B.NO_REFERENT_SET_QUESTION.format(n=say))], book
+            )
+        text, question = rng.choice(B.NO_REFERENT)
+    return ex("no-referent", f"noref:{text}", text, [line("none", question)], book)
+
+
+def s_confirm_offer(rng: random.Random) -> Example:
+    """A yes or no to the hosted model's offer goes back to it: the router cannot act on an offer it did not make."""
+    with shared_book(rng) as book:
+        pairs = earlier_exchanges(rng) if rng.random() < 0.3 else []
+        roll = rng.random()
+        if roll < 0.2:  # the router's own question: its answer stays the call
+            e = s_ask_follow_up(rng)
+            text = f"{rng.choice(B.CONFIRM_PREFIXES)} {e['user']}"
+            return ex("confirm-contrast", f"confc:{text}", text, [e["target"]], book, pairs + e["history"])
+        asked, offer = rng.choice(B.OFFERS)
+        if roll < 0.45:  # the hosted model answered without offering anything: a yes is a pleasantry
+            statement = offer.split("? ")[0].rsplit(". ", 1)[0]
+            statement = statement if statement.endswith(".") else statement + "."
+            word = rng.choice(
+                [p for p, _ in B.ACKS if p in ("okay", "alright", "sounds good", "fine")] + ["yes", "sure"]
+            )
+            return ex(
+                "confirm-contrast",
+                f"confn:{asked}:{word}",
+                word,
+                [line("none", B.ACK_REPLY)],
+                book,
+                pairs + [(asked, line("none", statement))],
+            )
+        word = rng.choice(B.CONFIRM_YES if rng.random() < 0.7 else B.CONFIRM_NO)
+    return ex(
+        "confirm-offer",
+        f"confirm:{asked}:{word}",
+        word,
+        [line("escalate", "other")],
+        book,
+        pairs + [(asked, line("none", offer))],
+    )
 
 
 HISTORY_MAKERS: list[tuple[float, Callable[[random.Random], Example]]] = [
@@ -817,10 +1043,16 @@ MIX: list[tuple[float, Callable[[random.Random], Example]]] = [
     (2, s_garble),
     (1.5, s_short_command),
     (6, s_pi_contrast),
-    (4, s_delegate_request),
+    (6, s_delegate_request),
     (1.5, s_status_words_web),
     (3, s_statement),
     (1.5, s_statement_contrast),
+    (4, s_negated),
+    (6, s_filipino),
+    (3, s_near_miss),
+    (4, s_play_target),
+    (3, s_no_referent),
+    (3, s_confirm_offer),
 ]
 
 
