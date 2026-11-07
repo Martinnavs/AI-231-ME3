@@ -204,6 +204,7 @@ class RemotePlayer:
         self._up, self._down = self._rate // g, sample_rate // g
         self._queue: queue.Queue[bytes | None] = queue.Queue()
         self._aborted = threading.Event()
+        self._closed = threading.Event()
         self._levels: deque[tuple[float, float]] = deque(maxlen=64)
         self.underruns = 0
         self._pushed_s = 0.0
@@ -295,6 +296,12 @@ class RemotePlayer:
         self._queue.put(None)
         self._thread.join(timeout=self._pushed_s + 2.0)
         self._aborted.wait(REMOTE_LEAD_S + 0.1)  # the tail still playing at the Pi (not if aborted)
+        self._closed.set()
+
+    @property
+    def done(self) -> bool:
+        """Nothing of this reply is left to play (closed, or aborted)."""
+        return self._closed.is_set() or self._aborted.is_set()
 
 
 _remote: dict[str, RemoteSpeaker] = {}

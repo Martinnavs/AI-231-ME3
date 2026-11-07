@@ -31,11 +31,21 @@ class Sink:
         return self.written.append, lambda: setattr(self, "closed", self.closed + 1)
 
 
-def test_a_reply_and_music_are_added() -> None:
+def test_music_contributes_nothing_to_a_slice_that_has_a_reply() -> None:
     mixer = Mixer(RATE, Sink().factory)
-    mixer.tts_channel().push(const(1000))
-    mixer.music_push(const(300))
-    assert set(samples(mixer.step())) == {1300}
+    mixer.tts_channel().push(const(1000, 150))
+    mixer.music_push(const(300, 300))
+    assert [set(samples(mixer.step())) for _ in range(3)] == [{1000}] * 3
+    assert set(samples(mixer.step())) == {300}  # the reply is over: what music is left plays
+
+
+def test_music_dropped_under_a_reply_is_not_replayed_afterwards() -> None:
+    mixer = Mixer(RATE, Sink().factory)
+    mixer.tts_channel().push(const(1000, 100))
+    mixer.music_push(const(300, 100))
+    mixer.step()
+    mixer.step()
+    assert mixer.step() is None
 
 
 def test_music_alone_and_a_reply_alone() -> None:
@@ -61,10 +71,9 @@ def test_the_reply_gain_ducks_only_the_reply() -> None:
     mixer = Mixer(RATE, Sink().factory)
     channel = mixer.tts_channel()
     channel.push(const(1000, 150))
-    mixer.music_push(const(400, 150))
     channel.set_gain(-6.0)
     mixer.step()
-    assert abs(int(samples(mixer.step())[-1]) - (int(1000 * 10 ** (-6 / 20)) + 400)) <= 2
+    assert abs(int(samples(mixer.step())[-1]) - int(1000 * 10 ** (-6 / 20))) <= 2
 
 
 def test_abort_drops_the_reply_with_a_short_fade_and_the_music_goes_on() -> None:
@@ -138,8 +147,9 @@ def test_a_short_music_tail_is_padded_with_silence() -> None:
 
 def test_the_sum_is_clipped_not_wrapped() -> None:
     mixer = Mixer(RATE, Sink().factory)
-    mixer.tts_channel().push(const(30000))
-    mixer.music_push(const(30000))
+    mixer.music_push(const(30000, 150))
+    mixer.music_set_gain(6.0)
+    mixer.step()
     got = set(samples(mixer.step()))  # soft-limited near full scale, never wrapped negative
     assert len(got) == 1 and 32700 <= got.pop() <= 32767
 
