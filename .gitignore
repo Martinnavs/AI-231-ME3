@@ -22,3 +22,11 @@ config/pi.env
 config/pi.env.*
 !config/pi.env.example
 config/pi_known_hosts
+fd-benchmark/
+
+# fdbench results: scored files only, never audio
+docs/fdbench-results/**/*.wav
+docs/fdbench-results/**/*.mp3
+docs/fdbench-results/**/*.flac
+docs/fdbench-results/**/recordings/
+docs/fdbench-results/**/trials/

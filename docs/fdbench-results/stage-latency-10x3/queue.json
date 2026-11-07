@@ -1,0 +1,248 @@
+{
+  "seed": 480138,
+  "rounds": 0,
+  "phrases": 10,
+  "runs": 3,
+  "items": [
+    {
+      "index": 0,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_70",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 1,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_background_91",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 2,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_76",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 3,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v1_interrupt_52",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 4,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_47",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 5,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_23",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 6,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_62",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 7,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_backchannel_48",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 8,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_background_29",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 9,
+      "round": 1,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_interruption_98",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 10,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_23",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 11,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_70",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 12,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_background_91",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 13,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v1_interrupt_52",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 14,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_62",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 15,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_interruption_98",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 16,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_76",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 17,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_backchannel_48",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 18,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_47",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 19,
+      "round": 2,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_background_29",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 20,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_47",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 21,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_62",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 22,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_23",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 23,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_76",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 24,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_background_29",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 25,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_backchannel_48",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 26,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_background_91",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 27,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v1_interrupt_52",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 28,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_interruption_98",
+      "kind": null,
+      "status": "done"
+    },
+    {
+      "index": 29,
+      "round": 3,
+      "group": "stage_latency",
+      "clip_id": "phrase_v15_talking_to_other_70",
+      "kind": null,
+      "status": "done"
+    }
+  ]
+}

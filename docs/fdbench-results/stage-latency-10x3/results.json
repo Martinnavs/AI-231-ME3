@@ -1,0 +1,1042 @@
+{
+  "deck_summary": {
+    "title": "Full-Duplex Voice Agent on a Raspberry Pi",
+    "student": "me3",
+    "run_id": "2026-11-07_15-00-16",
+    "date": "2026-11-07",
+    "method": {
+      "phrases": 10,
+      "runs": 3,
+      "turns": 30,
+      "bullets": [
+        "One clock: the assistant machine's monotonic clock; every stage timestamped (VAD end → ASR final → LLM 1st token → TTS 1st audio → speaker)",
+        "E2E = speaker − VAD end; barge-in = stop − speech start",
+        "10 phrases × 3 runs; mean + p95; JSON log per run: stage_latency.json (per turn: trials/<id>/stages.jsonl)"
+      ]
+    },
+    "targets": {
+      "e2e": 4.0,
+      "asr_final": 0.8,
+      "llm_ttft": 1.5,
+      "tts_ttfb": 0.6,
+      "barge_in": 0.8,
+      "wer": 0.15
+    },
+    "table": [
+      {
+        "key": "e2e",
+        "metric": "E2E latency",
+        "definition": "end of speech → audio out",
+        "target": 4.0,
+        "mean": 1.3224799999999999,
+        "p95": 2.1468149999999993,
+        "median": 1.47885,
+        "n": 30,
+        "unit": "s",
+        "status": "met",
+        "note": null
+      },
+      {
+        "key": "asr_final",
+        "metric": "ASR final",
+        "definition": "end of speech → transcript",
+        "target": 0.8,
+        "mean": 0.3541833333333334,
+        "p95": 0.408845,
+        "median": 0.35875,
+        "n": 30,
+        "unit": "s",
+        "status": "met",
+        "note": null
+      },
+      {
+        "key": "llm_ttft",
+        "metric": "LLM TTFT",
+        "definition": "transcript → first token",
+        "target": 1.5,
+        "mean": 0.7872499999999999,
+        "p95": 1.507619999999999,
+        "median": 0.90825,
+        "n": 30,
+        "unit": "s",
+        "status": "p95_over",
+        "note": null
+      },
+      {
+        "key": "tts_ttfb",
+        "metric": "TTS TTFB",
+        "definition": "text → first audio chunk",
+        "target": 0.6,
+        "mean": 0.21265217391304347,
+        "p95": 0.27259,
+        "median": 0.2074,
+        "n": 23,
+        "unit": "s",
+        "status": "met",
+        "note": null
+      },
+      {
+        "key": "barge_in",
+        "metric": "Barge-in",
+        "definition": "speech → playback stopped",
+        "target": 0.8,
+        "mean": null,
+        "p95": null,
+        "median": null,
+        "n": 0,
+        "unit": "s",
+        "status": "na",
+        "note": "no data in this run"
+      },
+      {
+        "key": "wer",
+        "metric": "WER",
+        "definition": "ASR accuracy on test set",
+        "target": 0.15,
+        "mean": 0.09876543209876543,
+        "p95": null,
+        "median": null,
+        "n": 30,
+        "unit": "ratio",
+        "status": "met",
+        "note": null
+      }
+    ],
+    "chart": {
+      "segments": [
+        {
+          "key": "asr_final",
+          "label": "ASR",
+          "mean": 0.3541833333333334
+        },
+        {
+          "key": "llm_ttft",
+          "label": "LLM",
+          "mean": 0.7872499999999999
+        },
+        {
+          "key": "tts_ttfb",
+          "label": "TTS",
+          "mean": 0.21265217391304347
+        }
+      ],
+      "e2e_mean": 1.3224799999999999,
+      "e2e_p95": 2.1468149999999993,
+      "target": 4.0
+    },
+    "run_card": {
+      "device": "Linux 7.2.2-arch1-1 · 46.7 GB",
+      "cooling": "not stated",
+      "network": "cloud: Wi-Fi",
+      "date": "2026-11-07",
+      "models": {
+        "ASR": "Parakeet (lan_speech)",
+        "LLM": "router 350M kd-web4 + Gemini",
+        "TTS": "Kitten",
+        "VAD": "Silero"
+      }
+    },
+    "context": {
+      "n": 0,
+      "source": null,
+      "tokens_median": null,
+      "tokens_max": null,
+      "tokens_first": null,
+      "tokens_last": null,
+      "messages_median": 10.0,
+      "messages_max": 10,
+      "messages_first": 2,
+      "messages_last": 10,
+      "per_run_median_tokens": {}
+    }
+  },
+  "session": {
+    "student": "me3",
+    "run_id": "2026-11-07_15-00-16",
+    "started": "2026-11-07T15:00:16+08:00",
+    "rounds": 0,
+    "seed": 480138,
+    "fdbench": "0.1.0",
+    "rig": "cables",
+    "judge": null,
+    "machine": {
+      "os": "Linux 7.2.2-arch1-1",
+      "machine": "x86_64",
+      "pi_model": null,
+      "ram_gb": 46.7,
+      "python": "3.14.7",
+      "network": "wifi",
+      "pi_temp_c": 57.0,
+      "pi_throttled": null,
+      "disk_free_gb": 75.2,
+      "hostname": "bertie-hpelitebook840g8notebookpc",
+      "optional": {
+        "ASR (faster-whisper)": true,
+        "pitch/intensity (praat-parselmouth)": true,
+        "UTMOSv2 quality": false
+      },
+      "fdbench": "0.1.0"
+    },
+    "devices": {
+      "to_bot": {
+        "index": 26,
+        "name": "fdb_to_bot",
+        "max_in": 1,
+        "max_out": 1,
+        "default_sr": 48000.0,
+        "hostapi": "JACK Audio Connection Kit"
+      },
+      "from_bot": {
+        "index": 21,
+        "name": "fdb_from_bot",
+        "max_in": 1,
+        "max_out": 1,
+        "default_sr": 48000.0,
+        "hostapi": "JACK Audio Connection Kit"
+      }
+    },
+    "warnings_overridden": [
+      "network: wifi"
+    ],
+    "dataset": "/mnt/School/PhD/AI231/AI-231-ME3-agy/fd-benchmark/datasets",
+    "dataset_counts": {
+      "v1_pause_synth": 30,
+      "v1_pause_candor": 30,
+      "v1_turntaking": 30,
+      "v1_interrupt": 30,
+      "v15_interruption": 30,
+      "v15_backchannel": 30,
+      "v15_talking_to_other": 30,
+      "v15_background": 30,
+      "false_tt": 40,
+      "stage_latency": 150
+    },
+    "stage_test": {
+      "phrases": 10,
+      "runs": 3,
+      "phrases_dir": null
+    },
+    "targets": {
+      "e2e": 4.0,
+      "asr_final": 0.8,
+      "llm_ttft": 1.5,
+      "tts_ttfb": 0.6,
+      "barge_in": 0.8,
+      "wer": 0.15
+    },
+    "models": {
+      "ASR": "Parakeet (lan_speech)",
+      "LLM": "router 350M kd-web4 + Gemini",
+      "TTS": "Kitten",
+      "VAD": "Silero"
+    },
+    "where": "local",
+    "marks": {
+      "stages_seen": {
+        "vad_end": 30,
+        "asr_final": 30,
+        "llm_request": 30,
+        "llm_first_token": 30,
+        "tts_request": 23,
+        "tts_first_audio": 23,
+        "audio_out": 30,
+        "tool_start": 14,
+        "bot_stopped": 30
+      },
+      "n": 240,
+      "clock_offsets": {
+        "udp:127.0.0.1": 3.540499983500922e-05
+      }
+    },
+    "finished": "2026-11-07T15:10:16+08:00",
+    "outcome": {
+      "completed": 30,
+      "total": 30,
+      "stopped_early": false,
+      "seconds": 599.790930659
+    }
+  },
+  "preflight": {
+    "checks": [
+      {
+        "ok": true,
+        "text": "Python 3.14.7",
+        "fix": "Python 3.10 or newer is needed"
+      },
+      {
+        "ok": true,
+        "text": "packages: core ok",
+        "fix": "pip install -r requirements.txt"
+      },
+      {
+        "ok": true,
+        "text": "scoring extras: ASR (faster-whisper), pitch/intensity (praat-parselmouth) · not installed: UTMOSv2 quality",
+        "fix": "pip install -r requirements-score.txt (laptop) to score transcripts and voice change"
+      },
+      {
+        "ok": true,
+        "text": "Linux 7.2.2-arch1-1 (x86_64) · 46.7 GB RAM · 75.2 GB free",
+        "fix": ""
+      },
+      {
+        "ok": true,
+        "text": "CPU 57 °C",
+        "fix": "add a fan or heatsink; throttling slows the assistant and skews latencies"
+      },
+      {
+        "ok": false,
+        "text": "network: wifi",
+        "fix": "use Ethernet if you can; Wi-Fi jitter widens latencies"
+      },
+      {
+        "ok": true,
+        "text": "datasets: 430 clips in 10 groups",
+        "fix": "python tools/fetch_datasets.py --force gets the full set"
+      },
+      {
+        "ok": true,
+        "text": "dataset checksums ok (sampled)",
+        "fix": "rebuild the datasets"
+      },
+      {
+        "ok": true,
+        "text": "cable 1 (her mic ← us): [26] fdb_to_bot (JACK Audio Connection Kit, in 1/out 1, 48000 Hz)",
+        "fix": "install a virtual cable, see docs/SETUP.md"
+      },
+      {
+        "ok": true,
+        "text": "cable 2 (her speaker → us): [21] fdb_from_bot (JACK Audio Connection Kit, in 1/out 1, 48000 Hz)",
+        "fix": "install a second virtual cable, see docs/SETUP.md"
+      },
+      {
+        "ok": true,
+        "text": "more than one virtual device found; pass --to-bot/--from-bot to choose",
+        "fix": ""
+      },
+      {
+        "ok": true,
+        "text": "judge: none (timing and turn-taking metrics only; judge later with `score`)",
+        "fix": ""
+      }
+    ],
+    "info": {
+      "os": "Linux 7.2.2-arch1-1",
+      "machine": "x86_64",
+      "pi_model": null,
+      "ram_gb": 46.7,
+      "python": "3.14.7",
+      "network": "wifi",
+      "pi_temp_c": 57.0,
+      "pi_throttled": null,
+      "disk_free_gb": 75.2,
+      "hostname": "bertie-hpelitebook840g8notebookpc",
+      "optional": {
+        "ASR (faster-whisper)": true,
+        "pitch/intensity (praat-parselmouth)": true,
+        "UTMOSv2 quality": false
+      },
+      "fdbench": "0.1.0"
+    },
+    "devices": {
+      "to_bot": {
+        "index": 26,
+        "name": "fdb_to_bot",
+        "max_in": 1,
+        "max_out": 1,
+        "default_sr": 48000.0,
+        "hostapi": "JACK Audio Connection Kit"
+      },
+      "from_bot": {
+        "index": 21,
+        "name": "fdb_from_bot",
+        "max_in": 1,
+        "max_out": 1,
+        "default_sr": 48000.0,
+        "hostapi": "JACK Audio Connection Kit"
+      }
+    }
+  },
+  "queue_summary": {
+    "rounds": 0,
+    "seed": 480138,
+    "total": 30,
+    "done": 30,
+    "skipped": 0,
+    "failed": 0
+  },
+  "fdbench": "0.1.0",
+  "scored_at": "2026-11-07T15:10:16+08:00",
+  "trials": 30,
+  "per_group": {
+    "v1_pause_synth": 0,
+    "v1_pause_candor": 0,
+    "v1_turntaking": 0,
+    "v1_interrupt": 0,
+    "false_tt": 0,
+    "v15_interruption": 0,
+    "v15_backchannel": 0,
+    "v15_talking_to_other": 0,
+    "v15_background": 0,
+    "stage_latency": 30
+  },
+  "notes": [
+    "no judge: interruption relevance and v1.5 behaviour labels not scored"
+  ],
+  "judge": null,
+  "asr": null,
+  "metrics": {
+    "v1_pause_synth.tor": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v1_pause_candor.tor": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v1_turntaking.tor": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v1_turntaking.missed_rate": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v1_turntaking.latency": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "false_tt.rate": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "false_tt.rate.side_talk": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "false_tt.rate.tv_radio": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "false_tt.rate.background": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "false_tt.rate.noise": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v1_interrupt.tor": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v1_interrupt.latency": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v1_interrupt.rating": {
+      "n": 0,
+      "mean": null
+    },
+    "v1_interrupt.t_stop": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v1_interrupt.not_played": 0,
+    "v15_interruption.respond": {
+      "value": null,
+      "n": 0
+    },
+    "v15_interruption.resume": {
+      "value": null,
+      "n": 0
+    },
+    "v15_interruption.uncertain": {
+      "value": null,
+      "n": 0
+    },
+    "v15_interruption.unknown": {
+      "value": null,
+      "n": 0
+    },
+    "v15_interruption.class.through": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_interruption.class.paused": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_interruption.class.stopped": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_interruption.t_stop": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v15_interruption.t_resp": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v15_interruption.judged": 0,
+    "v15_interruption.n": 0,
+    "v15_backchannel.respond": {
+      "value": null,
+      "n": 0
+    },
+    "v15_backchannel.resume": {
+      "value": null,
+      "n": 0
+    },
+    "v15_backchannel.uncertain": {
+      "value": null,
+      "n": 0
+    },
+    "v15_backchannel.unknown": {
+      "value": null,
+      "n": 0
+    },
+    "v15_backchannel.class.through": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_backchannel.class.paused": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_backchannel.class.stopped": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_backchannel.t_stop": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v15_backchannel.t_resp": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v15_backchannel.judged": 0,
+    "v15_backchannel.n": 0,
+    "v15_talking_to_other.respond": {
+      "value": null,
+      "n": 0
+    },
+    "v15_talking_to_other.resume": {
+      "value": null,
+      "n": 0
+    },
+    "v15_talking_to_other.uncertain": {
+      "value": null,
+      "n": 0
+    },
+    "v15_talking_to_other.unknown": {
+      "value": null,
+      "n": 0
+    },
+    "v15_talking_to_other.class.through": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_talking_to_other.class.paused": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_talking_to_other.class.stopped": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_talking_to_other.t_stop": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v15_talking_to_other.t_resp": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v15_talking_to_other.judged": 0,
+    "v15_talking_to_other.n": 0,
+    "v15_background.respond": {
+      "value": null,
+      "n": 0
+    },
+    "v15_background.resume": {
+      "value": null,
+      "n": 0
+    },
+    "v15_background.uncertain": {
+      "value": null,
+      "n": 0
+    },
+    "v15_background.unknown": {
+      "value": null,
+      "n": 0
+    },
+    "v15_background.class.through": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_background.class.paused": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_background.class.stopped": {
+      "n": 0,
+      "k": 0,
+      "value": null
+    },
+    "v15_background.t_stop": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v15_background.t_resp": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null
+    },
+    "v15_background.judged": 0,
+    "v15_background.n": 0,
+    "voice.basis": "all interruption clips with voice data",
+    "voice.wpm": {
+      "n": 0,
+      "mean_delta": null,
+      "p": null,
+      "significant": null,
+      "expected": "higher"
+    },
+    "voice.pitch_mean": {
+      "n": 0,
+      "mean_delta": null,
+      "p": null,
+      "significant": null,
+      "expected": "higher"
+    },
+    "voice.pitch_sd": {
+      "n": 0,
+      "mean_delta": null,
+      "p": null,
+      "significant": null,
+      "expected": "higher"
+    },
+    "voice.intensity_mean": {
+      "n": 0,
+      "mean_delta": null,
+      "p": null,
+      "significant": null,
+      "expected": "lower"
+    },
+    "voice.intensity_sd": {
+      "n": 0,
+      "mean_delta": null,
+      "p": null,
+      "significant": null,
+      "expected": "higher"
+    },
+    "voice.utmosv2": {
+      "n": 0,
+      "mean_delta": null,
+      "p": null,
+      "significant": null,
+      "expected": "no drop"
+    },
+    "course.e2e": {
+      "n": 30,
+      "median": 1.47885,
+      "p95": 2.1468149999999993,
+      "mean": 1.3224799999999999,
+      "min": 0.5327,
+      "max": 3.0643,
+      "ci95_median": [
+        0.81455,
+        1.6749
+      ],
+      "p95_note": null,
+      "source": "marks"
+    },
+    "course.asr_final": {
+      "n": 30,
+      "median": 0.35875,
+      "p95": 0.408845,
+      "mean": 0.3541833333333334,
+      "min": 0.288,
+      "max": 0.4264,
+      "ci95_median": [
+        0.3396,
+        0.37025
+      ],
+      "p95_note": null
+    },
+    "course.llm_ttft": {
+      "n": 30,
+      "median": 0.90825,
+      "p95": 1.507619999999999,
+      "mean": 0.7872499999999999,
+      "min": 0.1908,
+      "max": 2.4399,
+      "ci95_median": [
+        0.26839999999999997,
+        1.08545
+      ],
+      "p95_note": null
+    },
+    "course.tts_ttfb": {
+      "n": 23,
+      "median": 0.2074,
+      "p95": 0.27259,
+      "mean": 0.21265217391304347,
+      "min": 0.0983,
+      "max": 0.3204,
+      "ci95_median": [
+        0.1942,
+        0.2547
+      ],
+      "p95_note": null
+    },
+    "course.endpointing": {
+      "n": 30,
+      "median": 0.59985,
+      "p95": 0.7184249999999999,
+      "mean": 0.6138533333333335,
+      "min": 0.4397,
+      "max": 1.0377,
+      "ci95_median": [
+        0.5733,
+        0.6374
+      ],
+      "p95_note": null
+    },
+    "course.e2e_heard": {
+      "n": 30,
+      "median": 2.1,
+      "p95": 2.7127999999999997,
+      "mean": 1.9464,
+      "min": 1.188,
+      "max": 2.852,
+      "ci95_median": [
+        1.46,
+        2.34
+      ],
+      "p95_note": null
+    },
+    "course.wer": {
+      "n": 30,
+      "ref_words": 243,
+      "edits": 24,
+      "wer": 0.09876543209876543,
+      "mean_phrase_wer": 0.09083333333333334
+    },
+    "course.barge_in": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null,
+      "kept_talking": 0
+    },
+    "course.context": {
+      "n": 0,
+      "source": null,
+      "tokens_median": null,
+      "tokens_max": null,
+      "tokens_first": null,
+      "tokens_last": null,
+      "messages_median": 10.0,
+      "messages_max": 10,
+      "messages_first": 2,
+      "messages_last": 10,
+      "per_run_median_tokens": {}
+    },
+    "course.tool_calls": {
+      "n": 0,
+      "median": null,
+      "p95": null,
+      "mean": null,
+      "ci95_median": [
+        null,
+        null
+      ],
+      "p95_note": null,
+      "by_name": {}
+    },
+    "course.stages_seen": {
+      "vad_end": 30,
+      "asr_final": 30,
+      "llm_request": 30,
+      "llm_first_token": 30,
+      "tts_request": 23,
+      "tts_first_audio": 23,
+      "audio_out": 30,
+      "bot_stopped": 27,
+      "tool_start": 14
+    },
+    "course.per_run": {
+      "1": {
+        "e2e": {
+          "n": 10,
+          "median": 1.6505,
+          "p95": 2.706774999999999,
+          "mean": 1.5369099999999998,
+          "min": 0.5709,
+          "max": 3.0643,
+          "ci95_median": [
+            0.732,
+            1.997551249999999
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "asr_final": {
+          "n": 10,
+          "median": 0.35745,
+          "p95": 0.407365,
+          "mean": 0.35623,
+          "min": 0.2974,
+          "max": 0.4264,
+          "ci95_median": [
+            0.33252750000000003,
+            0.3764
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "llm_ttft": {
+          "n": 10,
+          "median": 1.0629,
+          "p95": 2.0905199999999993,
+          "mean": 0.9675100000000001,
+          "min": 0.1967,
+          "max": 2.4399,
+          "ci95_median": [
+            0.2729825,
+            1.3041099999999972
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "tts_ttfb": {
+          "n": 8,
+          "median": 0.2455,
+          "p95": 0.30367,
+          "mean": 0.24022500000000002,
+          "min": 0.1784,
+          "max": 0.3204,
+          "ci95_median": [
+            0.1795,
+            0.2726
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        }
+      },
+      "2": {
+        "e2e": {
+          "n": 10,
+          "median": 1.15965,
+          "p95": 1.7739549999999997,
+          "mean": 1.16126,
+          "min": 0.5327,
+          "max": 1.8541,
+          "ci95_median": [
+            0.6244,
+            1.6738
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "asr_final": {
+          "n": 10,
+          "median": 0.3559,
+          "p95": 0.4043,
+          "mean": 0.35150000000000003,
+          "min": 0.288,
+          "max": 0.4097,
+          "ci95_median": [
+            0.3288,
+            0.37785
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "llm_ttft": {
+          "n": 10,
+          "median": 0.5984499999999999,
+          "p95": 1.24141,
+          "mean": 0.66871,
+          "min": 0.2236,
+          "max": 1.3171,
+          "ci95_median": [
+            0.2353,
+            1.0971
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "tts_ttfb": {
+          "n": 7,
+          "median": 0.1948,
+          "p95": 0.25392,
+          "mean": 0.19495714285714286,
+          "min": 0.1016,
+          "max": 0.2652,
+          "ci95_median": [
+            0.1828,
+            0.2276
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        }
+      },
+      "3": {
+        "e2e": {
+          "n": 10,
+          "median": 1.5319,
+          "p95": 1.807685,
+          "mean": 1.2692700000000001,
+          "min": 0.5423,
+          "max": 1.8431,
+          "ci95_median": [
+            0.7468,
+            1.6825
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "asr_final": {
+          "n": 10,
+          "median": 0.3627,
+          "p95": 0.39713499999999996,
+          "mean": 0.35482,
+          "min": 0.2922,
+          "max": 0.4078,
+          "ci95_median": [
+            0.3231,
+            0.3763
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "llm_ttft": {
+          "n": 10,
+          "median": 0.9383,
+          "p95": 1.145255,
+          "mean": 0.72553,
+          "min": 0.1908,
+          "max": 1.184,
+          "ci95_median": [
+            0.24195,
+            1.0971
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        },
+        "tts_ttfb": {
+          "n": 8,
+          "median": 0.20290000000000002,
+          "p95": 0.255675,
+          "mean": 0.20056249999999998,
+          "min": 0.0983,
+          "max": 0.2562,
+          "ci95_median": [
+            0.1823,
+            0.23441874999999998
+          ],
+          "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+        }
+      }
+    },
+    "course.phrases": 10,
+    "course.runs": 3,
+    "course.turns": 30
+  },
+  "resources": null
+}

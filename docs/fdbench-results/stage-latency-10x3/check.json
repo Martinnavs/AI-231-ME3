@@ -1,0 +1,100 @@
+{
+  "checks": [
+    {
+      "ok": true,
+      "text": "Python 3.14.7",
+      "fix": "Python 3.10 or newer is needed"
+    },
+    {
+      "ok": true,
+      "text": "packages: core ok",
+      "fix": "pip install -r requirements.txt"
+    },
+    {
+      "ok": true,
+      "text": "scoring extras: ASR (faster-whisper), pitch/intensity (praat-parselmouth) · not installed: UTMOSv2 quality",
+      "fix": "pip install -r requirements-score.txt (laptop) to score transcripts and voice change"
+    },
+    {
+      "ok": true,
+      "text": "Linux 7.2.2-arch1-1 (x86_64) · 46.7 GB RAM · 75.2 GB free",
+      "fix": ""
+    },
+    {
+      "ok": true,
+      "text": "CPU 57 °C",
+      "fix": "add a fan or heatsink; throttling slows the assistant and skews latencies"
+    },
+    {
+      "ok": false,
+      "text": "network: wifi",
+      "fix": "use Ethernet if you can; Wi-Fi jitter widens latencies"
+    },
+    {
+      "ok": true,
+      "text": "datasets: 430 clips in 10 groups",
+      "fix": "python tools/fetch_datasets.py --force gets the full set"
+    },
+    {
+      "ok": true,
+      "text": "dataset checksums ok (sampled)",
+      "fix": "rebuild the datasets"
+    },
+    {
+      "ok": true,
+      "text": "cable 1 (her mic ← us): [26] fdb_to_bot (JACK Audio Connection Kit, in 1/out 1, 48000 Hz)",
+      "fix": "install a virtual cable, see docs/SETUP.md"
+    },
+    {
+      "ok": true,
+      "text": "cable 2 (her speaker → us): [21] fdb_from_bot (JACK Audio Connection Kit, in 1/out 1, 48000 Hz)",
+      "fix": "install a second virtual cable, see docs/SETUP.md"
+    },
+    {
+      "ok": true,
+      "text": "more than one virtual device found; pass --to-bot/--from-bot to choose",
+      "fix": ""
+    },
+    {
+      "ok": true,
+      "text": "judge: none (timing and turn-taking metrics only; judge later with `score`)",
+      "fix": ""
+    }
+  ],
+  "info": {
+    "os": "Linux 7.2.2-arch1-1",
+    "machine": "x86_64",
+    "pi_model": null,
+    "ram_gb": 46.7,
+    "python": "3.14.7",
+    "network": "wifi",
+    "pi_temp_c": 57.0,
+    "pi_throttled": null,
+    "disk_free_gb": 75.2,
+    "hostname": "bertie-hpelitebook840g8notebookpc",
+    "optional": {
+      "ASR (faster-whisper)": true,
+      "pitch/intensity (praat-parselmouth)": true,
+      "UTMOSv2 quality": false
+    },
+    "fdbench": "0.1.0"
+  },
+  "devices": {
+    "to_bot": {
+      "index": 26,
+      "name": "fdb_to_bot",
+      "max_in": 1,
+      "max_out": 1,
+      "default_sr": 48000.0,
+      "hostapi": "JACK Audio Connection Kit"
+    },
+    "from_bot": {
+      "index": 21,
+      "name": "fdb_from_bot",
+      "max_in": 1,
+      "max_out": 1,
+      "default_sr": 48000.0,
+      "hostapi": "JACK Audio Connection Kit"
+    }
+  }
+}

@@ -1,0 +1,1087 @@
+{
+  "about": "Stage latency per turn (course template, section 5). Times in seconds on the assistant machine's monotonic clock; e2e = audio_out - vad_end; e2e_heard = reply audio start - true end of speech (fdbench's audio clock); endpointing = vad_end - true end of speech.",
+  "phrases": 10,
+  "runs": 3,
+  "turns": [
+    {
+      "trial": "r01_stage_latency_phrase_v15_backchannel_48",
+      "run": 1,
+      "clip": "phrase_v15_backchannel_48",
+      "ref": "Explain the periodic table completely.",
+      "e2e": 0.732,
+      "e2e_source": "marks",
+      "e2e_heard": 1.444,
+      "endpointing": 0.6533,
+      "asr_final": 0.3258,
+      "llm_ttft": 0.1967,
+      "tts_ttfb": 0.2074,
+      "transcript": "Explain the periodic table completely.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 5,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_background_29",
+      "run": 1,
+      "clip": "phrase_v15_background_29",
+      "ref": "When is the next full moon?",
+      "e2e": 0.5709,
+      "e2e_source": "marks",
+      "e2e_heard": 1.188,
+      "endpointing": 0.5791,
+      "asr_final": 0.2974,
+      "llm_ttft": 0.2731,
+      "tts_ttfb": null,
+      "transcript": "When is the next full moon?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 6,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_background_91",
+      "run": 1,
+      "clip": "phrase_v15_background_91",
+      "ref": "What day of the week is July 4th, 2026?",
+      "e2e": 1.4937,
+      "e2e_source": "marks",
+      "e2e_heard": 2.276,
+      "endpointing": 0.7066,
+      "asr_final": 0.3764,
+      "llm_ttft": 0.9385,
+      "tts_ttfb": 0.1784,
+      "transcript": "What day of the week is July 4th, 2026?",
+      "context_tokens": null,
+      "context_messages": 4,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_interruption_98",
+      "run": 1,
+      "clip": "phrase_v15_interruption_98",
+      "ref": "What kind of music is good for a workout?",
+      "e2e": 1.9965,
+      "e2e_source": "marks",
+      "e2e_heard": 2.66,
+      "endpointing": 0.5894,
+      "asr_final": 0.3394,
+      "llm_ttft": 1.1925,
+      "tts_ttfb": 0.3204,
+      "transcript": "What kind of music is good for a workout?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_talking_to_other_23",
+      "run": 1,
+      "clip": "phrase_v15_talking_to_other_23",
+      "ref": "What's the traffic like on I‑5 south?",
+      "e2e": 1.8569,
+      "e2e_source": "marks",
+      "e2e_heard": 2.372,
+      "endpointing": 0.4827,
+      "asr_final": 0.3841,
+      "llm_ttft": 1.2,
+      "tts_ttfb": 0.2725,
+      "transcript": "What's the traffic like on at five south?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.25,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 2,
+        "wer": 0.25
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_talking_to_other_47",
+      "run": 1,
+      "clip": "phrase_v15_talking_to_other_47",
+      "ref": "Set an alarm for 6:30 AM on weekdays.",
+      "e2e": 0.9026,
+      "e2e_source": "marks",
+      "e2e_heard": 1.572,
+      "endpointing": 0.5999,
+      "asr_final": 0.3643,
+      "llm_ttft": 0.2637,
+      "tts_ttfb": 0.2726,
+      "transcript": "Set an alarm for six: thirty a.m. on weekdays.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.4444444444444444,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 4,
+        "wer": 0.4444444444444444
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_talking_to_other_62",
+      "run": 1,
+      "clip": "phrase_v15_talking_to_other_62",
+      "ref": "Start a 10‑minute meditation session.",
+      "e2e": 3.0643,
+      "e2e_source": "marks",
+      "e2e_heard": 2.756,
+      "endpointing": 0.5465,
+      "asr_final": 0.3601,
+      "llm_ttft": 2.4399,
+      "tts_ttfb": 0.2638,
+      "transcript": "Start a 10-minute meditation session.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 6,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_talking_to_other_70",
+      "run": 1,
+      "clip": "phrase_v15_talking_to_other_70",
+      "ref": "What day of the week will July 4, 2026 be?",
+      "e2e": 2.2698,
+      "e2e_source": "marks",
+      "e2e_heard": 2.852,
+      "endpointing": 1.0377,
+      "asr_final": 0.4264,
+      "llm_ttft": 1.6635,
+      "tts_ttfb": 0.1795,
+      "transcript": "What day of the week will July 4, 2026 be?",
+      "context_tokens": null,
+      "context_messages": 2,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 10,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v15_talking_to_other_76",
+      "run": 1,
+      "clip": "phrase_v15_talking_to_other_76",
+      "ref": "What's the distance from Earth to Mars right now?",
+      "e2e": 0.6751,
+      "e2e_source": "marks",
+      "e2e_heard": 1.252,
+      "endpointing": 0.5576,
+      "asr_final": 0.3548,
+      "llm_ttft": 0.3199,
+      "tts_ttfb": null,
+      "transcript": "What's the distance from Earth to Mars right now?",
+      "context_tokens": null,
+      "context_messages": 6,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r01_stage_latency_phrase_v1_interrupt_52",
+      "run": 1,
+      "clip": "phrase_v1_interrupt_52",
+      "ref": "What kind of movies do you think I would like?",
+      "e2e": 1.8073,
+      "e2e_source": "marks",
+      "e2e_heard": 2.596,
+      "endpointing": 0.6853,
+      "asr_final": 0.3336,
+      "llm_ttft": 1.1873,
+      "tts_ttfb": 0.2272,
+      "transcript": "What kind of movies do you think I would like to",
+      "context_tokens": null,
+      "context_messages": 8,
+      "wer": 0.1,
+      "wer_detail": {
+        "ref_words": 10,
+        "edits": 1,
+        "wer": 0.1
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_backchannel_48",
+      "run": 2,
+      "clip": "phrase_v15_backchannel_48",
+      "ref": "Explain the periodic table completely.",
+      "e2e": 1.5804,
+      "e2e_source": "marks",
+      "e2e_heard": 2.212,
+      "endpointing": 0.5682,
+      "asr_final": 0.3398,
+      "llm_ttft": 1.0453,
+      "tts_ttfb": 0.1947,
+      "transcript": "Explain the periodic table completely.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 5,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_background_29",
+      "run": 2,
+      "clip": "phrase_v15_background_29",
+      "ref": "When is the next full moon?",
+      "e2e": 0.5327,
+      "e2e_source": "marks",
+      "e2e_heard": 1.22,
+      "endpointing": 0.6637,
+      "asr_final": 0.288,
+      "llm_ttft": 0.2444,
+      "tts_ttfb": null,
+      "transcript": "When is the next full moon?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 6,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_background_91",
+      "run": 2,
+      "clip": "phrase_v15_background_91",
+      "ref": "What day of the week is July 4th, 2026?",
+      "e2e": 0.6244,
+      "e2e_source": "marks",
+      "e2e_heard": 1.284,
+      "endpointing": 0.6213,
+      "asr_final": 0.293,
+      "llm_ttft": 0.2277,
+      "tts_ttfb": 0.1016,
+      "transcript": "Good July 4th, 2026.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.6666666666666666,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 6,
+        "wer": 0.6666666666666666
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_interruption_98",
+      "run": 2,
+      "clip": "phrase_v15_interruption_98",
+      "ref": "What kind of music is good for a workout?",
+      "e2e": 1.676,
+      "e2e_source": "marks",
+      "e2e_heard": 2.308,
+      "endpointing": 0.5895,
+      "asr_final": 0.3288,
+      "llm_ttft": 1.1489,
+      "tts_ttfb": 0.198,
+      "transcript": "What kind of music is good for a workout?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_talking_to_other_23",
+      "run": 2,
+      "clip": "phrase_v15_talking_to_other_23",
+      "ref": "What's the traffic like on I‑5 south?",
+      "e2e": 1.8541,
+      "e2e_source": "marks",
+      "e2e_heard": 2.5,
+      "endpointing": 0.568,
+      "asr_final": 0.3538,
+      "llm_ttft": 1.3171,
+      "tts_ttfb": 0.1828,
+      "transcript": "What's the traffic like on at 5 South?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.125,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 1,
+        "wer": 0.125
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_talking_to_other_47",
+      "run": 2,
+      "clip": "phrase_v15_talking_to_other_47",
+      "ref": "Set an alarm for 6:30 AM on weekdays.",
+      "e2e": 0.875,
+      "e2e_source": "marks",
+      "e2e_heard": 1.444,
+      "endpointing": 0.5146,
+      "asr_final": 0.3723,
+      "llm_ttft": 0.2353,
+      "tts_ttfb": 0.2652,
+      "transcript": "Set an alarm for six: thirty a.m. on weekdays.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.4444444444444444,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 4,
+        "wer": 0.4444444444444444
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_talking_to_other_62",
+      "run": 2,
+      "clip": "phrase_v15_talking_to_other_62",
+      "ref": "Start a 10‑minute meditation session.",
+      "e2e": 1.6738,
+      "e2e_source": "marks",
+      "e2e_heard": 2.468,
+      "endpointing": 0.6744,
+      "asr_final": 0.3977,
+      "llm_ttft": 1.0479,
+      "tts_ttfb": 0.2276,
+      "transcript": "Start a 10-minute meditation session.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 6,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_talking_to_other_70",
+      "run": 2,
+      "clip": "phrase_v15_talking_to_other_70",
+      "ref": "What day of the week will July 4, 2026 be?",
+      "e2e": 0.7541,
+      "e2e_source": "marks",
+      "e2e_heard": 1.412,
+      "endpointing": 0.6106,
+      "asr_final": 0.4097,
+      "llm_ttft": 0.344,
+      "tts_ttfb": null,
+      "transcript": "What day of the week will July 4, 2026 be?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 10,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v15_talking_to_other_76",
+      "run": 2,
+      "clip": "phrase_v15_talking_to_other_76",
+      "ref": "What's the distance from Earth to Mars right now?",
+      "e2e": 0.5978,
+      "e2e_source": "marks",
+      "e2e_heard": 1.252,
+      "endpointing": 0.6002,
+      "asr_final": 0.3739,
+      "llm_ttft": 0.2236,
+      "tts_ttfb": null,
+      "transcript": "What's the distance from Earth to Mars right now?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r02_stage_latency_phrase_v1_interrupt_52",
+      "run": 2,
+      "clip": "phrase_v1_interrupt_52",
+      "ref": "What kind of movies do you think I would like?",
+      "e2e": 1.4443,
+      "e2e_source": "marks",
+      "e2e_heard": 2.084,
+      "endpointing": 0.5998,
+      "asr_final": 0.358,
+      "llm_ttft": 0.8529,
+      "tts_ttfb": 0.1948,
+      "transcript": "What kind of movies do you think I would like?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 10,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_backchannel_48",
+      "run": 3,
+      "clip": "phrase_v15_backchannel_48",
+      "ref": "Explain the periodic table completely.",
+      "e2e": 1.8431,
+      "e2e_source": "marks",
+      "e2e_heard": 2.564,
+      "endpointing": 0.6533,
+      "asr_final": 0.3763,
+      "llm_ttft": 1.0971,
+      "tts_ttfb": 0.2547,
+      "transcript": "Explain the periodic table completely.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 5,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_background_29",
+      "run": 3,
+      "clip": "phrase_v15_background_29",
+      "ref": "When is the next full moon?",
+      "e2e": 0.5577,
+      "e2e_source": "marks",
+      "e2e_heard": 1.188,
+      "endpointing": 0.5784,
+      "asr_final": 0.2922,
+      "llm_ttft": 0.2652,
+      "tts_ttfb": null,
+      "transcript": "When is the next full moon?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 6,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_background_91",
+      "run": 3,
+      "clip": "phrase_v15_background_91",
+      "ref": "What day of the week is July 4th, 2026?",
+      "e2e": 1.7644,
+      "e2e_source": "marks",
+      "e2e_heard": 2.468,
+      "endpointing": 0.6637,
+      "asr_final": 0.3659,
+      "llm_ttft": 1.184,
+      "tts_ttfb": 0.2141,
+      "transcript": "What day of the week is July 4th, 2026?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_interruption_98",
+      "run": 3,
+      "clip": "phrase_v15_interruption_98",
+      "ref": "What kind of music is good for a workout?",
+      "e2e": 1.464,
+      "e2e_source": "marks",
+      "e2e_heard": 2.052,
+      "endpointing": 0.5465,
+      "asr_final": 0.3682,
+      "llm_ttft": 0.878,
+      "tts_ttfb": 0.0983,
+      "transcript": "What kind of music is good for a workout?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_talking_to_other_23",
+      "run": 3,
+      "clip": "phrase_v15_talking_to_other_23",
+      "ref": "What's the traffic like on I‑5 south?",
+      "e2e": 1.6006,
+      "e2e_source": "marks",
+      "e2e_heard": 2.116,
+      "endpointing": 0.4397,
+      "asr_final": 0.32,
+      "llm_ttft": 1.0979,
+      "tts_ttfb": 0.1823,
+      "transcript": "What's the traffic like on at five south?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.25,
+      "wer_detail": {
+        "ref_words": 8,
+        "edits": 2,
+        "wer": 0.25
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_talking_to_other_47",
+      "run": 3,
+      "clip": "phrase_v15_talking_to_other_47",
+      "ref": "Set an alarm for 6:30 AM on weekdays.",
+      "e2e": 0.8936,
+      "e2e_source": "marks",
+      "e2e_heard": 1.476,
+      "endpointing": 0.5574,
+      "asr_final": 0.3841,
+      "llm_ttft": 0.2512,
+      "tts_ttfb": 0.2562,
+      "transcript": "Set an alarm for six: thirty a.m. on weekdays.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.4444444444444444,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 4,
+        "wer": 0.4444444444444444
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_talking_to_other_62",
+      "run": 3,
+      "clip": "phrase_v15_talking_to_other_62",
+      "ref": "Start a 10‑minute meditation session.",
+      "e2e": 0.7468,
+      "e2e_source": "marks",
+      "e2e_heard": 1.476,
+      "endpointing": 0.6321,
+      "asr_final": 0.3595,
+      "llm_ttft": 0.1908,
+      "tts_ttfb": 0.1942,
+      "transcript": "Start a 10-minute meditation session.",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 6,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_talking_to_other_70",
+      "run": 3,
+      "clip": "phrase_v15_talking_to_other_70",
+      "ref": "What day of the week will July 4, 2026 be?",
+      "e2e": 1.5998,
+      "e2e_source": "marks",
+      "e2e_heard": 2.212,
+      "endpointing": 0.5253,
+      "asr_final": 0.4078,
+      "llm_ttft": 0.9986,
+      "tts_ttfb": 0.1931,
+      "transcript": "What day of the week will July 4, 2026 be?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 10,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v15_talking_to_other_76",
+      "run": 3,
+      "clip": "phrase_v15_talking_to_other_76",
+      "ref": "What's the distance from Earth to Mars right now?",
+      "e2e": 0.5423,
+      "e2e_source": "marks",
+      "e2e_heard": 1.22,
+      "endpointing": 0.6427,
+      "asr_final": 0.3231,
+      "llm_ttft": 0.2187,
+      "tts_ttfb": null,
+      "transcript": "What's the distance from Earth to Mars right now?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 9,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "audio_out"
+      ]
+    },
+    {
+      "trial": "r03_stage_latency_phrase_v1_interrupt_52",
+      "run": 3,
+      "clip": "phrase_v1_interrupt_52",
+      "ref": "What kind of movies do you think I would like?",
+      "e2e": 1.6804,
+      "e2e_source": "marks",
+      "e2e_heard": 2.468,
+      "endpointing": 0.7281,
+      "asr_final": 0.3511,
+      "llm_ttft": 1.0738,
+      "tts_ttfb": 0.2116,
+      "transcript": "What kind of movies do you think I would like?",
+      "context_tokens": null,
+      "context_messages": 10,
+      "wer": 0.0,
+      "wer_detail": {
+        "ref_words": 10,
+        "edits": 0,
+        "wer": 0.0
+      },
+      "found": [
+        "vad_end",
+        "asr_final",
+        "llm_request",
+        "llm_first_token",
+        "tts_request",
+        "tts_first_audio",
+        "audio_out"
+      ]
+    }
+  ],
+  "per_run": {
+    "1": {
+      "e2e": {
+        "n": 10,
+        "median": 1.6505,
+        "p95": 2.706774999999999,
+        "mean": 1.5369099999999998,
+        "min": 0.5709,
+        "max": 3.0643,
+        "ci95_median": [
+          0.732,
+          1.997551249999999
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "asr_final": {
+        "n": 10,
+        "median": 0.35745,
+        "p95": 0.407365,
+        "mean": 0.35623,
+        "min": 0.2974,
+        "max": 0.4264,
+        "ci95_median": [
+          0.33252750000000003,
+          0.3764
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "llm_ttft": {
+        "n": 10,
+        "median": 1.0629,
+        "p95": 2.0905199999999993,
+        "mean": 0.9675100000000001,
+        "min": 0.1967,
+        "max": 2.4399,
+        "ci95_median": [
+          0.2729825,
+          1.3041099999999972
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "tts_ttfb": {
+        "n": 8,
+        "median": 0.2455,
+        "p95": 0.30367,
+        "mean": 0.24022500000000002,
+        "min": 0.1784,
+        "max": 0.3204,
+        "ci95_median": [
+          0.1795,
+          0.2726
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      }
+    },
+    "2": {
+      "e2e": {
+        "n": 10,
+        "median": 1.15965,
+        "p95": 1.7739549999999997,
+        "mean": 1.16126,
+        "min": 0.5327,
+        "max": 1.8541,
+        "ci95_median": [
+          0.6244,
+          1.6738
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "asr_final": {
+        "n": 10,
+        "median": 0.3559,
+        "p95": 0.4043,
+        "mean": 0.35150000000000003,
+        "min": 0.288,
+        "max": 0.4097,
+        "ci95_median": [
+          0.3288,
+          0.37785
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "llm_ttft": {
+        "n": 10,
+        "median": 0.5984499999999999,
+        "p95": 1.24141,
+        "mean": 0.66871,
+        "min": 0.2236,
+        "max": 1.3171,
+        "ci95_median": [
+          0.2353,
+          1.0971
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "tts_ttfb": {
+        "n": 7,
+        "median": 0.1948,
+        "p95": 0.25392,
+        "mean": 0.19495714285714286,
+        "min": 0.1016,
+        "max": 0.2652,
+        "ci95_median": [
+          0.1828,
+          0.2276
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      }
+    },
+    "3": {
+      "e2e": {
+        "n": 10,
+        "median": 1.5319,
+        "p95": 1.807685,
+        "mean": 1.2692700000000001,
+        "min": 0.5423,
+        "max": 1.8431,
+        "ci95_median": [
+          0.7468,
+          1.6825
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "asr_final": {
+        "n": 10,
+        "median": 0.3627,
+        "p95": 0.39713499999999996,
+        "mean": 0.35482,
+        "min": 0.2922,
+        "max": 0.4078,
+        "ci95_median": [
+          0.3231,
+          0.3763
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "llm_ttft": {
+        "n": 10,
+        "median": 0.9383,
+        "p95": 1.145255,
+        "mean": 0.72553,
+        "min": 0.1908,
+        "max": 1.184,
+        "ci95_median": [
+          0.24195,
+          1.0971
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      },
+      "tts_ttfb": {
+        "n": 8,
+        "median": 0.20290000000000002,
+        "p95": 0.255675,
+        "mean": 0.20056249999999998,
+        "min": 0.0983,
+        "max": 0.2562,
+        "ci95_median": [
+          0.1823,
+          0.23441874999999998
+        ],
+        "p95_note": "with fewer than 20 trials p95 is close to the slowest trial"
+      }
+    }
+  }
+}

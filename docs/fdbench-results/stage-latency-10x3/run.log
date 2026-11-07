@@ -1,0 +1,62 @@
+2026-11-07T15:00:16+08:00  fdbench 0.1.0 run start · 30 trials · 0 rounds · seed 480138
+2026-11-07T15:00:16+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_70 start · phrase_v15_talking_to_other_70 · "What day of the week will July 4, 2026 be?" · expected: answer the phrase
+2026-11-07T15:00:30+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_70 end · actual: replied 2.85 s after speech end · verdict: ✓ 2.85 s
+2026-11-07T15:00:36+08:00  trial r01_stage_latency_phrase_v15_background_91 start · phrase_v15_background_91 · "What day of the week is July 4th, 2026?" · expected: answer the phrase
+2026-11-07T15:00:47+08:00  trial r01_stage_latency_phrase_v15_background_91 end · actual: replied 2.28 s after speech end · verdict: ✓ 2.28 s
+2026-11-07T15:00:53+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_76 start · phrase_v15_talking_to_other_76 · "What's the distance from Earth to Mars right now?" · expected: answer the phrase
+2026-11-07T15:01:14+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_76 end · actual: replied 1.25 s after speech end · verdict: ✓ 1.25 s
+2026-11-07T15:01:20+08:00  trial r01_stage_latency_phrase_v1_interrupt_52 start · phrase_v1_interrupt_52 · "What kind of movies do you think I would like?" · expected: answer the phrase
+2026-11-07T15:01:34+08:00  trial r01_stage_latency_phrase_v1_interrupt_52 end · actual: replied 2.60 s after speech end · verdict: ✓ 2.60 s
+2026-11-07T15:01:40+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_47 start · phrase_v15_talking_to_other_47 · "Set an alarm for 6:30 AM on weekdays." · expected: answer the phrase
+2026-11-07T15:01:49+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_47 end · actual: replied 1.57 s after speech end · verdict: ✓ 1.57 s
+2026-11-07T15:01:55+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_23 start · phrase_v15_talking_to_other_23 · "What's the traffic like on I‑5 south?" · expected: answer the phrase
+2026-11-07T15:02:14+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_23 end · actual: replied 2.37 s after speech end · verdict: ✓ 2.37 s
+2026-11-07T15:02:20+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_62 start · phrase_v15_talking_to_other_62 · "Start a 10‑minute meditation session." · expected: answer the phrase
+2026-11-07T15:02:31+08:00  trial r01_stage_latency_phrase_v15_talking_to_other_62 end · actual: replied 2.76 s after speech end · verdict: ✓ 2.76 s
+2026-11-07T15:02:37+08:00  trial r01_stage_latency_phrase_v15_backchannel_48 start · phrase_v15_backchannel_48 · "Explain the periodic table completely." · expected: answer the phrase
+2026-11-07T15:02:47+08:00  trial r01_stage_latency_phrase_v15_backchannel_48 end · actual: replied 1.44 s after speech end · verdict: ✓ 1.44 s
+2026-11-07T15:02:53+08:00  trial r01_stage_latency_phrase_v15_background_29 start · phrase_v15_background_29 · "When is the next full moon?" · expected: answer the phrase
+2026-11-07T15:03:09+08:00  trial r01_stage_latency_phrase_v15_background_29 end · actual: replied 1.19 s after speech end · verdict: ✓ 1.19 s
+2026-11-07T15:03:15+08:00  trial r01_stage_latency_phrase_v15_interruption_98 start · phrase_v15_interruption_98 · "What kind of music is good for a workout?" · expected: answer the phrase
+2026-11-07T15:03:30+08:00  trial r01_stage_latency_phrase_v15_interruption_98 end · actual: replied 2.66 s after speech end · verdict: ✓ 2.66 s
+2026-11-07T15:03:36+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_23 start · phrase_v15_talking_to_other_23 · "What's the traffic like on I‑5 south?" · expected: answer the phrase
+2026-11-07T15:03:54+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_23 end · actual: replied 2.50 s after speech end · verdict: ✓ 2.50 s
+2026-11-07T15:04:00+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_70 start · phrase_v15_talking_to_other_70 · "What day of the week will July 4, 2026 be?" · expected: answer the phrase
+2026-11-07T15:04:10+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_70 end · actual: replied 1.41 s after speech end · verdict: ✓ 1.41 s
+2026-11-07T15:04:16+08:00  trial r02_stage_latency_phrase_v15_background_91 start · phrase_v15_background_91 · "What day of the week is July 4th, 2026?" · expected: answer the phrase
+2026-11-07T15:04:22+08:00  trial r02_stage_latency_phrase_v15_background_91 end · actual: replied 1.28 s after speech end · verdict: ✓ 1.28 s
+2026-11-07T15:04:28+08:00  trial r02_stage_latency_phrase_v1_interrupt_52 start · phrase_v1_interrupt_52 · "What kind of movies do you think I would like?" · expected: answer the phrase
+2026-11-07T15:04:44+08:00  trial r02_stage_latency_phrase_v1_interrupt_52 end · actual: replied 2.08 s after speech end · verdict: ✓ 2.08 s
+2026-11-07T15:04:50+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_62 start · phrase_v15_talking_to_other_62 · "Start a 10‑minute meditation session." · expected: answer the phrase
+2026-11-07T15:04:59+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_62 end · actual: replied 2.47 s after speech end · verdict: ✓ 2.47 s
+2026-11-07T15:05:05+08:00  trial r02_stage_latency_phrase_v15_interruption_98 start · phrase_v15_interruption_98 · "What kind of music is good for a workout?" · expected: answer the phrase
+2026-11-07T15:05:22+08:00  trial r02_stage_latency_phrase_v15_interruption_98 end · actual: replied 2.31 s after speech end · verdict: ✓ 2.31 s
+2026-11-07T15:05:28+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_76 start · phrase_v15_talking_to_other_76 · "What's the distance from Earth to Mars right now?" · expected: answer the phrase
+2026-11-07T15:05:49+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_76 end · actual: replied 1.25 s after speech end · verdict: ✓ 1.25 s
+2026-11-07T15:05:55+08:00  trial r02_stage_latency_phrase_v15_backchannel_48 start · phrase_v15_backchannel_48 · "Explain the periodic table completely." · expected: answer the phrase
+2026-11-07T15:06:12+08:00  trial r02_stage_latency_phrase_v15_backchannel_48 end · actual: replied 2.21 s after speech end · verdict: ✓ 2.21 s
+2026-11-07T15:06:18+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_47 start · phrase_v15_talking_to_other_47 · "Set an alarm for 6:30 AM on weekdays." · expected: answer the phrase
+2026-11-07T15:06:26+08:00  trial r02_stage_latency_phrase_v15_talking_to_other_47 end · actual: replied 1.44 s after speech end · verdict: ✓ 1.44 s
+2026-11-07T15:06:32+08:00  trial r02_stage_latency_phrase_v15_background_29 start · phrase_v15_background_29 · "When is the next full moon?" · expected: answer the phrase
+2026-11-07T15:06:48+08:00  trial r02_stage_latency_phrase_v15_background_29 end · actual: replied 1.22 s after speech end · verdict: ✓ 1.22 s
+2026-11-07T15:06:54+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_47 start · phrase_v15_talking_to_other_47 · "Set an alarm for 6:30 AM on weekdays." · expected: answer the phrase
+2026-11-07T15:07:02+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_47 end · actual: replied 1.48 s after speech end · verdict: ✓ 1.48 s
+2026-11-07T15:07:08+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_62 start · phrase_v15_talking_to_other_62 · "Start a 10‑minute meditation session." · expected: answer the phrase
+2026-11-07T15:07:15+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_62 end · actual: replied 1.48 s after speech end · verdict: ✓ 1.48 s
+2026-11-07T15:07:21+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_23 start · phrase_v15_talking_to_other_23 · "What's the traffic like on I‑5 south?" · expected: answer the phrase
+2026-11-07T15:07:38+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_23 end · actual: replied 2.12 s after speech end · verdict: ✓ 2.12 s
+2026-11-07T15:07:44+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_76 start · phrase_v15_talking_to_other_76 · "What's the distance from Earth to Mars right now?" · expected: answer the phrase
+2026-11-07T15:08:04+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_76 end · actual: replied 1.22 s after speech end · verdict: ✓ 1.22 s
+2026-11-07T15:08:10+08:00  trial r03_stage_latency_phrase_v15_background_29 start · phrase_v15_background_29 · "When is the next full moon?" · expected: answer the phrase
+2026-11-07T15:08:25+08:00  trial r03_stage_latency_phrase_v15_background_29 end · actual: replied 1.19 s after speech end · verdict: ✓ 1.19 s
+2026-11-07T15:08:31+08:00  trial r03_stage_latency_phrase_v15_backchannel_48 start · phrase_v15_backchannel_48 · "Explain the periodic table completely." · expected: answer the phrase
+2026-11-07T15:08:48+08:00  trial r03_stage_latency_phrase_v15_backchannel_48 end · actual: replied 2.56 s after speech end · verdict: ✓ 2.56 s
+2026-11-07T15:08:54+08:00  trial r03_stage_latency_phrase_v15_background_91 start · phrase_v15_background_91 · "What day of the week is July 4th, 2026?" · expected: answer the phrase
+2026-11-07T15:09:06+08:00  trial r03_stage_latency_phrase_v15_background_91 end · actual: replied 2.47 s after speech end · verdict: ✓ 2.47 s
+2026-11-07T15:09:12+08:00  trial r03_stage_latency_phrase_v1_interrupt_52 start · phrase_v1_interrupt_52 · "What kind of movies do you think I would like?" · expected: answer the phrase
+2026-11-07T15:09:30+08:00  trial r03_stage_latency_phrase_v1_interrupt_52 end · actual: replied 2.47 s after speech end · verdict: ✓ 2.47 s
+2026-11-07T15:09:36+08:00  trial r03_stage_latency_phrase_v15_interruption_98 start · phrase_v15_interruption_98 · "What kind of music is good for a workout?" · expected: answer the phrase
+2026-11-07T15:09:56+08:00  trial r03_stage_latency_phrase_v15_interruption_98 end · actual: replied 2.05 s after speech end · verdict: ✓ 2.05 s
+2026-11-07T15:10:02+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_70 start · phrase_v15_talking_to_other_70 · "What day of the week will July 4, 2026 be?" · expected: answer the phrase
+2026-11-07T15:10:16+08:00  trial r03_stage_latency_phrase_v15_talking_to_other_70 end · actual: replied 2.21 s after speech end · verdict: ✓ 2.21 s
+2026-11-07T15:10:16+08:00  run end · 30/30 trials done · stopped_early=False · 600 s
