@@ -121,3 +121,24 @@ def test_the_fuzzy_name_opens_the_right_url_and_an_unknown_one_lists_what_exists
     assert (
         url is None and "I have angry birds, flappy bird." in said and "Want me to make it" in said
     )
+
+
+@pytest.mark.parametrize(
+    "asked",
+    ["Turn it on.", "Please, could you turn on turn it on?", "turn on the game", "Turn it off."],
+)
+def test_a_switch_phrase_or_a_please_in_a_sentence_opens_nothing(apps, asked: str) -> None:  # type: ignore[no-untyped-def]
+    said, url = open_app("flappy_bird", asked, apps[0])
+    assert url is None and apps[1] == [] and "ask" in said
+
+
+@pytest.mark.parametrize(
+    "asked",
+    ["open flappy bird", "play angry birds", "yes", "Yes, please.", "go ahead", "do it", "OK"],
+)
+def test_open_verbs_and_short_confirmations_still_open(apps, asked: str) -> None:  # type: ignore[no-untyped-def]
+    assert open_app("flappy_bird", asked, apps[0])[1] is not None
+
+
+def test_a_no_is_not_consent(apps) -> None:  # type: ignore[no-untyped-def]
+    assert open_app("flappy_bird", "no, please", apps[0])[1] is None

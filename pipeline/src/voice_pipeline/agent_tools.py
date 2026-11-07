@@ -184,10 +184,29 @@ APPS_ROOT = Path(os.environ.get("APPS_ROOT") or "~/agent_sandbox/workspace/apps"
 APPS_PORT = int(os.environ.get("PORT_APPS") or 8795)
 APP_NAME = re.compile(r"[a-z0-9_-]{1,40}")
 # the user must ask, or agree to an offer ("yes", "open it"); the model alone never opens a page
-OPEN_REQUEST = re.compile(
-    r"\b(open|play|launch|start|run|show|yes|yeah|yep|sure|ok|okay|please|go ahead|do it)\b",
-    re.IGNORECASE,
-)
+OPEN_VERB = re.compile(r"\b(open|play|launch|start|run|show)\b", re.IGNORECASE)
+# "turn it on" / "turn on" is a switch, never a request to open a page
+TURN_SWITCH = re.compile(r"\bturn\s+(?:\w+\s+)?(?:on|off|up|down)\b", re.IGNORECASE)
+CONSENT_WORDS = frozenset({"go", "do"})
+
+
+def asks_to_open(asked: str) -> bool:
+    """An open verb in the user's words, or a short confirmation made only of confirmation words
+    ("yes", "yes please", "go ahead", "do it"). "please" or "yes" inside a longer sentence is not
+    consent."""
+    from voice_pipeline.call_policy import CONFIRM_ANCHORS, CONFIRM_MAX_WORDS, CONFIRM_WORDS
+
+    if OPEN_VERB.search(TURN_SWITCH.sub(" ", asked)):
+        return True
+    words = re.findall(r"[a-z']+", asked.lower())
+    return (
+        0 < len(words) <= CONFIRM_MAX_WORDS
+        and all(w in CONFIRM_WORDS for w in words)
+        and any(w in CONFIRM_ANCHORS or w in CONSENT_WORDS for w in words)
+        and "no" not in words
+    )
+
+
 OPEN_COMMAND = os.environ.get("OPEN_APP_COMMAND") or "xdg-open"
 OPEN_APP_DESCRIPTION = (
     "Open a web app (a game or demo the background assistant made) in the user's browser. Use it "
@@ -304,7 +323,7 @@ def open_app(
             None,
         )
     name = found
-    if not OPEN_REQUEST.search(asked):
+    if not asks_to_open(asked):
         return "I open apps when you ask me to. Say open it and I will.", None
     url = f"http://{host or '127.0.0.1'}:{port}/{name}/"
     if host:
@@ -448,11 +467,23 @@ def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list
     return required, optional + ([pi] if pi is not None else [])
 
 
+NOT_IN_DOCUMENTS = "The documents have nothing about the app or game you made."
+
+
+def _about_own_work(user: str) -> bool:
+    from voice_pipeline.call_policy import about_own_work
+
+    return about_own_work(user)
+
+
 def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionSchema:
     inner = schema.handler
     assert inner is not None
 
     async def handler(params: FunctionCallParams) -> None:
+        if schema.name == "search_docs" and _about_own_work(question.current):
+            await params.result_callback(NOT_IN_DOCUMENTS)
+            return
         args = {k: v for k, v in params.arguments.items() if k != "say"}
         record.append({"tool": schema.name, "args": args})
         params.arguments = args  # the real tool never sees `say`

@@ -400,6 +400,19 @@ def names_an_app(user: str) -> bool:
     return any(app_key(app) and set(app_key(app).split()) <= spoken for app in known_apps())
 
 
+OWN_WORK = re.compile(
+    r"\b(?:game|games|app|apps|clone|the files?|the fix|the bug|the code"
+    r"|you (?:made|built|wrote|created|coded)|in the game)\b",
+    re.IGNORECASE,
+)
+
+
+def about_own_work(user: str) -> bool:
+    """The turn is about what the agent made (the game, the app, the file, the fix): the documents
+    do not hold it, so it is neither a document lookup nor a document search."""
+    return names_an_app(user) or OWN_WORK.search(user) is not None
+
+
 MUSIC_VERBS = frozenset({"put", "turn", "listen", "hear", "wanna", "gonna", "need"})
 
 
@@ -572,6 +585,8 @@ def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
             spec.to_tool_args(call).get("place", "")
         ):
             return "unknown place"  # W4: Gemini corrects or asks
+        elif name in DOCUMENT_LOOKUPS and about_own_work(user):
+            return "about the agent's own work"
         elif name in DOCUMENT_LOOKUPS and not _lookup_asked(
             user, call.args[0] if call.args else ""
         ):

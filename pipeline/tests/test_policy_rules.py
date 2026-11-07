@@ -150,3 +150,32 @@ def test_without_a_matcher_the_router_keeps_the_turn(monkeypatch: pytest.MonkeyP
 def test_the_prompt_asks_instead_of_guessing_a_referent() -> None:
     text = (Path(__file__).parents[1] / "config/eval/system_agent.txt").read_text()
     assert "no referent" in text and "ask what it refers to" in text and "do not guess" in text
+
+
+# ---- own work: the game the agent made is not a document question
+
+OWN_WORK_TURNS = [
+    "I tried to play the game up to Distance 1000 and I don't see any monster, a cow monster "
+    "charging why.",
+    "What I want here is by distance 400, there's a cow monster that will be chasing my "
+    "character, and once it touches me, it's game over.",
+    "There's no cow here though. I don't see any cow in the game. Could you double check the "
+    "file and fix it?",
+    "I only told you to put the cow at light distance four hundred, but it's in distance one "
+    "thousand, no?",
+]
+
+
+def test_the_live_turns_about_the_agents_own_work_are_recognised() -> None:
+    assert [call_policy.about_own_work(t) for t in OWN_WORK_TURNS] == [True, True, True, False]
+    # turn 69 has no app word: the router escalated it ("reasoning") and Gemini has no doc hit
+
+
+@pytest.mark.parametrize("user", OWN_WORK_TURNS[:3] + ["Why is the game not working?"])
+def test_a_lookup_about_the_agents_own_work_goes_to_gemini(user: str) -> None:
+    assert reason("web_answer|why is the game not working", user) == "about the agent's own work"
+
+
+def test_a_real_document_question_still_gets_its_lookup() -> None:
+    assert reason("web_answer|who is mccarthy", "Who is McCarthy?") is None
+    assert reason("web_answer|the road", "What happens to the boy in The Road?") is None

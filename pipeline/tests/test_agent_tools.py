@@ -10,7 +10,7 @@ import pytest
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import AdapterType, ToolsSchema
 
-from voice_pipeline import question
+from voice_pipeline import agent_tools, question
 from voice_pipeline.agent_tools import (
     TIME_COMMAND,
     _recorded,
@@ -171,3 +171,46 @@ def test_with_builtin_search_hides_the_lookup_tools_and_adds_google_search() -> 
     assert [t.name for t in seen.standard_tools] == ["smart_home", "weather"]
     assert seen.custom_tools == {AdapterType.GEMINI: [{"google_search": {}}]}
     assert len(full.standard_tools) == 4  # the server keeps them for the router
+
+
+async def _search_docs_calls(asked: str) -> tuple[list[Any], list[Any]]:
+    ran: list[Any] = []
+    said: list[Any] = []
+
+    async def handler(params: Any) -> None:
+        ran.append(params.arguments)
+        await params.result_callback("passage")
+
+    async def result_callback(result: Any, *, properties: Any = None) -> None:
+        said.append(result)
+
+    schema = FunctionSchema(
+        name="search_docs", description="d", properties={}, required=[], handler=handler
+    )
+    question.current = asked
+    try:
+        wrapped = _recorded(schema, [])
+        assert wrapped.handler is not None
+        params = SimpleNamespace(arguments={"query": asked}, result_callback=result_callback)
+        await wrapped.handler(params)  # type: ignore[arg-type]
+    finally:
+        question.current = ""
+    return ran, said
+
+
+@pytest.mark.parametrize(
+    "asked",
+    [
+        "There's no cow here though. I don't see any cow in the game. Could you double check the "
+        "file and fix it?",
+        "I tried to play the game up to Distance 1000 and I don't see any monster.",
+    ],
+)
+async def test_search_docs_is_not_run_for_a_turn_about_the_agents_own_work(asked: str) -> None:
+    ran, said = await _search_docs_calls(asked)
+    assert ran == [] and said == [agent_tools.NOT_IN_DOCUMENTS]
+
+
+async def test_search_docs_runs_for_a_real_document_question() -> None:
+    ran, said = await _search_docs_calls("Who is McCarthy?")
+    assert len(ran) == 1 and said == ["passage"]
