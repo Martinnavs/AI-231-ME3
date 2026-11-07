@@ -1,0 +1,3 @@
+{"turn": 1, "question": "Can you play", "answer_words": 0, "interrupted": "resumed", "interrupt_after_final_ms": 300.0}
+{"turn": 1, "question": "Can you play something by Queen?", "answer_words": 6, "stt_final_ms": 1200.0, "speech_end_to_first_audio_ms": 1500.0, "pause_ms": 640.0, "stt_server_ms": 560.0, "audio_s": 3.64, "heard": "Can you play something by Queen?", "partial": "can you play something by"}
+{"turn": 2, "question": "What time is it?", "answer_words": 4, "stt_final_ms": 1100.0, "speech_end_to_first_audio_ms": 1000.0, "pause_ms": 640.0, "stt_server_ms": 560.0, "audio_s": 1.64, "heard": "What time is it?", "partial": "what time is it"}
