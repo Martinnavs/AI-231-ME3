@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import IO, Any
 from urllib.parse import urlsplit
 
+from doc_chat.addressee import decide as decide_addressee
 from doc_chat.bargein import (
     BargeInGuard,
     Ducker,
@@ -295,6 +296,8 @@ class Session:
     _speech_mark: float = 0.0  # perf_counter at the end of the user's last speech
     _no_notice_until: float = 0.0
     _held_logged: set[int] = field(default_factory=set)
+    _reply_end: float | None = None  # time.monotonic() when the last reply finished playing
+    _addressee_note: dict[str, Any] | None = None  # --addressee log: verdict for the turn record
 
     def log(self, rec: dict[str, Any]) -> None:
         self.log_file.write(json.dumps(rec) + "\n")
@@ -750,6 +753,7 @@ class Session:
             if clean != text:
                 print(f"      (a filler line dropped: {clean!r})", flush=True)
             text = clean
+        was_pending = False
         if self.pending is not None:
             pending, self.pending = self.pending, None
             reply = parse_yes_no(text) if pending.kind == "confirm" else None
@@ -762,6 +766,7 @@ class Session:
                 self.log(self._clarification_record(idx, text, "declined", heard))
                 return
             # anything else is a fresh question: they rephrased instead of answering
+            was_pending = True
         else:
             clarification = clarification_for(text, heard.repair)
             if clarification is not None:
@@ -770,6 +775,23 @@ class Session:
                 await self.say(clarification.question)
                 self.log(self._clarification_record(idx, text, clarification.question, heard))
                 return
+        mode = getattr(self.args, "addressee", "off")
+        if mode != "off":
+            since = None if self._reply_end is None else time.monotonic() - self._reply_end
+            names = [n for n in getattr(self.args, "addressee_names", "").split(",") if n.strip()]
+            verdict = decide_addressee(
+                text,
+                since_reply_s=since,
+                pending=was_pending,
+                names=names,
+                declaratives=bool(getattr(self.args, "addressee_declaratives", False)),
+            )
+            note = {"addressee": verdict.label, "addressee_reasons": list(verdict.reasons)}
+            if mode == "on" and verdict.label == "ignore":
+                print(f"you:  {text}   (ignored: not addressed to me)", flush=True)
+                self.log({"turn": idx, "question": text, "answer_words": 0, **note})
+                return
+            self._addressee_note = note
         await self.turn(idx, text, heard.t_speech_end, heard.stt_ms, heard)
 
     @staticmethod
@@ -847,6 +869,7 @@ class Session:
             if player is not None:
                 await asyncio.to_thread(player.close)
                 mark("bot_stopped")
+        self._reply_end = time.monotonic()
 
         underruns = getattr(player, "underruns", None)
         if self.out_dir is not None:
@@ -900,6 +923,9 @@ class Session:
         if self.add_note is not None:
             rec.update(self.add_note)
             self.add_note = None
+        if self._addressee_note is not None:
+            rec.update(self._addressee_note)
+            self._addressee_note = None
         self.log(rec)
         self.history.add(question, " ".join(spoken.sentences))
         print(timing_line(rec), flush=True)
@@ -1820,6 +1846,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=float,
         default=3.0,
         help='seconds to wait for an answer to "anything to add?" (default: 3)',
+    )
+    parser.add_argument(
+        "--addressee",
+        choices=["off", "log", "on"],
+        default="off",
+        help="was the turn meant for me? log: record the text-only verdict, still answer; "
+        "on: also drop turns judged side talk (default: off)",
+    )
+    parser.add_argument(
+        "--addressee-declaratives",
+        action="store_true",
+        help="with --addressee: also ignore plain statements about me/them/the room "
+        "(blocks more background talk, but wrongly ignores 1-2 percent of real turns)",
+    )
+    parser.add_argument(
+        "--addressee-names",
+        default="",
+        help="comma list of names the assistant answers to, for --addressee",
     )
     parser.add_argument(
         "--turn-model", default="models/turn-detector", help="folder of the turn model"
