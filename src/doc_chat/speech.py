@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from doc_chat.fdbench_marks import mark
 from lan_speech.pause import NoiseFloor, PauseDetector
 from lan_speech.protocol import (
     CancelMessage,
@@ -129,6 +130,15 @@ STITCH_GAP_S = 0.4  # silence put between two parts of a turn when their audio i
 DEFAULT_NOISE_HINT = 0.015  # about -36 dBFS: a quiet room; replaced once the real room is measured
 
 
+def room_noise_hint() -> float:
+    """The noise level to start from: the calibrated room if out/calibration.json exists, else
+    `DEFAULT_NOISE_HINT`."""
+    from doc_chat.calibrate import load_calibration
+
+    cal = load_calibration()
+    return DEFAULT_NOISE_HINT if cal is None else float(10 ** (cal["noise_db"] / 20.0))
+
+
 class MicHub:
     """One microphone stream kept open for the whole session.
 
@@ -143,6 +153,7 @@ class MicHub:
         self._canceller = canceller  # an EchoCanceller: every block goes through it, in order
         self._queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._stream: Any = None
+        self.tap: Callable[[bytes], None] | None = None  # sees every post-AEC block, in order
 
     def start(self) -> None:
         import sounddevice as sd
@@ -162,7 +173,13 @@ class MicHub:
         self._stream.start()
 
     def _take(self, block: bytes) -> None:
-        self._queue.put_nowait(self._canceller.process(block) if self._canceller else block)
+        block = self._canceller.process(block) if self._canceller else block
+        self._queue.put_nowait(block)
+        if self.tap is not None:
+            try:
+                self.tap(block)
+            except Exception as exc:  # a listener must never break the microphone
+                print(f"  [mic tap failed: {type(exc).__name__}: {exc}]", flush=True)
 
     def stop(self) -> None:
         if self._stream is not None:
@@ -447,7 +464,7 @@ class DocChatSpeechClient:
 
         rate = 16000
         ws = self._stt_ws
-        hint = self._noise.value if self._noise.value is not None else DEFAULT_NOISE_HINT
+        hint = self._noise.value if self._noise.value is not None else room_noise_hint()
         detector = PauseDetector(vad_hold, noise=hint)
         state: dict[str, float | None] = {"last_voiced": None, "finalize_sent": None}
         partial = [""]  # the latest interim text
@@ -480,6 +497,7 @@ class DocChatSpeechClient:
                 sent.extend(chunk)
                 if pause and vad_hold > 0:
                     state["finalize_sent"] = time.perf_counter()
+                    mark("vad_end")
                     awaiting[0] = True
                     await ws.send(FinalizeMessage().to_json())
 
@@ -506,6 +524,7 @@ class DocChatSpeechClient:
                     text = parsed.text.strip()
                     if parsed.end_of_turn and text:
                         now = time.perf_counter()
+                        mark("asr_final", text=text)
                         own = bytes(
                             sent
                         )  # nothing is sent once finalize is out, so this is the turn
@@ -575,6 +594,8 @@ class DocChatSpeechClient:
             self._current_context += 1
             ctx = self._current_context
 
+            if t_speech_end is not None:  # the first sentence of the turn
+                mark("tts_request")
             await self._tts_ws.send(SpeakMessage(context=ctx, text=text, voice=voice).to_json())
             t_speak_start = time.perf_counter()
 
@@ -590,6 +611,8 @@ class DocChatSpeechClient:
                         continue
                     if first_audio_ms is None:
                         t_first = time.perf_counter()
+                        if t_speech_end is not None:
+                            mark("tts_first_audio")
                         first_audio_ms = (t_first - t_speak_start) * 1000.0
                         if t_speech_end is not None:
                             speech_end_to_first = (t_first - t_speech_end) * 1000.0

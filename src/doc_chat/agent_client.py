@@ -31,6 +31,7 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 from websockets.sync.client import connect
 
 from doc_chat.chain import FLUSH
+from doc_chat.fdbench_marks import mark
 
 DEFAULT_URL = "ws://127.0.0.1:8781"
 FAST_PHRASES = Path(__file__).resolve().parents[2] / "config" / "fast_phrases.json"
@@ -56,6 +57,7 @@ class AgentChatModel(BaseChatModel):
     timeout: float = 30.0
     token: str | None = None  # default: $LAN_SPEECH_TOKEN, sent as a bearer header
     on_event: Any = None  # called with every {"event": ...} message (worker thread)
+    music_state: Any = None  # () -> "paused" | None: sent with each request so the server agrees
 
     @property
     def _llm_type(self) -> str:
@@ -82,17 +84,27 @@ class AgentChatModel(BaseChatModel):
         token = self.token if self.token is not None else os.environ.get("LAN_SPEECH_TOKEN")
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         with connect(self.url, open_timeout=self.timeout, additional_headers=headers) as ws:
-            ws.send(json.dumps({"messages": to_wire(messages)}))
+            request: dict[str, Any] = {"messages": to_wire(messages)}
+            if self.music_state is not None and (state := self.music_state()):
+                request["music"] = state
+            ws.send(json.dumps(request))
+            mark("llm_request", messages=len(request["messages"]))
             first = True
+            first_token = True
             while True:
                 event = json.loads(ws.recv(timeout=self.timeout))
                 if "text" in event:
+                    if first_token:
+                        first_token = False
+                        mark("llm_first_token")
                     if first and not event.get("flush") and self.on_event is not None:
                         self.on_event({"event": "text"})  # the `say` is not the answer
                     first = first and bool(event.get("flush"))
                     text = event["text"] + (FLUSH if event.get("flush") else "")
                     yield ChatGenerationChunk(message=AIMessageChunk(content=text))
                 elif "event" in event:
+                    if event.get("event") == "tool":
+                        mark("tool_start", name=str(event.get("name", "")))
                     if self.on_event is not None:
                         self.on_event(event)
                 elif event.get("done"):

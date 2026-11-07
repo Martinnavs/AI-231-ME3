@@ -573,12 +573,22 @@ class AgentServer:
         result: dict[str, Any] = await work
         return result
 
+    async def sync_music_paused(self) -> None:
+        """The client paused the music itself (the user spoke over it): the music tool's state
+        follows, silently, so a bare "play" resumes it. A no-op when nothing is playing."""
+        if "music" not in self.tools:
+            return
+        with contextlib.suppress(Exception):
+            await self.call_tool("music", {"action": "pause", "query": ""})
+
     async def handle(self, ws: ServerConnection) -> None:
         request = json.loads(await ws.recv())
         if request.get("notices"):
             await self.notice_channel(ws)
             return
         messages = [m for m in request["messages"] if m.get("role") != "system"]
+        if request.get("music") == "paused":
+            await self.sync_music_paused()
 
         payloads = PayloadFilter()
 

@@ -40,6 +40,7 @@ from doc_chat.chain import (
 )
 from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
+from doc_chat.fdbench_marks import mark
 from doc_chat.fillers import Fillers, TurnFillers, strip_fillers
 from doc_chat.notices import Notice, NoticeFeed, notice_line
 from doc_chat.speech import (
@@ -350,6 +351,8 @@ class Session:
                 self._answer_started = now
             if cue:
                 pcm = mix_beep(pcm, pushed[0], rate, beep_s)
+            if pushed[0] == 0:
+                mark("audio_out")
             pushed[0] += len(pcm) // 2
             if player is not None:
                 player.push(pcm)
@@ -453,16 +456,39 @@ class Session:
             self._music = MusicPlayer(
                 connect,
                 canceller=self.client.canceller,
-                # the mic's loudness check also hears the music itself, which kept it ducked;
-                # so only the agent's own speech ducks it unless MUSIC_DUCK_ON_VOICE=1
-                user_speaking=lambda: (
-                    os.environ.get("MUSIC_DUCK_ON_VOICE") == "1"
-                    and time.perf_counter() - self.client.last_voiced < 0.4
-                    and self.client.last_voiced > 0
+                tts_playing=lambda: (
+                    self._player is not None and not getattr(self._player, "done", False)
                 ),
-                tts_playing=lambda: self._player is not None,
             )
+            self._attach_music_voice()
         self._music_pool.submit(self._music.handle, event)  # one worker: events stay in order
+
+    def _attach_music_voice(self) -> None:
+        """The user's voice over the music pauses it (--music-pause-vad): a Silero detector of
+        its own, fed by the mic hub's tap."""
+        hub = self.client.hub
+        if hub is None or not getattr(self.args, "music_pause_vad", True):
+            return
+        try:
+            from doc_chat.music import MusicVoice
+
+            model = str(getattr(self.args, "vad_model", "assets/silero_vad.onnx"))
+            from doc_chat.calibrate import load_calibration, music_gate_db
+
+            gate = music_gate_db(load_calibration())
+            hub.tap = MusicVoice(self._music, model, gate_db=gate).feed
+        except Exception as exc:
+            print(f"  [music pause by voice is off: {type(exc).__name__}: {exc}]", flush=True)
+
+    def music_state(self) -> str | None:
+        """Sent with each agent request: "paused" while the music was paused by the user's voice,
+        so the music tool agrees and a bare "play" resumes it."""
+        return "paused" if self._music is not None and self._music.auto_paused else None
+
+    def _pause_music_for_user(self) -> None:
+        """The user talked over a reply: the music, held for it, stays paused afterwards."""
+        if self._music is not None:
+            self._music.user_pause()
 
     def open_url(self, url: str) -> bool:
         """Open `url` in the default browser if, and only if, it is a page of an app served by the
@@ -550,6 +576,8 @@ class Session:
             f"  [interrupted (barge_in); stopped {cancel_ms:.0f} ms after it heard you]", flush=True
         )
         self._quiet_notices()
+        mark("interrupted")
+        self._pause_music_for_user()
         return Interruption("barge_in", blocks, cancel_ms, 0.0)
 
     def _quiet_notices(self) -> None:
@@ -818,6 +846,7 @@ class Session:
         finally:
             if player is not None:
                 await asyncio.to_thread(player.close)
+                mark("bot_stopped")
 
         underruns = getattr(player, "underruns", None)
         if self.out_dir is not None:
@@ -1129,6 +1158,8 @@ class Session:
                 "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
             }
         )
+        mark("interrupted")
+        self._pause_music_for_user()
         return Interruption(kind, blocks, cancel_ms, (t0 - t_final) * 1000.0)
 
     async def _watch_for_voice(self, tail: bytes = b"") -> list[bytes]:
@@ -1352,6 +1383,9 @@ async def async_main(args: argparse.Namespace) -> int:
         retriever = BM25Retriever.from_documents(chunks, k=args.top_k, preprocess_func=tokenize)
 
     client = DocChatSpeechClient(server_url=args.server)
+    from doc_chat.calibrate import describe, load_calibration
+
+    print(f"  [{describe(load_calibration())}]", flush=True)
     await client.connect()
     hub: MicHub | None = None
     if args.mic and args.barge_in:
@@ -1420,6 +1454,7 @@ async def async_main(args: argparse.Namespace) -> int:
             session.fillers = fillers
         if agent_llm is not None:  # open_url and music events arrive whether or not fillers are on
             agent_llm.on_event = session.on_agent_event
+            agent_llm.music_state = session.music_state
         if agent_llm is not None and getattr(args, "preload_phrases", True):
             phrases = load_fast_phrases()
             if phrases:  # the fast path's fixed replies start with no TTS wait
@@ -1666,6 +1701,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="say a short pre-recorded line when an answer is slow: a tool's line when it is "
         "called, a stall at 1.2 s, a notice at 2.5 s, an apology at 8 s (config/fillers.json)",
+    )
+    parser.add_argument(
+        "--music-pause-vad",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="pause the music when the user speaks over it (a Silero detector on the mic, "
+        "--vad-model); a pause by barge-in during a reply stays on either way. Resumes only on "
+        "'play' / 'resume'",
     )
     parser.add_argument(
         "--warmup",
