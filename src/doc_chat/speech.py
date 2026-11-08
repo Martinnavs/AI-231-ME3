@@ -139,6 +139,13 @@ def room_noise_hint() -> float:
     return DEFAULT_NOISE_HINT if cal is None else float(10 ** (cal["noise_db"] / 20.0))
 
 
+def mic_device(value: str | None) -> int | str | None:
+    """--mic-device as sounddevice wants it: an index stays a number, a name stays text."""
+    if value is None or not value.strip():
+        return None
+    return int(value) if value.strip().isdigit() else value.strip()
+
+
 class MicHub:
     """One microphone stream kept open for the whole session.
 

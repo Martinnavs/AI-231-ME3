@@ -3,8 +3,10 @@
 # laptop microphone when no headset is connected. Run it by hand before a session, in its own
 # terminal, and leave it open; Ctrl-C puts everything back.
 #
-# Usage: scripts/headset_mic.sh [--no-hold]
+# Usage: scripts/headset_mic.sh [--no-hold] [--source-file FILE]
 #   HEADSET_MATCH=WH-1000XM4   text to find in the Bluetooth card name or description
+#   --source-file FILE         write the chosen PipeWire source name to FILE once it is ready
+#                              (used by `make calibrate`)
 #
 # Why this exists (docs/HEADSET-MIC.md): the XM4 is playback-only (A2DP, no microphone) until
 # something records from it, and it drops back about 20 s after the last recording stops. A
@@ -15,7 +17,15 @@ set -euo pipefail
 
 MATCH="${HEADSET_MATCH:-WH-1000XM4}"
 HOLD=1
-[[ "${1:-}" == "--no-hold" ]] && HOLD=0
+SOURCE_FILE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-hold) HOLD=0 ;;
+        --source-file) SOURCE_FILE="${2:?--source-file needs a path}"; shift ;;
+        *) echo "usage: $0 [--no-hold] [--source-file FILE]" >&2; exit 2 ;;
+    esac
+    shift
+done
 
 command -v pactl > /dev/null || { echo "pactl not found (PipeWire/PulseAudio needed)" >&2; exit 1; }
 
@@ -54,6 +64,7 @@ if [[ -z "$card" ]]; then
     pactl set-source-mute "$src" 0
     echo "No '$MATCH' connected: using the laptop microphone."
     echo "  source: $src  (level now: $(level_db "$src"))"
+    [[ -n "$SOURCE_FILE" ]] && echo "$src" > "$SOURCE_FILE"
     echo "Run the client as usual:  uv run --group laptop python -m doc_chat --mic ..."
     echo "(default source left set to the laptop microphone; this script does not need to stay open)"
     exit 0
@@ -88,6 +99,7 @@ pactl set-source-volume "$src" 100%
 echo "Headset: $card"
 echo "  profile: $(pactl list cards | awk -v c="$card" '$0 ~ "Name: " c {f=1} f && /Active Profile/ {print $3; exit}')"
 echo "  source:  $src  (level now: $(level_db "$src"); wear it on your head and speak close)"
+[[ -n "$SOURCE_FILE" ]] && echo "$src" > "$SOURCE_FILE"
 echo "Run the client in another terminal:"
 echo "  PULSE_SOURCE=$src uv run --group laptop python -W ignore -m doc_chat --mic --mic-device pulse ..."
 echo "Check first that it hears you, not the room: say a phrase and compare with the laptop"

@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
         pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall pi-tune pi-netem \
-        spotify-login
+        spotify-login calibrate
 
 help: ## List documented targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:[^#]*## /\t/' | sort | awk -F'\t' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -47,6 +47,9 @@ status: ## (laptop) read-only: cable, Pi ping, ports. PI_LOGS=1 adds the Pi logs
 
 talk: ## (laptop) the live loop in the foreground; needs the microphone
 	scripts/stack/talk.sh
+
+calibrate: ## (laptop) room calibration + the six baseline phrases; HEADSET=1 uses the headset microphone (else the laptop one); needs you at the mic
+	scripts/calibrate.sh $(if $(HEADSET),--headset)
 
 doctor-tools: ## (laptop) what the delegate sandbox can do with git, GitHub, Hugging Face (free; --offline skips the network)
 	.venv/bin/python scripts/delegate_doctor.py

@@ -51,6 +51,7 @@ from doc_chat.speech import (
     MicHub,
     NoSpeech,
     SpokenTurn,
+    mic_device,
     with_lead_in,
 )
 from doc_chat.turnend import ADD_PROMPTS, TextTurnModel, declines_to_add
@@ -215,13 +216,6 @@ def write_session_info(directory: Path, args: argparse.Namespace, llm: Any | Non
         "server_note": "start the speech server with the flags you want recorded in --note",
     }
     (directory / "session.json").write_text(json.dumps(info, indent=1, default=str) + "\n")
-
-
-def mic_device(value: str | None) -> int | str | None:
-    """--mic-device as sounddevice wants it: an index stays a number, a name stays text."""
-    if value is None or not value.strip():
-        return None
-    return int(value) if value.strip().isdigit() else value.strip()
 
 
 def _failed_record(turn: int, question: str, exc: Exception) -> dict[str, Any]:
