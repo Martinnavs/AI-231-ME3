@@ -97,6 +97,12 @@ def test_chain_not_idle_before_build_and_task_content() -> None:
     bare = good()
     bare["turns"][1]["calls"][0]["args"]["task"] = "Make a page about it."
     assert ce.delegate_task_has_facts_or_url(bare) is False
+    bare["turns"][1]["calls"][0]["args"]["task"] = (
+        "Make it. Notes and sources from the conversation are in /sandbox/scratch/NOTES.md: read it"
+    )
+    assert ce.delegate_task_has_facts_or_url(bare) is True
+    bare["turns"][1]["calls"][0]["args"]["task"] = "Make it from these details: x"
+    assert ce.delegate_task_has_facts_or_url(bare) is True
     assert ce.delegate_task_has_facts_or_url({"turns": [turn("hi")]}) is None
 
 

@@ -123,11 +123,16 @@ def chain_not_idle_before_build(trace: Trace) -> bool | None:
 
 
 def delegate_task_has_facts_or_url(trace: Trace) -> bool | None:
+    """The task carries the notes sentence, a URL, or says the facts are verified."""
     turn = _build_turn(trace)
     if turn is None:
         return None
     task = next(c["args"].get("task", "") for c in turn["calls"] if c["tool"] == "delegate")
-    return bool(URL.search(task) or re.search(r"\b(verified|facts)\b", task, re.IGNORECASE))
+    return bool(
+        "/sandbox/scratch/NOTES.md" in task
+        or URL.search(task)
+        or re.search(r"\b(verified|facts|details)\b", task, re.IGNORECASE)
+    )
 
 
 def deliverable_sources(trace: Trace) -> bool | None:
@@ -380,7 +385,7 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
         record: list[dict[str, Any]] = []
         chain = ChainState(state)
         pad = load("voice_pipeline.scratchpad").Scratchpad(workspace / "scratch" / "NOTES.md")
-        chain.on_change = lambda event: pad.reset(keep_current_turn=event == "start")
+        chain.on_change = lambda event: pad.reset() if event == "end" else None
         servers, optional = standard_servers(None)
         tools = await build_tools(
             record, servers=servers, optional=optional, chain=chain, scratchpad=pad

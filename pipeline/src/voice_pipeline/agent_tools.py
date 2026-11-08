@@ -152,8 +152,6 @@ _turn_lookups: list[str] = []
 
 def reset_turn_lookups() -> None:
     _turn_lookups.clear()
-    if SCRATCHPAD is not None:
-        SCRATCHPAD.mark_turn()
 
 
 def job_started(result: Any) -> bool:
