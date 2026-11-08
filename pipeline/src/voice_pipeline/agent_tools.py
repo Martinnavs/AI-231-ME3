@@ -134,6 +134,16 @@ def _job_row(result: Any) -> dict[str, Any] | None:
     return result if isinstance(result, dict) else None
 
 
+# One lookup per question: within a turn a second web lookup gets the first one's text back.
+LOOKUP_TOOLS = frozenset({"web_research", "web_answer", "wiki_summary"})
+REPEAT_PREFIX = "(already looked up this turn) "
+_turn_lookups: list[str] = []
+
+
+def reset_turn_lookups() -> None:
+    _turn_lookups.clear()
+
+
 def job_started(result: Any) -> bool:
     """Whether a `delegate` result says the job was started and runs in the background."""
     row = _job_row(result)
@@ -149,10 +159,13 @@ def started_job_id(result: Any) -> str:
 CHAIN: ChainState | None = None
 CHAIN_UPDATE_DESCRIPTION = (
     "Record where a multi-step task stands so the next turn knows. phase is one of "
-    "awaiting_name, researching, awaiting_fact_approval, building, idle; subject is who or what "
+    "awaiting_name, researching, awaiting_fact_approval, building; subject is who or what "
     "it is about; facts is a few short verified facts, separated by ' | ' (while researching they "
     "add up). Returns ok."
 )
+
+
+IDLE_REFUSED = "ok, the task stays open until it finishes or you say cancel"
 
 
 def chain_update_schema(chain: ChainState, record: list[dict[str, Any]]) -> FunctionSchema:
@@ -164,6 +177,9 @@ def chain_update_schema(chain: ChainState, record: list[dict[str, Any]]) -> Func
             fields["subject"] = str(args["subject"])[:80]
         if args.get("facts"):
             fields["facts"] = re.split(r"\s*(?:\||\n)\s*", str(args["facts"]))
+        if args.get("phase") == "idle":  # only code ends a chain: expiry, cancel words, done
+            await params.result_callback(IDLE_REFUSED)
+            return
         try:
             chain.update(str(args.get("phase") or ""), **fields)
         except ValueError as exc:
@@ -177,7 +193,7 @@ def chain_update_schema(chain: ChainState, record: list[dict[str, Any]]) -> Func
         properties={
             "phase": {
                 "type": "string",
-                "description": "awaiting_name, researching, awaiting_fact_approval, building, idle",
+                "description": "awaiting_name, researching, awaiting_fact_approval, building",
             },
             "subject": {"type": "string", "description": "who or what the task is about"},
             "facts": {"type": "string", "description": "short facts separated by ' | '"},
@@ -542,6 +558,18 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         if CHAIN is not None and CHAIN.active() and not is_chain_tool(schema.name):
             CHAIN.touch_unrelated()
         params.arguments = args  # the real tool never sees `say`
+        if schema.name in LOOKUP_TOOLS:
+            if _turn_lookups:
+                await params.result_callback(REPEAT_PREFIX + _turn_lookups[0])
+                return
+            first_callback = params.result_callback
+
+            async def remember(result: Any, *, properties: Any = None) -> None:
+                if isinstance(result, str) and not FAILURE.search(result):
+                    _turn_lookups.append(result)
+                await first_callback(result, properties=properties)
+
+            params.result_callback = remember
         if schema.name == "device_status" and params.tool_call_id != "router":
             # the router path words the status itself (agent_server.run_routed)
             deliver_status = params.result_callback

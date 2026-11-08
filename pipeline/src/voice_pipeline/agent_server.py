@@ -55,7 +55,7 @@ from voice_pipeline.agent_tools import (
     with_builtin_search,
     without_tools,
 )
-from voice_pipeline.chain_state import ChainState
+from voice_pipeline.chain_state import ChainState, is_followup, wants_cancel
 from voice_pipeline.device_say import device_sentence
 from voice_pipeline.doc_answer import (
     DOC_ANSWER_TIMEOUT_S,
@@ -557,6 +557,19 @@ class AgentServer:
         files = row.get("files") or []
         if row.get("status") == "done" and files:
             chain.update(artifact_path=str(files[0]))
+        if row.get("status") == "done":
+            chain.mark_done()
+
+    async def drop_chain(self, on_text: Any) -> dict[str, Any]:
+        """The user said never mind: end the chain, and stop its job if it still runs."""
+        chain = self.chain
+        assert chain is not None
+        job = str(chain.data["job_id"])
+        chain.update("idle")
+        if job and "delegate_cancel" in self.tools:
+            with contextlib.suppress(Exception):
+                await self.call_tool("delegate_cancel", {"job": job})
+        return await self.spoken("Okay, dropped.", on_text)
 
     async def notice_channel(self, ws: ServerConnection) -> None:
         """A push channel for finished jobs (R1): every notice goes out the moment it appears in
@@ -643,14 +656,27 @@ class AgentServer:
                 if last.get("role") == "user"
                 else None
             )
+            agent_tools.reset_turn_lookups()
+            chain = self.chain
+            said = question.current
+            if (
+                chain is not None
+                and chain.active()
+                and chain.data["done"]
+                and not wants_cancel(said)
+                and not is_followup(said)
+            ):
+                chain.update("idle")  # the finished task is over; its facts go with it
             work: Any
-            if found is not None and (found.tool == "clock" or found.tool in self.tools):
+            if chain is not None and chain.active() and wants_cancel(said):
+                work = self.drop_chain(on_text)
+            elif found is not None and (found.tool == "clock" or found.tool in self.tools):
                 work = self.fast(found, on_text)
-            elif self.chain is not None and self.chain.active() and last.get("role") == "user":
+            elif chain is not None and chain.active() and last.get("role") == "user":
                 # a research/build task is under way: Gemini sees its state, the router does not
                 steered = [
                     *messages[:-1],
-                    {**last, "content": f"{last['content']}\n{self.chain.block()}"},
+                    {**last, "content": f"{last['content']}\n{chain.block()}"},
                 ]
                 work = self.gemini(steered, on_text, on_tool, on_say)
             elif (

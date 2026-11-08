@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -32,6 +33,33 @@ FACT_CHARS = 160
 CHAIN_TOOLS = frozenset({"chain_update", "web_research", "web_answer"})
 
 
+# The user drops the task: whole phrases, any case.
+CANCEL = re.compile(
+    r"\b(?:never mind|nevermind|forget it|cancel that|cancel it|start over|stop that)\b",
+    re.IGNORECASE,
+)
+_ANSWER_WORDS = frozenset(
+    {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "please", "no", "nope", "nah", "go"}
+    | {"ahead", "do", "it", "that", "thanks", "thank", "you"}
+)
+_REFERS_BACK = frozenset(
+    {"it", "that", "this", "them", "those", "these", "he", "she", "they", "him", "her"}
+)
+SHORT_TURN_WORDS = 3
+
+
+def wants_cancel(text: str) -> bool:
+    return CANCEL.search(text) is not None
+
+
+def is_followup(text: str) -> bool:
+    """A yes/no answer, a very short turn, or one that points back at what was just made."""
+    words = re.findall(r"[a-z']+", text.lower())
+    if len(words) <= SHORT_TURN_WORDS or all(w in _ANSWER_WORDS for w in words):
+        return True
+    return any(w in _REFERS_BACK for w in words)
+
+
 def is_chain_tool(name: str) -> bool:
     return name in CHAIN_TOOLS or name.startswith("delegate")
 
@@ -44,6 +72,7 @@ def _blank() -> dict[str, Any]:
         "job_id": "",
         "artifact_path": "",
         "unrelated_turns": 0,
+        "done": False,
         "focus": {"entity": "", "tool": ""},
         "updated_at": 0.0,
     }
@@ -100,7 +129,13 @@ class ChainState:
                     value = new[:MAX_FACTS]
             self.data[key] = value
         self.data["unrelated_turns"] = 0
+        self.data["done"] = False
         self.data["updated_at"] = self.clock()
+        self._save()
+
+    def mark_done(self) -> None:
+        """The chain's deliverable is finished; the next turn that is not a follow-up ends it."""
+        self.data["done"] = True
         self._save()
 
     def touch_unrelated(self) -> None:
