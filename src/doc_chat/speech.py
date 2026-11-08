@@ -147,9 +147,16 @@ class MicHub:
     piles up and is thrown away with `drain` (it is the assistant's own voice, mostly).
     """
 
-    def __init__(self, rate: int = 16000, block_ms: int = 100, canceller: Any = None) -> None:
+    def __init__(
+        self,
+        rate: int = 16000,
+        block_ms: int = 100,
+        canceller: Any = None,
+        device: int | str | None = None,
+    ) -> None:
         self.rate = rate
         self.block_ms = block_ms
+        self.device = device  # sounddevice index or name part; None = the system default input
         self._canceller = canceller  # an EchoCanceller: every block goes through it, in order
         self._queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._stream: Any = None
@@ -169,6 +176,7 @@ class MicHub:
             dtype="int16",
             blocksize=self.rate * self.block_ms // 1000,
             callback=on_audio,
+            device=self.device,
         )
         self._stream.start()
 
@@ -224,6 +232,7 @@ class DocChatSpeechClient:
         self._noise = NoiseFloor()
         self._current_context: int = 0
         self.hub: MicHub | None = None  # set to listen to the microphone across turns
+        self.mic_device: int | str | None = None  # input for the per-turn stream (no hub)
         self.canceller: Any = None  # an EchoCanceller, handed to every remote player
         self._active_speak_task: asyncio.Task[Any] | None = None
         self.last_voiced: float = 0.0  # perf_counter of the last voiced block of the current listen
@@ -433,6 +442,7 @@ class DocChatSpeechClient:
             dtype="int16",
             blocksize=rate * block_ms // 1000,
             callback=on_audio,
+            device=self.mic_device,
         ):
             while True:
                 yield await queue.get()

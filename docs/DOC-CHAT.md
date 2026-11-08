@@ -61,6 +61,7 @@ Models are fetched with `uv run python scripts/fetch_laptop_models.py --server-o
 | Flag | What it does |
 |---|---|
 | `--mic` | Hands-free conversation loop from the default microphone. Half-duplex: the mic is closed while the answer plays (no echo, but no barge-in). |
+| `--mic-device D` | With `--mic`: the input, a sounddevice index or part of a name (default: the system default input). See `docs/HEADSET-MIC.md` and `scripts/headset_mic.sh`. |
 | `--text "question"` | One typed question; skips speech recognition. |
 | `--wav a.wav b.wav` | Replays recordings as if spoken, paced in real time. |
 | `--play` | Play the answer through the speakers (playback runs in the background, so the next sentence can already be synthesizing). |

@@ -217,6 +217,13 @@ def write_session_info(directory: Path, args: argparse.Namespace, llm: Any | Non
     (directory / "session.json").write_text(json.dumps(info, indent=1, default=str) + "\n")
 
 
+def mic_device(value: str | None) -> int | str | None:
+    """--mic-device as sounddevice wants it: an index stays a number, a name stays text."""
+    if value is None or not value.strip():
+        return None
+    return int(value) if value.strip().isdigit() else value.strip()
+
+
 def _failed_record(turn: int, question: str, exc: Exception) -> dict[str, Any]:
     return {
         "turn": turn,
@@ -923,12 +930,15 @@ class Session:
         if self.add_note is not None:
             rec.update(self.add_note)
             self.add_note = None
-        if self._addressee_note is not None:
-            rec.update(self._addressee_note)
-            self._addressee_note = None
+        rec.update(self._take_addressee_note())
         self.log(rec)
         self.history.add(question, " ".join(spoken.sentences))
         print(timing_line(rec), flush=True)
+
+    def _take_addressee_note(self) -> dict[str, Any]:
+        """The gate's verdict for the turn being logged (--addressee log), once."""
+        note, self._addressee_note = self._addressee_note, None
+        return note or {}
 
     async def run_text(self) -> None:
         try:
@@ -1173,6 +1183,7 @@ class Session:
                 "turn": idx,
                 "question": heard.text,
                 "answer_words": len(spoken.split()) if kind == "barge_in" else 0,
+                **self._take_addressee_note(),
                 "interrupted": kind,
                 "cancel_to_silence_ms": round(cancel_ms, 1),
                 "interrupt_after_final_ms": round((t0 - t_final) * 1000.0, 1),
@@ -1413,6 +1424,7 @@ async def async_main(args: argparse.Namespace) -> int:
 
     print(f"  [{describe(load_calibration())}]", flush=True)
     await client.connect()
+    client.mic_device = mic_device(args.mic_device)
     hub: MicHub | None = None
     if args.mic and args.barge_in:
         canceller = None
@@ -1420,7 +1432,7 @@ async def async_main(args: argparse.Namespace) -> int:
             from doc_chat.aec import EchoCanceller
 
             canceller = EchoCanceller(args.aec_lead_ms)
-        hub = MicHub(canceller=canceller)
+        hub = MicHub(canceller=canceller, device=mic_device(args.mic_device))
         hub.start()  # one microphone stream for the whole session: heard while it thinks and talks
         client.hub = hub
         client.canceller = canceller
@@ -1548,6 +1560,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     group.add_argument("--wav", nargs="+", help="WAV audio input file(s)")
     group.add_argument("--mic", action="store_true", help="Microphone input via sounddevice")
     group.add_argument("--text", help="Text question string (skips STT)")
+    parser.add_argument(
+        "--mic-device",
+        default=None,
+        help="with --mic: input device, a sounddevice index or part of its name "
+        "(default: the system default; `python -m sounddevice` lists them)",
+    )
 
     parser.add_argument("--play", action="store_true", help="Play audio via sounddevice")
     parser.add_argument(

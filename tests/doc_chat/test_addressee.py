@@ -193,3 +193,27 @@ async def test_on_still_answers_a_real_request_and_tracks_the_reply_time() -> No
     await s.handle(2, heard("Ten minutes."))
     assert chain.questions[-1] == "Ten minutes."
     assert json.loads(log.getvalue().splitlines()[1])["addressee"] == "addressed"
+
+
+async def test_the_verdict_is_taken_once_so_an_interrupted_turn_cannot_leak_it() -> None:
+    s, _chain, _log = make_session(addressee="log", addressee_names="")
+    s._addressee_note = {"addressee": "ignore", "addressee_reasons": ["vocative"]}
+    assert s._take_addressee_note() == {"addressee": "ignore", "addressee_reasons": ["vocative"]}
+    assert s._take_addressee_note() == {}
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("", None),
+        ("  ", None),
+        ("28", 28),
+        (" WH-1000XM4 ", "WH-1000XM4"),
+        ("pulse", "pulse"),
+    ],
+)
+def test_mic_device_keeps_an_index_numeric_and_a_name_text(value: Any, expected: Any) -> None:
+    from doc_chat.__main__ import mic_device
+
+    assert mic_device(value) == expected
