@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -45,8 +47,39 @@ SYSTEM = (
     "250 lines at most, drawn with plain shapes, no images or sound files. Git works over https "
     "(clone, log, diff, local commits); there is no gh, hf, ssh or login and no credentials, so "
     "you cannot push or reach private repos, and for Hugging Face use curl on public URLs; if the "
-    "request needs a push or private access, say so in your first spoken sentence and stop."
+    "request needs a push or private access, say so in your first spoken sentence and stop. For a "
+    "research task (a person, latest facts, sources) search first with web_research or web_answer "
+    "(about 3 lookups at most), write /sandbox/SOURCES.json, a list of {url, fact}, BEFORE any "
+    "HTML, build only from those facts, and end the spoken summary by naming the sources."
 )
+
+SOURCES_FILE = "SOURCES.json"
+SOURCES_MISSING = (
+    "You must save the facts and URLs you used to /sandbox/SOURCES.json before finishing."
+)
+STEPS_WARNING_AT = 7
+STEPS_WARNING = "7 steps remain: finalize the files and summarize."
+UNSOURCED = "Unsourced: "
+WEB_TOOLS = ("web_research", "web_answer")
+RESEARCH_WORDS = (
+    "person|biography|bio|research|latest|current|winner|facts|sources|http"
+    "|about (?:me|him|her|them|my)"
+)
+
+
+def is_research(task: str, tools: Sequence[ToolSpec]) -> bool:
+    """A research-type task and a web tool on offer (games and apps are not gated)."""
+    if not any(t.tool in WEB_TOOLS for t in tools):
+        return False
+    return re.search(rf"\b(?:{RESEARCH_WORDS})", task, re.IGNORECASE) is not None
+
+
+async def has_sources(tools: Tools) -> bool:
+    try:
+        outcome = await tools.call("code__read_file", {"path": SOURCES_FILE})
+    except Exception:
+        return False
+    return not outcome.is_error and outcome.text.strip() not in ("", "[]", "{}")
 
 
 class Tools(Protocol):
@@ -91,6 +124,7 @@ class RunResult:
     tool_calls: list[str] = field(default_factory=list)
     json_errors: int = 0
     repeats: int = 0
+    gated: bool = False  # sent back once to save SOURCES.json
 
 
 class BudgetExceeded(Exception):
@@ -217,13 +251,18 @@ async def run_task(
     result = RunResult()
     started = time.monotonic()
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system},
+        {"role": "system", "content": f"Today is {date.today().isoformat()}. {system}"},
         {"role": "user", "content": task},
     ]
     schema = openai_tools(tools.tools)
     last = [""]
+    research = is_research(task, tools.tools)
+    warned = False
     try:
         for _ in range(limits.max_steps):
+            if result.steps == limits.max_steps - STEPS_WARNING_AT and not warned:
+                warned = True
+                messages.append({"role": "user", "content": STEPS_WARNING})
             if ledger is not None:
                 ledger.check(pool)
             if time.monotonic() - started > limits.max_seconds:
@@ -255,11 +294,18 @@ async def run_task(
             calls = message.get("tool_calls") or []
             if not calls:
                 result.summary = (message.get("content") or "").strip()
+                unsourced = research and not await has_sources(tools)
+                if unsourced and not result.gated:
+                    result.gated = True
+                    messages.append({"role": "user", "content": SOURCES_MISSING})
+                    continue
                 wrote = any(name in WRITES for name in result.tool_calls)
                 if not result.summary and not wrote:
                     result.status, result.summary = "failed", NO_RESULT
                 else:
                     result.status = "done"
+                    if unsourced:
+                        result.summary = UNSOURCED + result.summary
                 break
             if result.first_call_s is None:
                 result.first_call_s = time.monotonic() - started
