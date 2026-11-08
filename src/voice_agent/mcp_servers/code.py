@@ -228,9 +228,18 @@ async def run_python(
     }
 
 
+GIT_IDENTITY = (
+    ("GIT_AUTHOR_NAME", "Voice Agent"),
+    ("GIT_COMMITTER_NAME", "Voice Agent"),
+    ("GIT_AUTHOR_EMAIL", "voice-agent@localhost"),
+    ("GIT_COMMITTER_EMAIL", "voice-agent@localhost"),
+    ("GIT_TERMINAL_PROMPT", "0"),  # a missing credential fails at once instead of waiting
+)
+
+
 def _extras() -> dict[str, Any]:
-    """Policy fields set by --network / --pylibs (delegate jobs); empty by default."""
-    extras: dict[str, Any] = {"network": _state.network}
+    """Policy fields: a git identity always; --network / --pylibs (delegate jobs) when set."""
+    extras: dict[str, Any] = {"network": _state.network, "env": GIT_IDENTITY}
     libs = _state.pylibs
     if libs is not None and libs.is_dir():
         env = (
@@ -239,7 +248,7 @@ def _extras() -> dict[str, Any]:
             ("SDL_AUDIODRIVER", "dummy"),
             ("PYGAME_HIDE_SUPPORT_PROMPT", "1"),
         )
-        extras |= {"ro_binds": (libs,), "env": env}
+        extras |= {"ro_binds": (libs,), "env": env + GIT_IDENTITY}
     return extras
 
 

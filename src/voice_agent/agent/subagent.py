@@ -42,7 +42,10 @@ SYSTEM = (
     "first write_file of the first part, then add the rest with further calls (append with bash "
     "or edit_file), or split the program into several smaller files; one tool call must stay "
     "under about 6000 words of code. Keep a simple game small: one self-contained file of about "
-    "250 lines at most, drawn with plain shapes, no images or sound files."
+    "250 lines at most, drawn with plain shapes, no images or sound files. Git works over https "
+    "(clone, log, diff, local commits); there is no gh, hf, ssh or login and no credentials, so "
+    "you cannot push or reach private repos, and for Hugging Face use curl on public URLs; if the "
+    "request needs a push or private access, say so in your first spoken sentence and stop."
 )
 
 

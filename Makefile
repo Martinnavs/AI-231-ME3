@@ -48,6 +48,9 @@ status: ## (laptop) read-only: cable, Pi ping, ports. PI_LOGS=1 adds the Pi logs
 talk: ## (laptop) the live loop in the foreground; needs the microphone
 	scripts/stack/talk.sh
 
+doctor-tools: ## (laptop) what the delegate sandbox can do with git, GitHub, Hugging Face (free; --offline skips the network)
+	.venv/bin/python scripts/delegate_doctor.py
+
 pi-check: ## (run ON the Pi) config/pi.env, venv, token mode, audio device, the six clips
 	scripts/stack/pi_check.sh
 
