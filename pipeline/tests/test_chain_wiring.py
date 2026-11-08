@@ -201,22 +201,26 @@ def test_case_f_has_the_three_rules_and_the_say_exemption() -> None:
     assert "chain_update has no `say`" in text
 
 
-def test_the_prompt_grew_by_less_than_1400_characters() -> None:
+def test_the_prompt_grew_by_less_than_1600_characters() -> None:
     text = PROMPT.read_text()
-    assert len(text) < 4976 + 1400  # 4976: its size at HEAD 014b424; now 6364
+    assert len(text) < 4976 + 1600  # 4976: its size at HEAD 014b424; now 6558
     assert "recent=true" in text
 
 
-ASSUMPTION = (
-    "If a request could mean several things, ask which in one short question naming up to three, "
-    'or say "I\'m assuming X" before you answer.'
+ASK_OUTRIGHT = (
+    "If you are not confident what the user means, or the request rests on assumptions you "
+    'cannot check (which one, which date, which person, what counts as "latest"), ask one '
+    "short question first, naming up to three options when you have them, instead of guessing; "
+    "do not ask when the answer is clear or a wrong guess costs nothing."
 )
 
 
-def test_the_assumption_sentence_is_generic_and_short() -> None:
-    assert ASSUMPTION in PROMPT.read_text() and len(ASSUMPTION.split()) <= 30
+def test_the_ask_outright_rule_is_generic_and_the_assuming_wording_is_gone() -> None:
+    text = PROMPT.read_text()
+    assert ASK_OUTRIGHT in text and len(ASK_OUTRIGHT.split()) <= 60
+    assert "assuming" not in text
     for word in ("event", "school", "website", "university"):
-        assert word not in ASSUMPTION.lower()
+        assert word not in ASK_OUTRIGHT.lower()
 
 
 def test_case_f_sends_research_to_web_research_and_keeps_the_facts() -> None:

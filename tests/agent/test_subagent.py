@@ -217,7 +217,7 @@ class SourcesTools:
         if name == "code__read_file":
             self.reads += 1
             if self.has_sources:
-                return ToolOutcome('[{"url": "u", "fact": "f"}]', False, 0.0)
+                return ToolOutcome('[{"url": "https://x.example/u", "fact": "f"}]', False, 0.0)
             return ToolOutcome("file not found: SOURCES.json", True, 0.0)
         return ToolOutcome("ok", False, 0.0)
 
@@ -318,7 +318,7 @@ def test_the_prompt_has_the_no_invention_rule_and_both_ready_sentences() -> None
     assert "Never invent ratings, star scores" in SYSTEM and "about 6 lookups" in SYSTEM
     assert "web version is ready; say open it to play it." in SYSTEM
     assert "website is ready; say open it to see it." in SYSTEM
-    assert "playable page" in SYSTEM
+    assert "the user will play something" in SYSTEM
 
 
 FACTS = ["Mystery Hunt is held every January at MIT", "Students solve puzzles for a weekend"]
@@ -354,7 +354,11 @@ class PageTools(SourcesTools):
 
     async def call(self, name: str, arguments: Mapping[str, Any]) -> ToolOutcome:
         if name == "code__read_file" and arguments["path"] == "SOURCES.json":
-            return ToolOutcome(json.dumps([{"url": "u", "fact": f} for f in FACTS]), False, 0.0)
+            return ToolOutcome(
+                json.dumps([{"url": "https://x.example/u", "fact": f} for f in FACTS]), False, 0.0
+            )
+        if name == "code__read_file" and arguments["path"] == "scratch/NOTES.md":
+            return ToolOutcome("file not found", True, 0.0)
         if name == "code__read_file":
             page = self.html[min(self.page_reads, len(self.html) - 1)]
             self.page_reads += 1
@@ -440,3 +444,70 @@ def test_unsourced_figures_are_flagged_unless_the_task_or_a_fact_has_them() -> N
     assert lint_html("```\nx = 12345\n```\nid-777 abc123", [], "") == []
     many = "<p>" + " ".join(str(n) for n in range(100, 110)) + "</p>"
     assert len(lint_html(many, [], "")) == 5
+
+
+class SourceFileTools(SourcesTools):
+    def __init__(self, sources: str, notes: str | None = None) -> None:
+        super().__init__()
+        self.sources, self.notes = sources, notes
+
+    async def call(self, name: str, arguments: Mapping[str, Any]) -> ToolOutcome:
+        if name == "code__read_file" and arguments["path"] == "SOURCES.json":
+            return ToolOutcome(self.sources, False, 0.0)
+        if name == "code__read_file" and arguments["path"] == "scratch/NOTES.md":
+            if self.notes is None:
+                return ToolOutcome("file not found", True, 0.0)
+            return ToolOutcome(self.notes, False, 0.0)
+        return await super().call(name, arguments)
+
+
+async def test_a_non_url_source_entry_is_rejected_by_name_and_retried_once() -> None:
+    seen: list[dict[str, Any]] = []
+    bad = json.dumps([{"url": "web_answer: when is it", "fact": "f"}])
+    tools = SourceFileTools(bad)
+    http = client([reply(MD_DONE), reply(MD_DONE)], seen)
+    result = await run_task(RESEARCH_TASK, MODEL, "k", tools, client=http)
+    retry = [m["content"] for m in seen[-1]["messages"] if SOURCES_MSG in str(m["content"])]
+    assert len(retry) == 1 and "web_answer: when is it" in retry[0] and "http(s)" in retry[0]
+    assert result.gated and result.summary.startswith("Unsourced: ")
+
+
+async def test_http_sources_and_scratchpad_listed_urls_are_accepted() -> None:
+    from voice_agent.agent.subagent import check_sources
+
+    good = json.dumps([{"url": "https://a.example/x", "fact": "f"}])
+    assert await check_sources(SourceFileTools(good)) is None
+    noted = json.dumps([{"url": "ftp://old.example/x", "fact": "f"}])
+    assert await check_sources(SourceFileTools(noted)) == ["ftp://old.example/x"]
+    assert await check_sources(SourceFileTools(noted, notes="see ftp://old.example/x")) is None
+    assert await check_sources(SourceFileTools("[]")) == []
+    assert await check_sources(SourceFileTools("{nope")) == ["the file is not valid JSON"]
+
+
+async def test_the_scratchpad_text_counts_as_source_text_for_the_lint() -> None:
+    notes = "Alpha said the library opens in 1987 for every visitor"
+    sources = json.dumps([{"url": "https://a.example", "fact": "unrelated"}])
+    page = '<p>"the library opens in 1987 for every visitor"</p>'
+
+    class Tools(SourceFileTools):
+        async def call(self, name: str, arguments: Mapping[str, Any]) -> ToolOutcome:
+            if name == "code__read_file" and arguments["path"] == "apps/p/index.html":
+                return ToolOutcome(page, False, 0.0)
+            return await super().call(name, arguments)
+
+    from voice_agent.agent.subagent import lint_pages
+
+    assert await lint_pages(["apps/p/index.html"], "", Tools(sources)) != []
+    assert await lint_pages(["apps/p/index.html"], "", Tools(sources, notes)) == []
+
+
+def test_ready_sentence_rules_in_the_prompt() -> None:
+    from voice_agent.agent.subagent import SYSTEM
+
+    play = SYSTEM.index("the user will play something")
+    assert SYSTEM.index("web version is ready; say open it to play it.") > play
+    assert "For a page to read or look at" in SYSTEM and "website is ready" in SYSTEM
+    assert "names what you made and its file name" in SYSTEM
+    assert (
+        "never file housekeeping" in SYSTEM and "only write the files the task asks for" in SYSTEM
+    )

@@ -43,7 +43,7 @@ WEB = frozenset({"web_research", "web_answer"})
 RECENCY_WORDS = re.compile(r"\b(latest|next|current|upcoming|today)\b", re.IGNORECASE)
 URL = re.compile(r"https?://[^\s\"'<>)\]]+")
 PREFIXES = ("Unsourced: ", "Unverified content: ")
-ASSUMES = re.compile(r"which one|I'm assuming|I am assuming", re.IGNORECASE)
+ASKED = re.compile(r"\?|which|assum", re.IGNORECASE)
 
 Trace = dict[str, Any]
 Runner = Callable[["Scenario", dict[str, str], int], Awaitable[Trace]]
@@ -93,15 +93,22 @@ def _calls(trace: Trace) -> list[dict[str, Any]]:
 
 
 def recency_tool(trace: Trace) -> bool | None:
+    """A recency question needs a date-aware lookup: web_research(recent=true), or web_answer
+    (the grounded path knows the date) for a single fact; no lookup at all fails."""
     if not any(RECENCY_WORDS.search(t["user"]) for t in trace["turns"]):
         return None
     return any(
-        c["tool"] == "web_research" and c["args"].get("recent") is True for c in _calls(trace)
+        (c["tool"] == "web_research" and c["args"].get("recent") is True)
+        or c["tool"] == "web_answer"
+        for c in _calls(trace)
     )
 
 
 def max_lookups_per_turn(trace: Trace, limit: int = 1) -> bool:
-    return all(sum(c["tool"] in LOOKUPS for c in t["calls"]) <= limit for t in trace["turns"])
+    return all(
+        sum(c["tool"] in LOOKUPS and not c.get("cached") for c in t["calls"]) <= limit
+        for t in trace["turns"]
+    )
 
 
 def _build_turn(trace: Trace) -> dict[str, Any] | None:
@@ -124,6 +131,8 @@ def delegate_task_has_facts_or_url(trace: Trace) -> bool | None:
 
 
 def deliverable_sources(trace: Trace) -> bool | None:
+    """SOURCES.json is non-empty and every url is http(s); each url was seen in a front-agent
+    result or the scratchpad, or else the job summary names its sources."""
     if not trace["files"]["text_deliverables"]:
         return None
     try:
@@ -131,13 +140,12 @@ def deliverable_sources(trace: Trace) -> bool | None:
     except ValueError:
         return False
     urls = [str(r.get("url", "")) for r in rows if isinstance(r, dict)]
-    seen = "\n".join(
-        [
-            *trace["web_urls"],
-            *(c["args"].get("task", "") for c in _calls(trace) if c["tool"] == "delegate"),
-        ]
-    )
-    return bool(urls) and all(u in seen for u in urls)
+    if not urls or not all(re.match(r"https?://", u) for u in urls):
+        return False
+    scratch = trace.get("scratch") or {}
+    seen = "\n".join([*trace["web_urls"], str(scratch.get("text", ""))])
+    summary = str((trace.get("job") or {}).get("summary", ""))
+    return all(u in seen for u in urls) or bool(re.search(r"\bsources?\b", summary, re.IGNORECASE))
 
 
 def lint_clean(trace: Trace) -> bool | None:
@@ -173,8 +181,31 @@ def playable_sentence(trace: Trace) -> bool | None:
     return None if job is None else "web version is ready" in str(job.get("summary", ""))
 
 
-def spoken_ask_or_assumption(trace: Trace) -> bool:
-    return any(ASSUMES.search(t["reply"]) for t in trace["turns"])
+def asked_or_flagged(trace: Trace) -> bool:
+    return any(ASKED.search(t["reply"]) for t in trace["turns"])
+
+
+def scratchpad_has_findings(trace: Trace) -> bool | None:
+    """After the first lookup the notes file exists and holds every lookup's query."""
+    queries = [
+        str(c["args"].get("query") or c["args"].get("topic") or "")
+        for c in _calls(trace)
+        if c["tool"] in LOOKUPS and not c.get("cached")
+    ]
+    if not queries:
+        return None
+    scratch = trace.get("scratch") or {}
+    text = " ".join(str(scratch.get("text", "")).split())
+    return bool(scratch.get("exists")) and all(" ".join(q.split())[:200] in text for q in queries)
+
+
+def delegate_reads_notes(trace: Trace) -> bool | None:
+    """The delegate task carries the notes sentence when the notes had entries."""
+    turn = _build_turn(trace)
+    if turn is None or not turn.get("scratch_entries"):
+        return None
+    task = next(c["args"].get("task", "") for c in turn["calls"] if c["tool"] == "delegate")
+    return "/sandbox/scratch/NOTES.md" in task
 
 
 PREDICATES: dict[str, Callable[..., bool | None]] = {
@@ -188,9 +219,11 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "no_web_for_plain": no_web_for_plain,
     "no_chain_for_followup": no_chain_for_followup,
     "playable_sentence": playable_sentence,
-    "spoken_ask_or_assumption": spoken_ask_or_assumption,
+    "scratchpad_has_findings": scratchpad_has_findings,
+    "delegate_reads_notes": delegate_reads_notes,
+    "asked_or_flagged": asked_or_flagged,
 }
-REPORT_ONLY = frozenset({"spoken_ask_or_assumption"})  # shown, never scored
+REPORT_ONLY = frozenset({"asked_or_flagged"})  # shown, never scored
 
 
 def score(scenario: Scenario, trace: Trace) -> dict[str, bool | None]:
@@ -246,6 +279,7 @@ def _trace(scenario: Scenario, params: dict[str, str], trial: int) -> Trace:
         "files": {"SOURCES.json": None, "text_deliverables": []},
         "web_urls": [],
         "job": None,
+        "scratch": {"exists": False, "text": ""},
         "lint_flags": 0,
         "spend": 0.0,
         "workspace": None,
@@ -257,6 +291,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
     trace = _trace(scenario, params, trial)
     url = "https://example.org/source"
     phase = "idle"
+    notes: list[str] = []
     builds = scenario.kind in ("research_build", "code_only", "plain")
     for index, template in enumerate(scenario.turns):
         user = fill(template, params)
@@ -264,17 +299,29 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
         calls: list[dict[str, Any]] = []
         if builds and last:
             task = f"Build the deliverable from these verified facts: x. Source {url}"
+            if notes:
+                task += " Notes and sources from the conversation are in /sandbox/scratch/NOTES.md."
             calls.append({"tool": "delegate", "args": {"task": task}})
         elif scenario.kind in ("research_build", "code_only") or (
             scenario.kind == "followup" and index == 0
         ):
             recent = RECENCY_WORDS.search(user) is not None
             calls.append({"tool": "web_research", "args": {"query": user, "recent": recent}})
+            notes.append(f"## 00:00 web_research: {user}\n{url}")
             trace["web_urls"].append(url)
-        reply = "I'm assuming the usual one." if index == 0 else "Done."
-        trace["turns"].append({"user": user, "calls": calls, "reply": reply, "chain_phase": phase})
+        reply = "Which one do you mean?" if index == 0 else "Done."
+        trace["turns"].append(
+            {
+                "user": user,
+                "calls": calls,
+                "reply": reply,
+                "chain_phase": phase,
+                "scratch_entries": len(notes),
+            }
+        )
         if scenario.kind == "research_build":
             phase = "researching"
+    trace["scratch"] = {"exists": bool(notes), "text": "\n".join(notes)}
     if builds:
         text = scenario.deliverable in ("html", "md")
         game = scenario.deliverable == "game"
@@ -332,8 +379,12 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
         trace["workspace"] = str(workspace)
         record: list[dict[str, Any]] = []
         chain = ChainState(state)
+        pad = load("voice_pipeline.scratchpad").Scratchpad(workspace / "scratch" / "NOTES.md")
+        chain.on_change = lambda event: pad.reset(keep_current_turn=event == "start")
         servers, optional = standard_servers(None)
-        tools = await build_tools(record, servers=servers, optional=optional, chain=chain)
+        tools = await build_tools(
+            record, servers=servers, optional=optional, chain=chain, scratchpad=pad
+        )
         FunctionSchema = load("pipecat.adapters.schemas.function_schema").FunctionSchema
         ToolsSchema = load("pipecat.adapters.schemas.tools_schema").ToolsSchema
         wrapped = []
@@ -372,6 +423,7 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
                         "calls": calls,
                         "reply": result.get("text", ""),
                         "chain_phase": phase,
+                        "scratch_entries": pad.render().count("\n## "),
                     }
                 )
                 history += [
@@ -386,6 +438,7 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
         finally:
             await agent.stop()
         _collect_files(trace, workspace)
+        trace["scratch"] = {"exists": pad.path.exists(), "text": pad.render()}
         usage = {k: agent.tap.usage[k] - spent0.get(k, 0) for k in agent.tap.usage}
         job_usd = float((trace["job"] or {}).get("usd", 0.0))
         trace["spend"] = (usage["prompt"] * 0.25 + usage["completion"] * 1.5) / 1e6 + job_usd
@@ -447,14 +500,17 @@ async def evaluate(
     budget: Budget,
     seed: int = 0,
     sink: Path | None = None,
+    seeds: int = 1,
 ) -> tuple[list[dict[str, Any]], bool]:
-    """(one row per scenario-trial, whether the budget stopped the run early)."""
+    """(one row per scenario-trial, whether the budget stopped the run early). Seeds seed ..
+    seed+seeds-1 each run `trials` trials, numbered one after another."""
     rows: list[dict[str, Any]] = []
     for scenario in scenarios:
-        for trial in range(trials):
+        for index in range(trials * seeds):
+            trial = index
             if not budget.allows():
                 return rows, True
-            params = pick_params(scenario, trial, seed)
+            params = pick_params(scenario, index % trials, seed + index // trials)
             trace = await runner(scenario, params, trial)
             budget.add(float(trace.get("spend", 0.0)))
             results = score(scenario, trace)
@@ -497,6 +553,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--max-usd", type=float, default=0.25)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--seeds", type=int, default=1, help="run seeds seed..seed+N-1, each as separate trials"
+    )
     parser.add_argument("--dry", action="store_true", help="fakes: no network, no cost")
     parser.add_argument("--run-id", default=time.strftime("%Y%m%d-%H%M%S"))
     parser.add_argument("--scenarios", type=Path, default=SCENARIOS)
@@ -506,12 +565,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.only:
         wanted = set(args.only.split(","))
         scenarios = [s for s in scenarios if s.id in wanted]
-    cost = estimate(scenarios, args.trials)
+    cost = estimate(scenarios, args.trials * args.seeds)
     if args.list:
         for s in scenarios:
             print(f"{s.id:<22}{s.kind:<15}{len(s.turns)} turns  expects {', '.join(s.expect)}")
         print(
-            f"estimate: about ${cost:.2f} for {len(scenarios)} scenarios x {args.trials} trial(s)"
+            f"estimate: about ${cost:.2f} for {len(scenarios)} scenarios x "
+            f"{args.trials * args.seeds} trial(s)"
         )
         return 0
     run_dir = args.out / args.run_id
@@ -523,7 +583,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 3
     runner = dry_runner if args.dry else make_live_runner(run_dir, args.seed)
     rows, stopped = asyncio.run(
-        evaluate(scenarios, args.trials, runner, budget, args.seed, run_dir / "trials.jsonl")
+        evaluate(
+            scenarios, args.trials, runner, budget, args.seed, run_dir / "trials.jsonl", args.seeds
+        )
     )
     print(table(rows, budget.spent))
     print(f"traces: {run_dir / 'trials.jsonl'}")

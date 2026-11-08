@@ -77,6 +77,7 @@ from voice_pipeline.router import (
     Routed,
     spec,
 )
+from voice_pipeline.scratchpad import Scratchpad
 from voice_pipeline.tools.smart_home import load_phonebook
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -743,8 +744,15 @@ async def run(
         else Path(agent_tools.DELEGATE_STATE_DIR or "~/.local/state/voice_agent/delegate")
     ).expanduser()
     chain = ChainState(state_dir)  # an expired state is reset to idle here
+    scratch: Scratchpad | None = None
+    with contextlib.suppress(OSError, KeyError, ValueError):
+        pad = Scratchpad(agent_tools.delegate_workspace() / "scratch" / "NOTES.md")
+        chain.on_change = lambda event: pad.reset(keep_current_turn=event == "start")
+        scratch = pad
     servers, optional = standard_servers(pi_url)
-    tools = await build_tools(record, live=live, servers=servers, optional=optional, chain=chain)
+    tools = await build_tools(
+        record, live=live, servers=servers, optional=optional, chain=chain, scratchpad=scratch
+    )
     system = system_file.read_text()
     seen_by_model = with_builtin_search if builtin_search else (lambda t: t)
 

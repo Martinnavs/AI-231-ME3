@@ -30,6 +30,7 @@ from pipecat.services.mcp_service import MCPClient
 from voice_pipeline import question
 from voice_pipeline.chain_state import ChainState, is_chain_tool
 from voice_pipeline.device_say import device_sentence, single_question
+from voice_pipeline.scratchpad import NOTES_SENTENCE, Scratchpad
 from voice_pipeline.tools.smart_home import SCHEMA, make_handler
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -47,6 +48,15 @@ DELEGATE_STATE_DIR: str | None = os.environ.get("DELEGATE_STATE_DIR") or None
 DELEGATE_CONFIG: str | None = os.environ.get("DELEGATE_CONFIG") or None
 MUSIC_RESOLVER_URL: str | None = os.environ.get("MUSIC_RESOLVER_URL") or None
 APPS_HOST: str | None = os.environ.get("APPS_PUBLIC_HOST") or None
+
+
+def delegate_workspace() -> Path:
+    """The shared workspace the delegate mounts at /sandbox (from its config)."""
+    import tomllib
+
+    config = Path(DELEGATE_CONFIG) if DELEGATE_CONFIG else REPO_ROOT / "config/delegate.toml"
+    paths = tomllib.loads(config.read_text())["paths"]
+    return Path(paths.get("workspace", "~/agent_sandbox/workspace")).expanduser()
 
 
 def delegate_command() -> list[str]:
@@ -142,6 +152,8 @@ _turn_lookups: list[str] = []
 
 def reset_turn_lookups() -> None:
     _turn_lookups.clear()
+    if SCRATCHPAD is not None:
+        SCRATCHPAD.mark_turn()
 
 
 def job_started(result: Any) -> bool:
@@ -157,6 +169,8 @@ def started_job_id(result: Any) -> str:
 
 # The chain being worked on (research, then build); set by build_tools(chain=...). None: no chain.
 CHAIN: ChainState | None = None
+# Notes of this conversation's lookups for the background job; None: none are kept.
+SCRATCHPAD: Scratchpad | None = None
 CHAIN_UPDATE_DESCRIPTION = (
     "Record where a multi-step task stands so the next turn knows. phase is one of "
     "awaiting_name, researching, awaiting_fact_approval, building; subject is who or what "
@@ -185,6 +199,10 @@ def chain_update_schema(chain: ChainState, record: list[dict[str, Any]]) -> Func
         except ValueError as exc:
             await params.result_callback(f"error: {exc}")
             return
+        if SCRATCHPAD is not None and fields.get("facts"):
+            SCRATCHPAD.add(
+                "facts", str(fields.get("subject") or "chain"), "\n".join(fields["facts"])
+            )
         await params.result_callback("ok")
 
     return FunctionSchema(
@@ -554,12 +572,14 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             await params.result_callback(NOT_IN_DOCUMENTS)
             return
         args = {k: v for k, v in params.arguments.items() if k != "say"}
-        record.append({"tool": schema.name, "args": args})
+        entry: dict[str, Any] = {"tool": schema.name, "args": args}
+        record.append(entry)
         if CHAIN is not None and CHAIN.active() and not is_chain_tool(schema.name):
             CHAIN.touch_unrelated()
         params.arguments = args  # the real tool never sees `say`
         if schema.name in LOOKUP_TOOLS:
             if _turn_lookups:
+                entry["cached"] = True
                 await params.result_callback(REPEAT_PREFIX + _turn_lookups[0])
                 return
             first_callback = params.result_callback
@@ -567,6 +587,9 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             async def remember(result: Any, *, properties: Any = None) -> None:
                 if isinstance(result, str) and not FAILURE.search(result):
                     _turn_lookups.append(result)
+                    if SCRATCHPAD is not None:
+                        query = str(args.get("query") or args.get("topic") or "")
+                        SCRATCHPAD.add(schema.name, query, result)
                 await first_callback(result, properties=properties)
 
             params.result_callback = remember
@@ -589,6 +612,8 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         elif schema.name == "delegate":
             deliver_job = params.result_callback
             task = str(args.get("task", ""))
+            if SCRATCHPAD is not None and SCRATCHPAD.has_entries() and NOTES_SENTENCE not in task:
+                args["task"] = f"{task.rstrip()} {NOTES_SENTENCE}"
             global _pending_destructive
             if DESTRUCTIVE.search(task):
                 if _pending_destructive is None or not CONFIRMED.search(question.current or ""):
@@ -639,6 +664,7 @@ async def build_tools(
     servers: Sequence[MCPClient] = (),
     optional: Sequence[MCPClient] = (),
     chain: ChainState | None = None,
+    scratchpad: Scratchpad | None = None,
 ) -> ToolsSchema:
     """smart_home (posting to the ME2 dashboard only when `live` is set) and the MCP tools.
 
@@ -692,8 +718,8 @@ async def build_tools(
             print(f"MCP server left out ({type(exc).__name__}: {exc})", file=sys.stderr)
             continue
         tools += [s if s.name == MUSIC_TOOL else _recorded(s, record) for s in schemas]
-    global CHAIN
-    CHAIN = chain
+    global CHAIN, SCRATCHPAD
+    CHAIN, SCRATCHPAD = chain, scratchpad
     if chain is not None:
         tools.append(chain_update_schema(chain, record))
     music = next((t for t in tools if t.name == MUSIC_TOOL), None)
