@@ -82,6 +82,7 @@ class ChainState:
     def __init__(self, state_dir: Path, clock: Callable[[], float] = time.time) -> None:
         self.path = state_dir / "chain.json"
         self.clock = clock
+        self.on_change: Callable[[str], None] | None = None  # "start" / "end" of a chain
         self.data = _blank()
         self.load()
 
@@ -112,7 +113,10 @@ class ChainState:
             if phase == "idle":
                 self.data = _blank()
                 self._save()
+                self._changed("end")
                 return
+            if before == "idle":
+                self._changed("start")
             self.data["phase"] = phase
         for key, value in fields.items():
             if key not in self.data or key in ("phase", "updated_at", "unrelated_turns"):
@@ -152,8 +156,13 @@ class ChainState:
         ):
             self.data = _blank()
             self._save()
+            self._changed("end")
             return False
         return True
+
+    def _changed(self, event: str) -> None:
+        if self.on_change is not None:
+            self.on_change(event)
 
     def block(self) -> str:
         """One to three lines for the end of the user's message, or "" when idle."""

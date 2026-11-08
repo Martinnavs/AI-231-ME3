@@ -134,16 +134,14 @@ def test_code_only_plain_and_followup_predicates() -> None:
     assert ce.no_chain_for_followup(follow)
     follow["turns"][1]["chain_phase"] = "researching"
     assert not ce.no_chain_for_followup(follow)
-    assert ce.spoken_ask_or_assumption({"turns": [turn("x", reply="I'm assuming Y.")]})
+    assert ce.asked_or_flagged({"turns": [turn("x", reply="I'm assuming Y.")]})
 
 
 def test_score_uses_only_declared_predicates_and_report_only_never_fails() -> None:
-    s = ce.Scenario(
-        "s", "k", "md", True, [], {}, {"recency_tool": True, "spoken_ask_or_assumption": True}
-    )
+    s = ce.Scenario("s", "k", "md", True, [], {}, {"recency_tool": True, "asked_or_flagged": True})
     results = ce.score(s, good())
-    assert set(results) == {"recency_tool", "spoken_ask_or_assumption"}
-    assert results["spoken_ask_or_assumption"] is False and ce.trial_passes(results)
+    assert set(results) == {"recency_tool", "asked_or_flagged"}
+    assert results["asked_or_flagged"] is False and ce.trial_passes(results)
     results["recency_tool"] = False
     assert not ce.trial_passes(results)
 
@@ -198,3 +196,102 @@ def test_a_live_run_that_does_not_fit_the_budget_does_not_start(
 ) -> None:
     assert ce.main(["--max-usd", "0.05", "--out", str(tmp_path)]) == 3
     assert "not started" in capsys.readouterr().out
+
+
+def test_recency_tool_accepts_a_grounded_web_answer_but_not_no_lookup() -> None:
+    answer = {"turns": [turn("What is the current rate?", ("web_answer", {"query": "rate"}))]}
+    assert ce.recency_tool(answer) is True
+    none = {"turns": [turn("What is the current rate?")]}
+    assert ce.recency_tool(none) is False
+    stale = {"turns": [turn("latest?", ("web_research", {"query": "q", "recent": False}))]}
+    assert ce.recency_tool(stale) is False
+
+
+def test_cached_repeats_do_not_count_as_lookups() -> None:
+    t = {
+        "turns": [
+            turn(
+                "q",
+                ("web_research", {"query": "a"}),
+                ("web_answer", {"query": "a"}),
+            )
+        ]
+    }
+    assert not ce.max_lookups_per_turn(t)
+    t["turns"][0]["calls"][1]["cached"] = True
+    assert ce.max_lookups_per_turn(t)
+
+
+def test_deliverable_sources_new_rules() -> None:
+    other = good()
+    other["web_urls"] = []
+    assert ce.deliverable_sources(other) is False  # url unseen, summary names no sources
+    other["scratch"] = {"exists": True, "text": f"## x\n{URL}"}
+    assert ce.deliverable_sources(other) is True  # seen in the scratchpad
+    other["scratch"] = {}
+    other["job"]["summary"] = "Built it from these sources: one."
+    assert ce.deliverable_sources(other) is True  # the job names its sources
+    bad = good()
+    bad["files"]["SOURCES.json"] = json.dumps([{"url": "web_answer: when is it", "fact": "f"}])
+    bad["job"]["summary"] = "sources named"
+    assert ce.deliverable_sources(bad) is False  # non-http url always fails
+    empty = good()
+    empty["files"]["SOURCES.json"] = "[]"
+    assert ce.deliverable_sources(empty) is False
+
+
+def test_scratchpad_has_findings() -> None:
+    t = good()
+    t["turns"][0]["calls"][0]["args"]["query"] = "what is the latest thing"
+    t["scratch"] = {"exists": True, "text": "## 00:00 web_research: what is the latest thing\nx"}
+    assert ce.scratchpad_has_findings(t) is True
+    t["scratch"] = {"exists": True, "text": "## 00:00 web_research: something else"}
+    assert ce.scratchpad_has_findings(t) is False
+    t["scratch"] = {"exists": False, "text": ""}
+    assert ce.scratchpad_has_findings(t) is False
+    assert ce.scratchpad_has_findings({"turns": [turn("hi")]}) is None
+
+
+def test_delegate_reads_notes() -> None:
+    t = good()
+    t["turns"][1]["scratch_entries"] = 2
+    assert ce.delegate_reads_notes(t) is False
+    t["turns"][1]["calls"][0]["args"]["task"] += " read /sandbox/scratch/NOTES.md first"
+    assert ce.delegate_reads_notes(t) is True
+    t["turns"][1]["scratch_entries"] = 0
+    assert ce.delegate_reads_notes(t) is None
+
+
+def test_research_scenarios_declare_the_new_predicates_and_others_do_not() -> None:
+    for s in ce.load_scenarios():
+        has = "scratchpad_has_findings" in s.expect and "delegate_reads_notes" in s.expect
+        assert has == (s.kind == "research_build")
+
+
+def test_asked_or_flagged_regex() -> None:
+    for reply in ("Which one?", "Do you mean A?", "I'm assuming A.", "assumption: B"):
+        assert ce.asked_or_flagged({"turns": [turn("x", reply=reply)]})
+    assert not ce.asked_or_flagged({"turns": [turn("x", reply="Done.")]})
+
+
+def test_seeds_run_as_separate_trials_with_different_parameters(tmp_path: Path) -> None:
+    seen: list[tuple[int, dict[str, str]]] = []
+
+    async def runner(s: Any, p: Any, t: int) -> Any:
+        seen.append((t, p))
+        trace = copy.deepcopy(good())
+        trace.update(id=s.id, trial=t, params=p, spend=0.0, workspace=None)
+        return trace
+
+    scenario = next(x for x in ce.load_scenarios() if x.id == "event_invitation")
+    budget = ce.Budget(10.0, tmp_path / "l.json")
+    rows, _ = asyncio.run(ce.evaluate([scenario], 1, runner, budget, seed=3, seeds=4))
+    assert [t for t, _ in seen] == [0, 1, 2, 3] and len(rows) == 4
+    assert len({p["org"] for _, p in seen}) > 1
+
+
+def test_main_seeds_multiply_the_estimate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ce.main(["--list", "--only", "snake_game", "--seeds", "3", "--out", str(tmp_path)])
+    assert "estimate: about $0.06" in capsys.readouterr().out

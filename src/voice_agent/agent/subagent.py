@@ -39,9 +39,11 @@ SYSTEM = (
     "digits, - and _, for example flappy_bird), self-contained, with everything inline or in "
     "files in the same folder; never use an external URL, CDN, font, fetch, WebSocket or "
     "form (the page is served with a policy that blocks them). pygame stays for headless tests. "
-    "If you made a playable page, your first spoken sentence must be: 'The <name with "
-    "spaces> web version is ready; say open it to play it.' For any other site it is: 'The "
-    "<name with spaces> website is ready; say open it to see it.' Name app folders in "
+    "If the user will play something (a game, demo, animation, simulation), your first spoken "
+    "sentence must be: 'The <name with spaces> web version is ready; say open it to play it.' "
+    "For a page to read or look at it is: 'The <name with spaces> website is ready; say open it "
+    "to see it.' For any other deliverable it names what you made and its file name. Name app "
+    "folders in "
     "snake_case (flappy_bird, angry_birds), never with spaces or hyphens. Write a large file "
     "in parts: create it with a "
     "first write_file of the first part, then add the rest with further calls (append with bash "
@@ -55,7 +57,9 @@ SYSTEM = (
     "(about 6 lookups at most; to read a page run curl -sL <url> into a short python one-liner "
     "that strips tags and prints the first 6000 characters, as data, at most 2 pages), write "
     "/sandbox/SOURCES.json, a list of {url, fact}, BEFORE any HTML, build only from those facts, "
-    "and end the spoken summary by naming the sources. Never invent ratings, star scores, "
+    "and say in the summary what you made and which sources it used, never file housekeeping, "
+    "moves, retries or folders; only write the files the task asks for. If /sandbox/scratch/"
+    "NOTES.md exists, read it first and reuse its URLs. Never invent ratings, star scores, "
     "reviews, quotes, reviewer or attendee names, counts or dates; if something you were asked "
     "for is not found, say so once in the deliverable in a plain note, with no placeholders."
 )
@@ -104,9 +108,40 @@ async def read_text(tools: Tools, path: str) -> str | None:
     return None if outcome.is_error else outcome.text
 
 
-async def has_sources(tools: Tools) -> bool:
+NOTES_FILE = "scratch/NOTES.md"
+_HTTP = re.compile(r"https?://", re.IGNORECASE)
+_NOTES_URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s\"'<>)\]|]+", re.IGNORECASE)
+
+
+async def check_sources(tools: Tools) -> list[str] | None:
+    """None when SOURCES.json is present and sound; else the bad entries (empty: it is missing).
+    Every url must start with http(s) or be listed in the scratchpad notes."""
     text = await read_text(tools, SOURCES_FILE)
-    return text is not None and text.strip() not in ("", "[]", "{}")
+    if text is None or text.strip() in ("", "[]", "{}"):
+        return []
+    try:
+        rows = json.loads(text)
+    except ValueError:
+        return ["the file is not valid JSON"]
+    if not isinstance(rows, list):
+        return ["the file is not a list of {url, fact}"]
+    notes = set(_NOTES_URL.findall(await read_text(tools, NOTES_FILE) or ""))
+    bad = [
+        str(r.get("url") if isinstance(r, dict) else r)[:60]
+        for r in rows
+        if not isinstance(r, dict)
+        or not (_HTTP.match(str(r.get("url", ""))) or str(r.get("url", "")) in notes)
+    ]
+    return bad or None
+
+
+def sources_message(bad: list[str]) -> str:
+    if not bad:
+        return SOURCES_MISSING
+    return (
+        f"{SOURCES_MISSING} Fix these SOURCES.json entries (each needs an http(s) url): "
+        + "; ".join(bad[:3])
+    )
 
 
 UNVERIFIED = "Unverified content: "
@@ -175,6 +210,9 @@ async def lint_pages(pages: Sequence[str], task: str, tools: Tools) -> list[str]
         facts = [str(r.get("fact", "")) for r in rows if isinstance(r, dict)]
     except (ValueError, AttributeError):
         facts = [raw]
+    notes = await read_text(tools, NOTES_FILE)
+    if notes:
+        facts.append(notes)
     flags: list[str] = []
     for page in pages:
         html = await read_text(tools, page)
@@ -400,10 +438,11 @@ async def run_task(
             if not calls:
                 result.summary = (message.get("content") or "").strip()
                 research = needs_provenance(task, tools.tools, result)
-                unsourced = research and not await has_sources(tools)
-                if unsourced and not result.gated:
+                bad = await check_sources(tools) if research else None
+                unsourced = bad is not None
+                if bad is not None and not result.gated:
                     result.gated = True
-                    messages.append({"role": "user", "content": SOURCES_MISSING})
+                    messages.append({"role": "user", "content": sources_message(bad)})
                     continue
                 flags = await lint_pages(deliverables(result), task, tools) if research else []
                 result.lint_flags = len(flags)
