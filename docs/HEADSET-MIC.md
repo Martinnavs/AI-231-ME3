@@ -60,6 +60,15 @@ Say one phrase with the video playing and record both microphones for 10 s (`par
 
 In `--addressee log` mode an interrupted turn was logged without the gate's verdict, and the unlogged verdict stayed set for the next turn. `_take_addressee_note` now attaches it once to whichever record is written (`src/doc_chat/__main__.py`).
 
+## A partial check with the project's recogniser (Kroko)
+
+The same recordings were cut into phrases (boundaries from the Whisper word timings) and replayed through `doc_chat --wav` and the speech server (Kroko; Parakeet is not downloaded on this laptop). The replay was unreliable: with short or padded tails it returned empty turns and results one clip late, so there is **no clean per-microphone comparison**. What the runs did show:
+
+- XM4, quiet room: all six phrases came out, one misheard ("Place some jaz" for "Play some jazz", so `unsure` instead of `addressed`); `Dad, can you please pass the salt?` was addressed (leak) and `Hey, Jamie, dinner's ready` was ignored.
+- Both microphones, video playing: Kroko wrote down words of the video (`We say long-term relationship and it might scare away any short-term casual danger`, `A lot of girls`) and ran them into the user's phrases. It is more distracted by background speech than Whisper was, so the 6-of-6 against 1-of-6 above comes from Whisper and may overstate the gap for the project's recogniser.
+
+A fair comparison needs a live run through the client with the headset script, speaking the six phrases with the video on and then off, once per microphone.
+
 ## Not covered
 
-The project's own recogniser (Kroko, Parakeet) on headset audio; the Pi deployment (a worn headset is not the product setup: it needs a USB array or close microphone of its own); several speakers or rooms; Bluetooth latency in the loop.
+Parakeet on headset audio; the Pi deployment (a worn headset is not the product setup: it needs a USB array or close microphone of its own); several speakers or rooms; Bluetooth latency in the loop.
