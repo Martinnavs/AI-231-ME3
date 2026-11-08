@@ -463,3 +463,58 @@ async def test_the_cap_holds_with_the_header_and_many_dated_results() -> None:
     many = {"results": [{**DATED["results"][0], "title": f"T{i}"} for i in range(8)]}
     text, _ = await _research(httpx.Response(200, json=many), recent=True)
     assert len(text) <= 2000 and text.endswith("</untrusted_search_data>")
+
+
+def _two_query_transport(
+    seen: list[httpx.Request], fail_second: bool = False
+) -> httpx.MockTransport:
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        query = json.loads(request.content)["query"]
+        if query.endswith("November 2026"):
+            if fail_second:
+                return httpx.Response(500)
+            rows = [("b", "https://x/shared"), ("c", "https://x/c")]
+        else:
+            rows = [("a", "https://x/a"), ("shared", "https://x/shared")]
+        results = [{"title": t, "url": u, "content": f"text {t}"} for t, u in rows]
+        return httpx.Response(200, json={"results": results})
+
+    return httpx.MockTransport(handle)
+
+
+async def _recent(seen: list[httpx.Request], fail_second: bool = False, recent: bool = True) -> str:
+    server = build_server(
+        _two_query_transport(seen, fail_second), "k", None, today=lambda: date(2026, 11, 8)
+    )
+    async with Client(server) as client:
+        result = await client.call_tool("web_research", {"query": "next thing", "recent": recent})
+    return str(result.structured_content["result"])
+
+
+async def test_recent_runs_two_queries_and_merges_them_without_duplicate_urls() -> None:
+    seen: list[httpx.Request] = []
+    text = await _recent(seen)
+    queries = sorted(json.loads(r.content)["query"] for r in seen)
+    assert queries == ["next thing", "next thing November 2026"]
+    urls = [line.split(" | ")[1] for line in text.splitlines()[2:-1]]
+    assert urls == ["https://x/a", "https://x/shared", "https://x/c"]  # interleaved, deduped
+    assert len(text) <= 2000 and text.startswith("Searched on 2026-11-08")
+
+
+async def test_one_failing_query_does_not_fail_the_tool() -> None:
+    seen: list[httpx.Request] = []
+    text = await _recent(seen, fail_second=True)
+    assert "https://x/a" in text and "couldn't search" not in text
+
+
+async def test_not_recent_makes_one_query_and_the_constant_can_turn_the_second_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[httpx.Request] = []
+    await _recent(seen, recent=False)
+    assert len(seen) == 1
+    seen.clear()
+    monkeypatch.setattr(tavily_search, "RECENT_SECOND_QUERY", False)
+    await _recent(seen)
+    assert len(seen) == 1

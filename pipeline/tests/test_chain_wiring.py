@@ -24,8 +24,10 @@ PROMPT = Path(__file__).resolve().parents[1] / "config/eval/system_agent.txt"
 
 @pytest.fixture(autouse=True)
 def no_chain_after() -> Any:
+    agent_tools.reset_turn_lookups()
     yield
     agent_tools.CHAIN = None
+    agent_tools.reset_turn_lookups()
 
 
 def test_web_research_is_not_a_spoken_result_tool() -> None:
@@ -199,13 +201,164 @@ def test_case_f_has_the_three_rules_and_the_say_exemption() -> None:
     assert "chain_update has no `say`" in text
 
 
-def test_the_prompt_grew_by_less_than_1260_characters() -> None:
+def test_the_prompt_grew_by_less_than_1400_characters() -> None:
     text = PROMPT.read_text()
-    assert len(text) < 4976 + 1260  # 4976: its size at HEAD 014b424; now 6229
+    assert len(text) < 4976 + 1400  # 4976: its size at HEAD 014b424; now 6364
     assert "recent=true" in text
+
+
+ASSUMPTION = (
+    "If a request could mean several things, ask which in one short question naming up to three, "
+    'or say "I\'m assuming X" before you answer.'
+)
+
+
+def test_the_assumption_sentence_is_generic_and_short() -> None:
+    assert ASSUMPTION in PROMPT.read_text() and len(ASSUMPTION.split()) <= 30
+    for word in ("event", "school", "website", "university"):
+        assert word not in ASSUMPTION.lower()
 
 
 def test_case_f_sends_research_to_web_research_and_keeps_the_facts() -> None:
     text = PROMPT.read_text()
     assert "use web_research with recent=true, not web_answer" in text
     assert "chain_update phase researching" in text and "name up to three and ask which" in text
+
+
+async def test_the_model_cannot_end_a_chain_with_idle(tmp_path: Path) -> None:
+    chain = ChainState(tmp_path)
+    chain.update("building", subject="x")
+    tools = await build_tools([], servers=[FakeServer()], chain=chain)  # type: ignore[list-item]
+    handler = {t.name: t for t in tools.standard_tools}["chain_update"].handler
+    got: list[Any] = []
+
+    async def done(result: Any, *a: Any, **k: Any) -> None:
+        got.append(result)
+
+    assert handler is not None
+    await handler(SimpleNamespace(arguments={"phase": "idle"}, result_callback=done))
+    assert got == ["ok, the task stays open until it finishes or you say cancel"]
+    assert chain.active() and chain.data["phase"] == "building"
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    ["never mind", "Forget it.", "cancel that", "Cancel it please", "start over", "stop that"],
+)
+async def test_cancel_words_end_the_chain_and_stop_its_job(tmp_path: Path, phrase: str) -> None:
+    chain = ChainState(tmp_path)
+    chain.update("building", subject="x", facts=["f"], job_id="job9")
+    cancelled: list[Any] = []
+
+    class CancelTool:
+        name = "delegate_cancel"
+
+        async def handler(self, params: Any) -> None:
+            cancelled.append(dict(params.arguments))
+            await params.result_callback({"status": "cancelled"})
+
+    agent, router = RecordingAgent(), CountingRouter()
+    server = AgentServer(
+        agent,
+        [],
+        tmp_path / "l.jsonl",
+        SimpleNamespace(standard_tools=[CancelTool()]),
+        router,  # type: ignore[arg-type]
+        chain=chain,
+    )
+    await _turn(server, phrase)
+    assert not chain.active() and chain.data["facts"] == []
+    assert cancelled == [{"job": "job9"}] and agent.asked == [] and router.calls == 0
+
+
+async def test_a_finished_chain_survives_a_follow_up_and_is_cleared_by_a_topic_change(
+    tmp_path: Path,
+) -> None:
+    chain = ChainState(tmp_path)
+    chain.update("building", subject="x", facts=["f"], job_id="job9")
+    chain.mark_done()
+    agent, router = RecordingAgent(), CountingRouter()
+    server = AgentServer(agent, [], tmp_path / "l.jsonl", router=router, chain=chain)  # type: ignore[arg-type]
+    await _turn(server, "can you read it back to me")
+    assert chain.active() and router.calls == 0 and "ACTIVE TASK" in agent.asked[0][-1]["content"]
+    await _turn(server, "what is the capital of France")
+    assert not chain.active() and chain.data["facts"] == [] and router.calls == 1
+    assert agent.asked[1] == [{"role": "user", "content": "what is the capital of France"}]
+
+
+def test_followup_detection() -> None:
+    from voice_pipeline.chain_state import is_followup
+
+    assert is_followup("yes") and is_followup("go ahead please") and is_followup("make it blue now")
+    assert not is_followup("what is the capital of France")
+
+
+async def test_a_second_lookup_in_a_turn_returns_the_first_text_without_calling_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def handler(params: Any) -> None:
+        calls.append(params.function_name)
+        await params.result_callback(f"result {len(calls)}")
+
+    got: list[Any] = []
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        got.append(value)
+
+    def wrapped(name: str) -> Any:
+        schema = FunctionSchema(
+            name=name, description="d", properties={}, required=[], handler=handler
+        )
+        return _recorded(schema, []).handler
+
+    agent_tools.reset_turn_lookups()
+    for name in ("web_research", "web_answer", "wiki_summary"):
+        await wrapped(name)(
+            SimpleNamespace(
+                function_name=name, arguments={}, result_callback=sink, tool_call_id="t"
+            )
+        )
+    assert calls == ["web_research"]
+    assert got[0] == "result 1"
+    assert got[1] == got[2] == "(already looked up this turn) result 1"
+    await wrapped("weather")(
+        SimpleNamespace(
+            function_name="weather", arguments={}, result_callback=sink, tool_call_id="t"
+        )
+    )
+    assert calls[-1] == "weather"  # another tool family is not limited
+    agent_tools.reset_turn_lookups()
+    await wrapped("web_answer")(
+        SimpleNamespace(
+            function_name="web_answer", arguments={}, result_callback=sink, tool_call_id="t"
+        )
+    )
+    assert calls[-1] == "web_answer"  # a new turn looks up again
+
+
+async def test_a_failed_lookup_is_not_remembered() -> None:
+    results = iter(["error: down", "fine"])
+    calls: list[int] = []
+
+    async def handler(params: Any) -> None:
+        calls.append(1)
+        await params.result_callback(next(results))
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        return None
+
+    schema = FunctionSchema(
+        name="web_answer", description="d", properties={}, required=[], handler=handler
+    )
+    wrapped = _recorded(schema, []).handler
+    agent_tools.reset_turn_lookups()
+    for _ in range(2):
+        await wrapped(
+            SimpleNamespace(
+                function_name="web_answer", arguments={}, result_callback=sink, tool_call_id="t"
+            )
+        )
+    assert len(calls) == 2
+    agent_tools.reset_turn_lookups()

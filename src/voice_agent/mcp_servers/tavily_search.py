@@ -27,6 +27,7 @@ import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import date, datetime
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -83,6 +84,7 @@ SPELLING_MATCH = 0.8
 
 
 RESEARCH_RESULTS = 4
+RECENT_SECOND_QUERY = True  # recent=true also searches with the current month and year added
 RESEARCH_TIMEOUT_S = 12.0  # basic depth is slower than the fast one web_answer uses
 RESEARCH_SNIPPET = 400
 RESEARCH_CHARS = 2000
@@ -110,7 +112,7 @@ def research_text(data: dict[str, Any], today: str = "") -> str:
     header = f"Searched on {today} ({gemini_grounding.TIMEZONE}).\n" if today else ""
     room = RESEARCH_CHARS - len(header) - len(open_tag) - len(close_tag) - 2
     blocks: list[str] = []
-    for r in (data.get("results") or [])[:RESEARCH_RESULTS]:
+    for r in (data.get("results") or [])[: RESEARCH_RESULTS + 2]:
         title = " ".join(clean_text(str(r.get("title") or "")).split())
         url = " ".join(clean_text(str(r.get("url") or "")).split())
         snippet = " ".join(clean_text(str(r.get("content") or "")).split())[:RESEARCH_SNIPPET]
@@ -333,24 +335,45 @@ def build_server(
         api_key = key or load_key()
         if not api_key:
             return RESEARCH_FAIL
-        body = {
-            "query": spoken_years_to_digits(query),
+        base = {
             "search_depth": "basic",
             "include_answer": False,
             "include_raw_content": False,
             "max_results": RESEARCH_RESULTS,
         }
         if recent:
-            body |= {"topic": "news", "time_range": "year"}
-        try:
-            async with asyncio.timeout(RESEARCH_TIMEOUT_S):
-                response = await client().post(
-                    TAVILY_URL, json=body, headers={"Authorization": f"Bearer {api_key}"}
-                )
-            response.raise_for_status()
-            return research_text(response.json(), today().isoformat())
-        except (httpx.HTTPError, ValueError, TimeoutError, AttributeError):
+            base |= {"topic": "news", "time_range": "year"}
+        question = spoken_years_to_digits(query)
+        queries = [question]
+        if recent and RECENT_SECOND_QUERY:
+            now = today()
+            queries.append(f"{question} {now:%B %Y}")  # pulls up pages that name the current date
+
+        async def one(text: str) -> list[Any] | None:
+            try:
+                async with asyncio.timeout(RESEARCH_TIMEOUT_S):
+                    response = await client().post(
+                        TAVILY_URL,
+                        json={**base, "query": text},
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                response.raise_for_status()
+                return list(response.json().get("results") or [])
+            except (httpx.HTTPError, ValueError, TimeoutError, AttributeError):
+                return None
+
+        answers = [r for r in await asyncio.gather(*(one(q) for q in queries)) if r is not None]
+        if not answers:
             return RESEARCH_FAIL
+        merged: list[Any] = []
+        seen_urls: set[str] = set()
+        for row in zip_longest(*answers):
+            for result in row:
+                url = str(result.get("url") or "") if isinstance(result, dict) else ""
+                if result is not None and url not in seen_urls:
+                    seen_urls.add(url)
+                    merged.append(result)
+        return research_text({"results": merged}, today().isoformat())
 
     def remember(wanted: frozenset[str], text: str) -> None:
         cache[wanted] = (clock(), text)

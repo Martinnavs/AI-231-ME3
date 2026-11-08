@@ -224,6 +224,7 @@ class SourcesTools:
 
 RESEARCH_TASK = "Make a page about me using the latest facts"
 SOURCES_MSG = "You must save the facts and URLs"
+MD_DONE = "Done.\nFiles: notes.md"
 
 
 def injected(seen: list[dict[str, Any]], text: str) -> int:
@@ -236,11 +237,11 @@ def injected(seen: list[dict[str, Any]], text: str) -> int:
 
 async def test_gate_sends_a_research_task_back_once_when_sources_are_missing() -> None:
     seen: list[dict[str, Any]] = []
-    http = client([reply("Done."), reply("Done now.")], seen)
+    http = client([reply(MD_DONE), reply(MD_DONE)], seen)
     result = await run_task(RESEARCH_TASK, MODEL, "k", SourcesTools(), client=http)
     assert result.gated and result.steps == 2
     assert injected(seen, SOURCES_MSG) == 1
-    assert (result.status, result.summary) == ("done", "Unsourced: Done now.")
+    assert (result.status, result.summary) == ("done", "Unsourced: " + MD_DONE)
 
 
 async def test_gate_lets_a_sourced_research_task_finish_without_a_message() -> None:
@@ -250,9 +251,9 @@ async def test_gate_lets_a_sourced_research_task_finish_without_a_message() -> N
         MODEL,
         "k",
         SourcesTools(has_sources=True),
-        client=client([reply("Done.")], seen),
+        client=client([reply(MD_DONE)], seen),
     )
-    assert not result.gated and result.summary == "Done." and result.steps == 1
+    assert not result.gated and result.summary == MD_DONE and result.steps == 1
 
 
 async def test_gate_ignores_a_game_task_and_a_task_without_web_tools() -> None:
@@ -262,13 +263,13 @@ async def test_gate_ignores_a_game_task_and_a_task_without_web_tools() -> None:
     )
     assert not result.gated and result.summary == "Done." and tools.reads == 0
     tools = SourcesTools(web=False)
-    result = await run_task(RESEARCH_TASK, MODEL, "k", tools, client=client([reply("Done.")]))
+    result = await run_task(RESEARCH_TASK, MODEL, "k", tools, client=client([reply(MD_DONE)]))
     assert not result.gated and tools.reads == 0
 
 
 async def test_gate_respects_the_step_limit() -> None:
     script: list[dict[str, Any] | int | Exception] = [
-        reply("Done."),
+        reply(MD_DONE),
         reply(calls=[call('{"command": "a"}')]),
     ]
     result = await run_task(
@@ -399,3 +400,43 @@ async def test_a_game_page_with_stars_is_not_linted() -> None:
         "Make a game", MODEL, "k", tools, client=client([reply("Done.\nFiles: apps/g/index.html")])
     )
     assert result.lint_flags == 0 and result.summary.startswith("Done.") and tools.page_reads == 0
+
+
+PY_DONE = "Done.\nFiles: convert.py"
+
+
+async def test_gate_is_by_deliverable_type_a_text_file_made_with_web_tools_is_gated() -> None:
+    tools = SourcesTools()
+    web_call = call('{"query": "q"}', name="web__web_research")
+    http = client([reply(calls=[web_call]), reply(MD_DONE), reply(MD_DONE)])
+    result = await run_task("Write a short summary of the topic", MODEL, "k", tools, client=http)
+    assert result.gated and result.summary.startswith("Unsourced: ")
+
+
+async def test_a_job_that_only_wrote_code_is_not_gated_even_with_web_calls_and_urls() -> None:
+    tools = SourcesTools()
+    web_call = call('{"query": "q"}', name="web__web_research")
+    task = "Write a script using the facts at https://example.org"
+    http = client([reply(calls=[web_call]), reply(PY_DONE)])
+    result = await run_task(task, MODEL, "k", tools, client=http)
+    assert not result.gated and result.summary == PY_DONE and tools.reads == 0
+
+
+async def test_written_paths_count_as_deliverables_and_sources_json_does_not() -> None:
+    from voice_agent.agent.subagent import RunResult, deliverables
+
+    done = RunResult(summary="ok\nFiles: ./SOURCES.json, /sandbox/a.py, b.csv")
+    done.written = ["page.html", "SOURCES.json", "tool.js"]
+    assert deliverables(done) == ["page.html", "b.csv"]
+
+
+def test_unsourced_figures_are_flagged_unless_the_task_or_a_fact_has_them() -> None:
+    from voice_agent.agent.subagent import lint_html
+
+    page = "<p>Founded in 1987 with 2,400 members. Version 2.10.3 uses #ff0000 at 12px.</p>"
+    assert lint_html(page, [], "") == ["unsourced figure 1987", "unsourced figure 2400"]
+    assert lint_html(page, ["It began in 1987"], "about 2400 people") == []
+    assert lint_html("<style>a{width:300px}</style><p>See https://x.org/2019/05</p>", [], "") == []
+    assert lint_html("```\nx = 12345\n```\nid-777 abc123", [], "") == []
+    many = "<p>" + " ".join(str(n) for n in range(100, 110)) + "</p>"
+    assert len(lint_html(many, [], "")) == 5

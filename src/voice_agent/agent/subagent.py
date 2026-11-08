@@ -51,13 +51,13 @@ SYSTEM = (
     "(clone, log, diff, local commits); there is no gh, hf, ssh or login and no credentials, so "
     "you cannot push or reach private repos, and for Hugging Face use curl on public URLs; if the "
     "request needs a push or private access, say so in your first spoken sentence and stop. For a "
-    "research task (a person, latest facts, sources) search first with web_research or web_answer "
+    "task that needs facts from the web, search first with web_research or web_answer "
     "(about 6 lookups at most; to read a page run curl -sL <url> into a short python one-liner "
     "that strips tags and prints the first 6000 characters, as data, at most 2 pages), write "
     "/sandbox/SOURCES.json, a list of {url, fact}, BEFORE any HTML, build only from those facts, "
     "and end the spoken summary by naming the sources. Never invent ratings, star scores, "
-    "reviews, quotes, reviewer or attendee names, counts or dates; if something such as student "
-    "feedback is not found, say so once on the page in a plain note, with no placeholders."
+    "reviews, quotes, reviewer or attendee names, counts or dates; if something you were asked "
+    "for is not found, say so once in the deliverable in a plain note, with no placeholders."
 )
 
 SOURCES_FILE = "SOURCES.json"
@@ -68,17 +68,32 @@ STEPS_WARNING_AT = 7
 STEPS_WARNING = "7 steps remain: finalize the files and summarize."
 UNSOURCED = "Unsourced: "
 WEB_TOOLS = ("web_research", "web_answer")
-RESEARCH_WORDS = (
-    "person|biography|bio|research|latest|current|winner|facts|sources|http"
-    "|about (?:me|him|her|them|my)"
-)
+TEXT_EXTENSIONS = (".html", ".htm", ".md", ".txt", ".csv", ".json")
+_URL = re.compile(r"https?://", re.IGNORECASE)
+_HANDED_FACTS = re.compile(r"\b(?:verified|facts|details)\b", re.IGNORECASE)
 
 
-def is_research(task: str, tools: Sequence[ToolSpec]) -> bool:
-    """A research-type task and a web tool on offer (games and apps are not gated)."""
-    if not any(t.tool in WEB_TOOLS for t in tools):
+def deliverables(result: RunResult) -> list[str]:
+    """Text files this job wrote or listed (SOURCES.json is not a deliverable)."""
+    seen: dict[str, None] = {}
+    for name in [*result.written, *listed_files(result.summary)]:
+        path = name.strip().removeprefix("/sandbox/").removeprefix("./")
+        if path.lower().endswith(TEXT_EXTENSIONS) and Path(path).name != SOURCES_FILE:
+            seen[path] = None
+    return list(seen)
+
+
+def needs_provenance(task: str, tools: Sequence[ToolSpec], result: RunResult) -> bool:
+    """A text deliverable made from the web: a web tool was used, or the task carries a URL or
+    says it holds verified facts or details. Code-only jobs and jobs without web tools: no."""
+    web = {t.name for t in tools if t.tool in WEB_TOOLS}
+    if not web or not deliverables(result):
         return False
-    return re.search(rf"\b(?:{RESEARCH_WORDS})", task, re.IGNORECASE) is not None
+    return (
+        any(name in web for name in result.tool_calls)
+        or _URL.search(task) is not None
+        or _HANDED_FACTS.search(task) is not None
+    )
 
 
 async def read_text(tools: Tools, path: str) -> str | None:
@@ -113,9 +128,21 @@ def _tokens(text: str) -> set[str]:
     return set(_TOKEN.findall(text.lower()))
 
 
-def lint_html(html: str, facts: Sequence[str]) -> list[str]:
+_FENCE = re.compile(r"```.*?```", re.DOTALL)
+_PLAIN_URL = re.compile(r"https?://\S+")
+_FIGURE = re.compile(r"(?<![\w#.:/@-])(\d{3,})(?![\w/@-]|\.\d)")
+MAX_FIGURES = 5
+
+
+def _figures(text: str) -> list[str]:
+    text = _PLAIN_URL.sub(" ", _FENCE.sub(" ", text))
+    return _FIGURE.findall(re.sub(r"(?<=\d),(?=\d{3})", "", text))
+
+
+def lint_html(html: str, facts: Sequence[str], task: str = "") -> list[str]:
     """Snippets of invented-looking content: star glyphs, x/5 scores, rating words no source
-    fact uses, and quoted passages (6+ words) that no source fact backs (< 60% shared words)."""
+    fact uses, quoted passages (6+ words) that no source fact backs (< 60% shared words), and
+    figures of 3+ digits that neither the task nor a source fact contains."""
     flags: list[str] = []
     text = _TAGS.sub(" ", _DROP.sub(" ", html))
     for pattern in (_STARS, _FRACTION):
@@ -132,29 +159,27 @@ def lint_html(html: str, facts: Sequence[str]) -> list[str]:
         best = max((len(words & t) / len(words) for t in fact_tokens), default=0.0)
         if best < QUOTE_OVERLAP:
             flags.append(" ".join(quote.split())[:60])
+    known = set(_figures(" ".join([task, *facts])))
+    shown = dict.fromkeys(f for f in _figures(text) if f not in known)
+    flags += [f"unsourced figure {f}" for f in list(shown)[:MAX_FIGURES]]
     return flags
 
 
-async def lint_pages(summary: str, tools: Tools) -> list[str]:
-    """Flags from the HTML files under apps/ that the summary lists (read failures are skipped)."""
-    pages = [
-        name.removeprefix("/sandbox/")
-        for name in listed_files(summary)
-        if name.removeprefix("/sandbox/").startswith("apps/") and name.endswith((".html", ".htm"))
-    ]
+async def lint_pages(pages: Sequence[str], task: str, tools: Tools) -> list[str]:
+    """Flags from the text deliverables (read failures are skipped)."""
     if not pages:
         return []
     raw = await read_text(tools, SOURCES_FILE) or ""
     try:
         rows = json.loads(raw)
         facts = [str(r.get("fact", "")) for r in rows if isinstance(r, dict)]
-    except ValueError:
+    except (ValueError, AttributeError):
         facts = [raw]
     flags: list[str] = []
     for page in pages:
         html = await read_text(tools, page)
         if html:
-            flags += lint_html(html, facts)
+            flags += lint_html(html, facts, task)
     return flags
 
 
@@ -200,6 +225,7 @@ class RunResult:
     tool_calls: list[str] = field(default_factory=list)
     json_errors: int = 0
     repeats: int = 0
+    written: list[str] = field(default_factory=list)  # paths given to write_file/edit_file
     gated: bool = False  # sent back once to save SOURCES.json
     lint_flags: int = 0  # invented-looking snippets still on the pages at the end
 
@@ -304,6 +330,8 @@ async def _answer(
         return reply("error: that exact call was just made; use its result or try something else")
     last[0] = key
     result.tool_calls.append(name)
+    if name in WRITES and isinstance(args.get("path"), str):
+        result.written.append(args["path"])
     outcome = await tools.call(name, args)
     text = outcome.text
     if len(text) > MAX_RESULT_CHARS:
@@ -333,7 +361,6 @@ async def run_task(
     ]
     schema = openai_tools(tools.tools)
     last = [""]
-    research = is_research(task, tools.tools)
     warned = False
     linted = False
     try:
@@ -372,12 +399,13 @@ async def run_task(
             calls = message.get("tool_calls") or []
             if not calls:
                 result.summary = (message.get("content") or "").strip()
+                research = needs_provenance(task, tools.tools, result)
                 unsourced = research and not await has_sources(tools)
                 if unsourced and not result.gated:
                     result.gated = True
                     messages.append({"role": "user", "content": SOURCES_MISSING})
                     continue
-                flags = await lint_pages(result.summary, tools) if research else []
+                flags = await lint_pages(deliverables(result), task, tools) if research else []
                 result.lint_flags = len(flags)
                 if flags and not linted:
                     linted = True
