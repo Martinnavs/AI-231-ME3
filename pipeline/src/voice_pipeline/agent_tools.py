@@ -28,6 +28,7 @@ from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.mcp_service import MCPClient
 
 from voice_pipeline import question
+from voice_pipeline.chain_state import ChainState, is_chain_tool
 from voice_pipeline.device_say import device_sentence, single_question
 from voice_pipeline.tools.smart_home import SCHEMA, make_handler
 
@@ -124,14 +125,65 @@ DELEGATE_GRACE_S = 1.5
 _pending_destructive: str | None = None
 
 
-def job_started(result: Any) -> bool:
-    """Whether a `delegate` result says the job was started and runs in the background."""
+def _job_row(result: Any) -> dict[str, Any] | None:
     if isinstance(result, str):
         try:
             result = json.loads(result)
         except ValueError:
-            return False
-    return isinstance(result, dict) and result.get("status") == "started"
+            return None
+    return result if isinstance(result, dict) else None
+
+
+def job_started(result: Any) -> bool:
+    """Whether a `delegate` result says the job was started and runs in the background."""
+    row = _job_row(result)
+    return row is not None and row.get("status") == "started"
+
+
+def started_job_id(result: Any) -> str:
+    row = _job_row(result)
+    return str(row.get("job") or "") if row and row.get("status") == "started" else ""
+
+
+# The chain being worked on (research, then build); set by build_tools(chain=...). None: no chain.
+CHAIN: ChainState | None = None
+CHAIN_UPDATE_DESCRIPTION = (
+    "Record where a multi-step task stands so the next turn knows. phase is one of "
+    "awaiting_name, awaiting_fact_approval, building, idle; subject is who or what it is about; "
+    "facts is up to three short verified facts, separated by ' | '. Returns ok."
+)
+
+
+def chain_update_schema(chain: ChainState, record: list[dict[str, Any]]) -> FunctionSchema:
+    async def handler(params: FunctionCallParams) -> None:
+        args = params.arguments
+        record.append({"tool": "chain_update", "args": dict(args)})
+        fields: dict[str, Any] = {}
+        if args.get("subject"):
+            fields["subject"] = str(args["subject"])[:80]
+        if args.get("facts"):
+            fields["facts"] = re.split(r"\s*(?:\||\n)\s*", str(args["facts"]))
+        try:
+            chain.update(str(args.get("phase") or ""), **fields)
+        except ValueError as exc:
+            await params.result_callback(f"error: {exc}")
+            return
+        await params.result_callback("ok")
+
+    return FunctionSchema(
+        name="chain_update",
+        description=CHAIN_UPDATE_DESCRIPTION,
+        properties={
+            "phase": {
+                "type": "string",
+                "description": "awaiting_name, awaiting_fact_approval, building or idle",
+            },
+            "subject": {"type": "string", "description": "who or what the task is about"},
+            "facts": {"type": "string", "description": "up to three facts separated by ' | '"},
+        },
+        required=["phase"],
+        handler=handler,
+    )
 
 
 SAY = {
@@ -486,6 +538,8 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             return
         args = {k: v for k, v in params.arguments.items() if k != "say"}
         record.append({"tool": schema.name, "args": args})
+        if CHAIN is not None and CHAIN.active() and not is_chain_tool(schema.name):
+            CHAIN.touch_unrelated()
         params.arguments = args  # the real tool never sees `say`
         if schema.name == "device_status" and params.tool_call_id != "router":
             # the router path words the status itself (agent_server.run_routed)
@@ -518,6 +572,8 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
 
             async def job_callback(result: Any, *, properties: Any = None) -> None:
                 if job_started(result):
+                    if CHAIN is not None:
+                        CHAIN.update("building", job_id=started_job_id(result))
                     await deliver_job(DELEGATE_STARTED, properties=properties or NO_SECOND_REQUEST)
                 else:
                     await deliver_job(result, properties=properties)
@@ -553,6 +609,7 @@ async def build_tools(
     live: str | None = None,
     servers: Sequence[MCPClient] = (),
     optional: Sequence[MCPClient] = (),
+    chain: ChainState | None = None,
 ) -> ToolsSchema:
     """smart_home (posting to the ME2 dashboard only when `live` is set) and the MCP tools.
 
@@ -606,6 +663,10 @@ async def build_tools(
             print(f"MCP server left out ({type(exc).__name__}: {exc})", file=sys.stderr)
             continue
         tools += [s if s.name == MUSIC_TOOL else _recorded(s, record) for s in schemas]
+    global CHAIN
+    CHAIN = chain
+    if chain is not None:
+        tools.append(chain_update_schema(chain, record))
     music = next((t for t in tools if t.name == MUSIC_TOOL), None)
     if music is not None:
         tools[0] = with_music(tools[0], music, record)

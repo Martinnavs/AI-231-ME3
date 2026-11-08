@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import logging
 import os
 import re
 import shutil
@@ -44,6 +45,7 @@ from voice_agent.agent.mcp_clients import McpClientManager
 from voice_agent.agent.subagent import Ledger, Limits, Model, RunResult, run_task
 from voice_agent.config import McpServerSpec
 
+log = logging.getLogger(__name__)
 CONFIG = Path(__file__).resolve().parents[3] / "config" / "delegate.toml"
 MAX_WAIT_S = 20.0
 MAX_LISTED_FILES = 20
@@ -146,11 +148,22 @@ class Delegator:
             args += ["--pylibs", str(self.pylibs)]
         # the MCP client starts children with a minimal environment; the Pi has no editable install
         env = {"PYTHONPATH": os.environ["PYTHONPATH"]} if os.environ.get("PYTHONPATH") else {}
-        spec = McpServerSpec(command=sys.executable, args=tuple(args), env=env)
-        async with McpClientManager({"code": spec}) as registry:
-            if registry.unavailable:
+        servers = {"code": McpServerSpec(command=sys.executable, args=tuple(args), env=env)}
+        if self.network:  # the web tools run here, on the host: the sandbox never sees the key
+            servers["web"] = McpServerSpec(
+                command=sys.executable,
+                args=("-m", "voice_agent.mcp_servers.tavily_search"),
+                env=env,
+            )
+        async with McpClientManager(servers) as registry:
+            if "code" in registry.unavailable:
                 return RunResult(status="error", summary="the code tools did not start")
-            tools = registry.subset(["code__"], exclude=["code__publish_site"])
+            if "web" in registry.unavailable:
+                log.warning("web tools unavailable, the job runs without them")
+            tools = registry.subset(
+                ["code__", "web__web_research", "web__web_answer"],
+                exclude=["code__publish_site"],
+            )
             async with httpx.AsyncClient(transport=self.transport, timeout=120.0) as client:
                 return await run_task(
                     task,

@@ -4,6 +4,7 @@ import asyncio
 import json
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -364,6 +365,74 @@ async def test_the_real_runner_passes_workspace_network_and_pylibs_to_the_code_s
     args = list(captured["spec"].args)
     assert args[args.index("--root") + 1] == str(tmp_path / "workspace")
     assert "--network" in args and args[args.index("--pylibs") + 1] == str(tmp_path / "pylibs")
+
+
+class _Registry:
+    def __init__(self, names: list[str], unavailable: dict[str, str]) -> None:
+        self.unavailable = unavailable
+        self.names = names
+        self.subset_args: tuple[list[str], list[str]] | None = None
+
+    def subset(self, prefixes: list[str], *, exclude: list[str] = []) -> Any:  # noqa: B006
+        self.subset_args = (list(prefixes), list(exclude))
+        keep = [n for n in self.names if n.startswith(tuple(prefixes)) and n not in exclude]
+        return SimpleNamespace(tools=[SimpleNamespace(name=n, tool=n.split("__")[1]) for n in keep])
+
+
+def _fake_manager(
+    monkeypatch: pytest.MonkeyPatch, registry: _Registry, captured: dict[str, Any]
+) -> None:
+    class Fake:
+        def __init__(self, specs: dict[str, Any]) -> None:
+            captured["specs"] = specs
+
+        async def __aenter__(self) -> _Registry:
+            return registry
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+    async def fake_run_task(task: str, model: Any, key: str, tools: Any, *a: Any, **k: Any) -> Any:
+        captured["tools"] = [t.name for t in tools.tools]
+        return RunResult(status="done", summary="ok")
+
+    monkeypatch.setattr("voice_agent.mcp_servers.delegate.McpClientManager", Fake)
+    monkeypatch.setattr("voice_agent.mcp_servers.delegate.run_task", fake_run_task)
+
+
+NAMES = [
+    "code__bash",
+    "code__publish_site",
+    "web__web_research",
+    "web__web_answer",
+]
+
+
+async def test_the_sub_agent_gets_the_web_tools_but_not_publish_site(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, Any] = {}
+    registry = _Registry(NAMES, {})
+    _fake_manager(monkeypatch, registry, captured)
+    result = await make(tmp_path, None).run_in_sandbox(
+        "t", Model("u", "m", 0, 0, None, {}), "k", tmp_path / "j", "p"
+    )
+    assert result.status == "done"
+    assert set(captured["specs"]) == {"code", "web"}
+    assert captured["specs"]["web"].args == ("-m", "voice_agent.mcp_servers.tavily_search")
+    assert sorted(captured["tools"]) == ["code__bash", "web__web_answer", "web__web_research"]
+    assert "code__publish_site" in registry.subset_args[1]  # type: ignore[index]
+
+
+async def test_the_job_still_runs_when_the_web_server_does_not_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, Any] = {}
+    _fake_manager(monkeypatch, _Registry(["code__bash"], {"web": "timed out starting"}), captured)
+    result = await make(tmp_path, None).run_in_sandbox(
+        "t", Model("u", "m", 0, 0, None, {}), "k", tmp_path / "j", "p"
+    )
+    assert result.status == "done" and captured["tools"] == ["code__bash"]
 
 
 def test_the_tool_text_says_what_the_sandbox_cannot_do(tmp_path: Path) -> None:

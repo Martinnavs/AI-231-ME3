@@ -199,3 +199,113 @@ async def test_an_empty_summary_after_writing_a_file_is_still_done() -> None:
         "x", MODEL, "k", tools, client=client([reply(calls=[write]), reply("")])
     )
     assert result.status == "done"
+
+
+WEB = ToolSpec("web__web_research", "web", "web_research", "r", {"type": "object"})
+READ = ToolSpec("code__read_file", "code", "read_file", "r", {"type": "object"})
+
+
+class SourcesTools:
+    """bash and web_research; read_file finds SOURCES.json only once `has_sources` is set."""
+
+    def __init__(self, has_sources: bool = False, web: bool = True) -> None:
+        self.tools = [SPEC, READ, *([WEB] if web else [])]
+        self.has_sources = has_sources
+        self.reads = 0
+
+    async def call(self, name: str, arguments: Mapping[str, Any]) -> ToolOutcome:
+        if name == "code__read_file":
+            self.reads += 1
+            if self.has_sources:
+                return ToolOutcome('[{"url": "u", "fact": "f"}]', False, 0.0)
+            return ToolOutcome("file not found: SOURCES.json", True, 0.0)
+        return ToolOutcome("ok", False, 0.0)
+
+
+RESEARCH_TASK = "Make a page about me using the latest facts"
+SOURCES_MSG = "You must save the facts and URLs"
+
+
+def injected(seen: list[dict[str, Any]], text: str) -> int:
+    return sum(
+        1
+        for m in seen[-1]["messages"]
+        if m["role"] == "user" and str(m["content"]).startswith(text)
+    )
+
+
+async def test_gate_sends_a_research_task_back_once_when_sources_are_missing() -> None:
+    seen: list[dict[str, Any]] = []
+    http = client([reply("Done."), reply("Done now.")], seen)
+    result = await run_task(RESEARCH_TASK, MODEL, "k", SourcesTools(), client=http)
+    assert result.gated and result.steps == 2
+    assert injected(seen, SOURCES_MSG) == 1
+    assert (result.status, result.summary) == ("done", "Unsourced: Done now.")
+
+
+async def test_gate_lets_a_sourced_research_task_finish_without_a_message() -> None:
+    seen: list[dict[str, Any]] = []
+    result = await run_task(
+        RESEARCH_TASK,
+        MODEL,
+        "k",
+        SourcesTools(has_sources=True),
+        client=client([reply("Done.")], seen),
+    )
+    assert not result.gated and result.summary == "Done." and result.steps == 1
+
+
+async def test_gate_ignores_a_game_task_and_a_task_without_web_tools() -> None:
+    tools = SourcesTools()
+    result = await run_task(
+        "Make a flappy bird game", MODEL, "k", tools, client=client([reply("Done.")])
+    )
+    assert not result.gated and result.summary == "Done." and tools.reads == 0
+    tools = SourcesTools(web=False)
+    result = await run_task(RESEARCH_TASK, MODEL, "k", tools, client=client([reply("Done.")]))
+    assert not result.gated and tools.reads == 0
+
+
+async def test_gate_respects_the_step_limit() -> None:
+    script: list[dict[str, Any] | int | Exception] = [
+        reply("Done."),
+        reply(calls=[call('{"command": "a"}')]),
+    ]
+    result = await run_task(
+        RESEARCH_TASK, MODEL, "k", SourcesTools(), Limits(max_steps=2), client=client(script)
+    )
+    assert result.status == "step_limit" and result.steps == 2
+
+
+async def test_seven_steps_remaining_warning_is_sent_once_at_the_right_step() -> None:
+    seen: list[dict[str, Any]] = []
+    script: list[dict[str, Any] | int | Exception] = [
+        reply(calls=[call(json.dumps({"command": str(i)}))]) for i in range(4)
+    ]
+    script.append(reply("Done."))
+    limits = Limits(max_steps=9)
+    result = await run_task(
+        "Make a game", MODEL, "k", FakeTools(), limits, client=client(script, seen)
+    )
+    assert result.steps == 5
+    assert injected(seen, "7 steps remain: finalize the files and summarize.") == 1
+    assert "7 steps remain" not in str(seen[1]["messages"])  # not yet after step 1
+    assert "7 steps remain" in str(seen[2]["messages"])  # after step 2 = 9 - 7
+
+
+async def test_no_warning_in_a_short_run_with_the_default_limit() -> None:
+    seen: list[dict[str, Any]] = []
+    await run_task("Make a game", MODEL, "k", FakeTools(), client=client([reply("Done.")], seen))
+    assert injected(seen, "7 steps remain") == 0
+
+
+async def test_the_system_message_starts_with_todays_date() -> None:
+    from datetime import date
+
+    from voice_agent.agent.subagent import SYSTEM
+
+    seen: list[dict[str, Any]] = []
+    await run_task("x", MODEL, "k", FakeTools(), client=client([reply("ok")], seen))
+    system = seen[0]["messages"][0]
+    assert system["role"] == "system"
+    assert system["content"] == f"Today is {date.today().isoformat()}. {SYSTEM}"

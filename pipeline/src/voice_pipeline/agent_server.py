@@ -55,6 +55,7 @@ from voice_pipeline.agent_tools import (
     with_builtin_search,
     without_tools,
 )
+from voice_pipeline.chain_state import ChainState
 from voice_pipeline.device_say import device_sentence
 from voice_pipeline.doc_answer import (
     DOC_ANSWER_TIMEOUT_S,
@@ -158,7 +159,9 @@ class AgentServer:
         notices: NoticeQueue | None = None,
         doc_request: Request | None = None,
         jobs_file: Path | None = None,
+        chain: ChainState | None = None,
     ) -> None:
+        self.chain = chain  # set: a running research/build task steers the turns that follow it
         self.jobs_file = jobs_file  # set: delegate_status/cancel are offered only once a job exists
         self.doc_request = doc_request
         self.router = router
@@ -538,6 +541,22 @@ class AgentServer:
         for item in self.notices.pop_items() if self.notices is not None else []:
             self.notice_ids += 1
             self.unacked[self.notice_ids] = item
+            self.note_chain_job(item.get("job", ""))
+
+    def note_chain_job(self, job_id: str) -> None:
+        """The chain's job ended: remember what it made. TODO(ticket 04): move to
+        awaiting_publish_confirm when the user asked to publish."""
+        chain = self.chain
+        if chain is None or not job_id or chain.data["job_id"] != job_id or not chain.active():
+            return
+        try:
+            jobs = json.loads(chain.path.with_name("jobs.json").read_text())["jobs"]
+            row = next(j for j in jobs if j["id"] == job_id)
+        except (OSError, ValueError, KeyError, StopIteration):
+            return
+        files = row.get("files") or []
+        if row.get("status") == "done" and files:
+            chain.update(artifact_path=str(files[0]))
 
     async def notice_channel(self, ws: ServerConnection) -> None:
         """A push channel for finished jobs (R1): every notice goes out the moment it appears in
@@ -627,6 +646,13 @@ class AgentServer:
             work: Any
             if found is not None and (found.tool == "clock" or found.tool in self.tools):
                 work = self.fast(found, on_text)
+            elif self.chain is not None and self.chain.active() and last.get("role") == "user":
+                # a research/build task is under way: Gemini sees its state, the router does not
+                steered = [
+                    *messages[:-1],
+                    {**last, "content": f"{last['content']}\n{self.chain.block()}"},
+                ]
+                work = self.gemini(steered, on_text, on_tool, on_say)
             elif (
                 self.router is not None
                 and last.get("role") == "user"
@@ -685,8 +711,14 @@ async def run(
     host: str = "127.0.0.1",
 ) -> int:
     record: list[dict[str, Any]] = []
+    state_dir = (
+        notices.parent
+        if notices
+        else Path(agent_tools.DELEGATE_STATE_DIR or "~/.local/state/voice_agent/delegate")
+    ).expanduser()
+    chain = ChainState(state_dir)  # an expired state is reset to idle here
     servers, optional = standard_servers(pi_url)
-    tools = await build_tools(record, live=live, servers=servers, optional=optional)
+    tools = await build_tools(record, live=live, servers=servers, optional=optional, chain=chain)
     system = system_file.read_text()
     seen_by_model = with_builtin_search if builtin_search else (lambda t: t)
 
@@ -741,6 +773,7 @@ async def run(
         queue,
         doc_request,
         hide_idle_delegate,
+        chain,
     )
     server.test_delay = test_delay
     server.probe = OnlineProbe()
