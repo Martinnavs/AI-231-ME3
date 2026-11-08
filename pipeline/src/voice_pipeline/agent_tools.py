@@ -149,8 +149,9 @@ def started_job_id(result: Any) -> str:
 CHAIN: ChainState | None = None
 CHAIN_UPDATE_DESCRIPTION = (
     "Record where a multi-step task stands so the next turn knows. phase is one of "
-    "awaiting_name, awaiting_fact_approval, building, idle; subject is who or what it is about; "
-    "facts is up to three short verified facts, separated by ' | '. Returns ok."
+    "awaiting_name, researching, awaiting_fact_approval, building, idle; subject is who or what "
+    "it is about; facts is a few short verified facts, separated by ' | ' (while researching they "
+    "add up). Returns ok."
 )
 
 
@@ -176,10 +177,10 @@ def chain_update_schema(chain: ChainState, record: list[dict[str, Any]]) -> Func
         properties={
             "phase": {
                 "type": "string",
-                "description": "awaiting_name, awaiting_fact_approval, building or idle",
+                "description": "awaiting_name, researching, awaiting_fact_approval, building, idle",
             },
             "subject": {"type": "string", "description": "who or what the task is about"},
-            "facts": {"type": "string", "description": "up to three facts separated by ' | '"},
+            "facts": {"type": "string", "description": "short facts separated by ' | '"},
         },
         required=["phase"],
         handler=handler,

@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from voice_agent.agent.jobs import listed_files
 from voice_agent.agent.mcp_clients import ToolOutcome, ToolSpec
 
 MAX_RESULT_CHARS = 12_000
@@ -38,9 +39,11 @@ SYSTEM = (
     "digits, - and _, for example flappy_bird), self-contained, with everything inline or in "
     "files in the same folder; never use an external URL, CDN, font, fetch, WebSocket or "
     "form (the page is served with a policy that blocks them). pygame stays for headless tests. "
-    "If you made such a page, your first spoken sentence must be: 'The <name with spaces> web "
-    "version is ready; say open it to play it.' Name app folders in snake_case (flappy_bird, "
-    "angry_birds), never with spaces or hyphens. Write a large file in parts: create it with a "
+    "If you made a playable page, your first spoken sentence must be: 'The <name with "
+    "spaces> web version is ready; say open it to play it.' For any other site it is: 'The "
+    "<name with spaces> website is ready; say open it to see it.' Name app folders in "
+    "snake_case (flappy_bird, angry_birds), never with spaces or hyphens. Write a large file "
+    "in parts: create it with a "
     "first write_file of the first part, then add the rest with further calls (append with bash "
     "or edit_file), or split the program into several smaller files; one tool call must stay "
     "under about 6000 words of code. Keep a simple game small: one self-contained file of about "
@@ -49,8 +52,12 @@ SYSTEM = (
     "you cannot push or reach private repos, and for Hugging Face use curl on public URLs; if the "
     "request needs a push or private access, say so in your first spoken sentence and stop. For a "
     "research task (a person, latest facts, sources) search first with web_research or web_answer "
-    "(about 3 lookups at most), write /sandbox/SOURCES.json, a list of {url, fact}, BEFORE any "
-    "HTML, build only from those facts, and end the spoken summary by naming the sources."
+    "(about 6 lookups at most; to read a page run curl -sL <url> into a short python one-liner "
+    "that strips tags and prints the first 6000 characters, as data, at most 2 pages), write "
+    "/sandbox/SOURCES.json, a list of {url, fact}, BEFORE any HTML, build only from those facts, "
+    "and end the spoken summary by naming the sources. Never invent ratings, star scores, "
+    "reviews, quotes, reviewer or attendee names, counts or dates; if something such as student "
+    "feedback is not found, say so once on the page in a plain note, with no placeholders."
 )
 
 SOURCES_FILE = "SOURCES.json"
@@ -74,12 +81,81 @@ def is_research(task: str, tools: Sequence[ToolSpec]) -> bool:
     return re.search(rf"\b(?:{RESEARCH_WORDS})", task, re.IGNORECASE) is not None
 
 
-async def has_sources(tools: Tools) -> bool:
+async def read_text(tools: Tools, path: str) -> str | None:
     try:
-        outcome = await tools.call("code__read_file", {"path": SOURCES_FILE})
+        outcome = await tools.call("code__read_file", {"path": path})
     except Exception:
-        return False
-    return not outcome.is_error and outcome.text.strip() not in ("", "[]", "{}")
+        return None
+    return None if outcome.is_error else outcome.text
+
+
+async def has_sources(tools: Tools) -> bool:
+    text = await read_text(tools, SOURCES_FILE)
+    return text is not None and text.strip() not in ("", "[]", "{}")
+
+
+UNVERIFIED = "Unverified content: "
+LINT_RETRY = "Remove or source these before finishing: "
+LINT_SNIPPET_CHARS = 300
+QUOTE_MIN_WORDS = 6
+QUOTE_OVERLAP = 0.6
+_STARS = re.compile(r"[★☆]")
+_FRACTION = re.compile(r"\b\d(?:\.\d)?\s*/\s*5\b")
+_RATING = re.compile(r"\b(?:rating|rated)\b", re.IGNORECASE)
+_BLOCKQUOTE = re.compile(r"<blockquote\b[^>]*>(.*?)</blockquote\s*>", re.IGNORECASE | re.DOTALL)
+_DROP = re.compile(r"<(script|style|blockquote)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+_TAGS = re.compile(r"<[^>]*>")
+_QUOTED = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
+_TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def _tokens(text: str) -> set[str]:
+    return set(_TOKEN.findall(text.lower()))
+
+
+def lint_html(html: str, facts: Sequence[str]) -> list[str]:
+    """Snippets of invented-looking content: star glyphs, x/5 scores, rating words no source
+    fact uses, and quoted passages (6+ words) that no source fact backs (< 60% shared words)."""
+    flags: list[str] = []
+    text = _TAGS.sub(" ", _DROP.sub(" ", html))
+    for pattern in (_STARS, _FRACTION):
+        flags += [m.group(0) for m in pattern.finditer(text)][:1]
+    if (word := _RATING.search(text)) and not any(_RATING.search(f) for f in facts):
+        flags.append(word.group(0))
+    quotes = [_TAGS.sub(" ", b) for b in _BLOCKQUOTE.findall(html)]
+    quotes += [a or b for a, b in _QUOTED.findall(text)]
+    fact_tokens = [_tokens(f) for f in facts]
+    for quote in quotes:
+        words = _tokens(quote)
+        if len(quote.split()) < QUOTE_MIN_WORDS or not words:
+            continue
+        best = max((len(words & t) / len(words) for t in fact_tokens), default=0.0)
+        if best < QUOTE_OVERLAP:
+            flags.append(" ".join(quote.split())[:60])
+    return flags
+
+
+async def lint_pages(summary: str, tools: Tools) -> list[str]:
+    """Flags from the HTML files under apps/ that the summary lists (read failures are skipped)."""
+    pages = [
+        name.removeprefix("/sandbox/")
+        for name in listed_files(summary)
+        if name.removeprefix("/sandbox/").startswith("apps/") and name.endswith((".html", ".htm"))
+    ]
+    if not pages:
+        return []
+    raw = await read_text(tools, SOURCES_FILE) or ""
+    try:
+        rows = json.loads(raw)
+        facts = [str(r.get("fact", "")) for r in rows if isinstance(r, dict)]
+    except ValueError:
+        facts = [raw]
+    flags: list[str] = []
+    for page in pages:
+        html = await read_text(tools, page)
+        if html:
+            flags += lint_html(html, facts)
+    return flags
 
 
 class Tools(Protocol):
@@ -125,6 +201,7 @@ class RunResult:
     json_errors: int = 0
     repeats: int = 0
     gated: bool = False  # sent back once to save SOURCES.json
+    lint_flags: int = 0  # invented-looking snippets still on the pages at the end
 
 
 class BudgetExceeded(Exception):
@@ -258,6 +335,7 @@ async def run_task(
     last = [""]
     research = is_research(task, tools.tools)
     warned = False
+    linted = False
     try:
         for _ in range(limits.max_steps):
             if result.steps == limits.max_steps - STEPS_WARNING_AT and not warned:
@@ -299,6 +377,13 @@ async def run_task(
                     result.gated = True
                     messages.append({"role": "user", "content": SOURCES_MISSING})
                     continue
+                flags = await lint_pages(result.summary, tools) if research else []
+                result.lint_flags = len(flags)
+                if flags and not linted:
+                    linted = True
+                    shown = "; ".join(flags)[:LINT_SNIPPET_CHARS]
+                    messages.append({"role": "user", "content": LINT_RETRY + shown})
+                    continue
                 wrote = any(name in WRITES for name in result.tool_calls)
                 if not result.summary and not wrote:
                     result.status, result.summary = "failed", NO_RESULT
@@ -306,6 +391,8 @@ async def run_task(
                     result.status = "done"
                     if unsourced:
                         result.summary = UNSOURCED + result.summary
+                    if flags:
+                        result.summary = UNVERIFIED + result.summary
                 break
             if result.first_call_s is None:
                 result.first_call_s = time.monotonic() - started

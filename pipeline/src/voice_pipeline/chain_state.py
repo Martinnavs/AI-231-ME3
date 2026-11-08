@@ -17,6 +17,7 @@ from typing import Any
 PHASES = (
     "idle",
     "awaiting_name",
+    "researching",
     "awaiting_fact_approval",
     "building",
     "awaiting_publish_confirm",
@@ -24,6 +25,8 @@ PHASES = (
 EXPIRE_S = 600.0
 MAX_UNRELATED = 3
 MAX_FACTS = 3
+MAX_RESEARCH_FACTS = 8  # facts kept while researching, newest last
+BLOCK_FACT_CHARS = 700
 FACT_CHARS = 160
 # tools that belong to a chain; any other tool call while one is active is an unrelated turn
 CHAIN_TOOLS = frozenset({"chain_update", "web_research", "web_answer"})
@@ -73,6 +76,7 @@ class ChainState:
 
     def update(self, phase: str | None = None, **fields: Any) -> None:
         """Set the phase and any of subject, facts (a list), job_id, artifact_path, focus."""
+        before = self.data["phase"]
         if phase is not None:
             if phase not in PHASES:
                 raise ValueError(f"unknown phase {phase!r}")
@@ -85,7 +89,15 @@ class ChainState:
             if key not in self.data or key in ("phase", "updated_at", "unrelated_turns"):
                 raise ValueError(f"unknown field {key!r}")
             if key == "facts":
-                value = [str(f).strip()[:FACT_CHARS] for f in value if str(f).strip()][:MAX_FACTS]
+                new = [str(f).strip()[:FACT_CHARS] for f in value if str(f).strip()]
+                if "researching" in (before, self.data["phase"]):  # research adds up across calls
+                    seen: dict[str, str] = {}
+                    for fact in [*self.data["facts"], *new]:
+                        seen.pop(fact.lower(), None)
+                        seen[fact.lower()] = fact
+                    value = list(seen.values())[-MAX_RESEARCH_FACTS:]
+                else:
+                    value = new[:MAX_FACTS]
             self.data[key] = value
         self.data["unrelated_turns"] = 0
         self.data["updated_at"] = self.clock()
@@ -117,7 +129,10 @@ class ChainState:
         if d["subject"]:
             parts.append(f'subject="{d["subject"]}"')
         if d["facts"]:
-            parts.append('facts="' + " ; ".join(d["facts"]) + '"')
+            facts = " ; ".join(d["facts"][-MAX_RESEARCH_FACTS:])
+            if len(facts) > BLOCK_FACT_CHARS:
+                facts = facts[: BLOCK_FACT_CHARS - 1] + "…"
+            parts.append(f'facts="{facts}"')
         if d["job_id"]:
             parts.append(f"job={d['job_id']}")
         lines = ["[ACTIVE TASK: " + " | ".join(parts) + "]"]

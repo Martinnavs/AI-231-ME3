@@ -309,3 +309,93 @@ async def test_the_system_message_starts_with_todays_date() -> None:
     system = seen[0]["messages"][0]
     assert system["role"] == "system"
     assert system["content"] == f"Today is {date.today().isoformat()}. {SYSTEM}"
+
+
+def test_the_prompt_has_the_no_invention_rule_and_both_ready_sentences() -> None:
+    from voice_agent.agent.subagent import SYSTEM
+
+    assert "Never invent ratings, star scores" in SYSTEM and "about 6 lookups" in SYSTEM
+    assert "web version is ready; say open it to play it." in SYSTEM
+    assert "website is ready; say open it to see it." in SYSTEM
+    assert "playable page" in SYSTEM
+
+
+FACTS = ["Mystery Hunt is held every January at MIT", "Students solve puzzles for a weekend"]
+
+
+def test_lint_flags_stars_scores_ratings_and_unbacked_quotes() -> None:
+    from voice_agent.agent.subagent import lint_html
+
+    assert lint_html("<p>★★★★☆ loved</p>", FACTS)
+    assert lint_html("<p>Community score 4.5 / 5 overall</p>", FACTS)
+    assert lint_html("<p>Rated highly by everyone</p>", FACTS)
+    invented = '<p>"It was the best weekend of my whole life honestly"</p>'
+    assert lint_html(invented, FACTS)
+    assert lint_html("<blockquote>Everyone said this was truly a magical event</blockquote>", FACTS)
+
+
+def test_lint_accepts_backed_quotes_a_rating_fact_and_plain_pages() -> None:
+    from voice_agent.agent.subagent import lint_html
+
+    backed = '<p>"Students solve puzzles for a weekend at MIT"</p>'
+    assert lint_html(backed, FACTS) == []
+    assert lint_html("<p>The rating on the site</p>", ["rating: top"]) == []
+    assert lint_html('<p class="a b c d e f g">Short "two words" quote</p>', FACTS) == []
+    script = "<script>var s = 'rated \"a long string of many words here\"';</script><p>ok</p>"
+    assert lint_html(script, FACTS) == []
+
+
+class PageTools(SourcesTools):
+    def __init__(self, html: list[str]) -> None:
+        super().__init__(has_sources=True)
+        self.html = html  # one page per read, the last repeated
+        self.page_reads = 0
+
+    async def call(self, name: str, arguments: Mapping[str, Any]) -> ToolOutcome:
+        if name == "code__read_file" and arguments["path"] == "SOURCES.json":
+            return ToolOutcome(json.dumps([{"url": "u", "fact": f} for f in FACTS]), False, 0.0)
+        if name == "code__read_file":
+            page = self.html[min(self.page_reads, len(self.html) - 1)]
+            self.page_reads += 1
+            return ToolOutcome(page, False, 0.0)
+        return await super().call(name, arguments)
+
+
+DONE = "Built it.\nFiles: apps/mit/index.html"
+BAD = "<p>★★★★ community rating</p>"
+
+
+async def test_lint_retry_happens_once_and_a_clean_second_try_is_accepted() -> None:
+    seen: list[dict[str, Any]] = []
+    tools = PageTools([BAD, "<p>No student feedback was found.</p>"])
+    http = client([reply(DONE), reply(DONE)], seen)
+    result = await run_task(RESEARCH_TASK, MODEL, "k", tools, client=http)
+    assert result.steps == 2 and result.lint_flags == 0
+    assert result.summary == DONE and injected(seen, "Remove or source these") == 1
+
+
+async def test_still_flagged_after_the_retry_gets_the_unverified_prefix() -> None:
+    seen: list[dict[str, Any]] = []
+    http = client([reply(DONE), reply(DONE)], seen)
+    result = await run_task(RESEARCH_TASK, MODEL, "k", PageTools([BAD]), client=http)
+    assert result.steps == 2 and result.lint_flags > 0
+    assert (result.status, result.summary) == ("done", "Unverified content: " + DONE)
+    assert injected(seen, "Remove or source these") == 1
+    snippet = [m for m in seen[-1]["messages"] if "Remove or source" in str(m["content"])][0]
+    assert len(snippet["content"]) <= len("Remove or source these before finishing: ") + 300
+
+
+async def test_both_retries_together_stay_inside_the_step_limit() -> None:
+    tools = SourcesTools()  # no SOURCES.json: the sources gate fires first
+    http = client([reply(DONE), reply(DONE)])
+    result = await run_task(RESEARCH_TASK, MODEL, "k", tools, Limits(max_steps=2), client=http)
+    assert result.gated and result.steps == 2
+    assert result.summary.startswith("Unsourced: ")
+
+
+async def test_a_game_page_with_stars_is_not_linted() -> None:
+    tools = PageTools([BAD])
+    result = await run_task(
+        "Make a game", MODEL, "k", tools, client=client([reply("Done.\nFiles: apps/g/index.html")])
+    )
+    assert result.lint_flags == 0 and result.summary.startswith("Done.") and tools.page_reads == 0
