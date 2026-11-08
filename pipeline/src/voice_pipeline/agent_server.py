@@ -747,7 +747,7 @@ async def run(
     scratch: Scratchpad | None = None
     with contextlib.suppress(OSError, KeyError, ValueError):
         pad = Scratchpad(agent_tools.delegate_workspace() / "scratch" / "NOTES.md")
-        chain.on_change = lambda event: pad.reset(keep_current_turn=event == "start")
+        chain.on_change = lambda event: pad.reset() if event == "end" else None
         scratch = pad
     servers, optional = standard_servers(pi_url)
     tools = await build_tools(

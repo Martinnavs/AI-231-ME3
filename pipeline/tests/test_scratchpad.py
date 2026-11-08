@@ -44,29 +44,46 @@ def test_the_write_is_atomic(tmp_path: Path) -> None:
     assert [p.name for p in notes.path.parent.iterdir()] == ["NOTES.md"]
 
 
-def test_reset_keeps_one_previous_copy_and_can_keep_this_turns_entries(tmp_path: Path) -> None:
+def test_reset_clears_and_keeps_one_previous_copy(tmp_path: Path) -> None:
     notes = pad(tmp_path)
     notes.add("web_answer", "old", "old answer")
-    notes.mark_turn()
-    notes.add("web_answer", "new", "new answer")
-    notes.reset(keep_current_turn=True)
-    assert "new answer" in notes.render() and "old answer" not in notes.render()
-    assert "old answer" in (notes.path.parent / "NOTES.prev.md").read_text()
     notes.reset()
     assert not notes.has_entries() and notes.render().startswith(HEADER)
+    assert "old answer" in (notes.path.parent / "NOTES.prev.md").read_text()
+    notes.add("web_answer", "newer", "newer answer")
+    notes.reset()
+    assert "newer answer" in (notes.path.parent / "NOTES.prev.md").read_text()
+    assert "old answer" not in (notes.path.parent / "NOTES.prev.md").read_text()
 
 
-def test_a_chain_start_and_end_drive_the_reset(tmp_path: Path) -> None:
+def test_a_chain_start_keeps_earlier_notes_and_only_an_end_clears_them(tmp_path: Path) -> None:
     notes = pad(tmp_path)
     chain = ChainState(tmp_path / "state")
-    chain.on_change = lambda event: notes.reset(keep_current_turn=event == "start")
-    notes.add("web_answer", "stale", "stale")
-    notes.mark_turn()
-    notes.add("web_research", "fresh", "fresh")
-    chain.update("researching", subject="s")
-    assert "fresh" in notes.render() and "stale" not in notes.render()
+    chain.on_change = lambda event: notes.reset() if event == "end" else None
+    notes.add("web_answer", "turn one lookup", "first answer")  # turn 1, no chain yet
+    chain.update("building", job_id="job1")  # turn 2: delegate starts the chain, no chain_update
+    assert "first answer" in notes.render() and notes.has_entries()
     chain.update("idle")
     assert not notes.has_entries()
+    assert "first answer" in (notes.path.parent / "NOTES.prev.md").read_text()
+
+
+def test_entries_expire_by_age_and_the_header_stays(tmp_path: Path) -> None:
+    now = [1000.0]
+    notes = Scratchpad(tmp_path / "scratch" / "NOTES.md", clock=lambda: now[0])
+    notes.add("web_research", "old query", "old text https://old.example/a")
+    now[0] += 300
+    notes.add("web_answer", "mid query", "mid text")
+    assert notes.has_entries() and "https://old.example/a" in notes.urls()
+    now[0] += 301  # the first entry is 601 s old, the second 301 s
+    text = notes.render()
+    assert "old query" not in text and "mid query" in text and text.startswith(HEADER)
+    assert notes.urls() == set()
+    now[0] += 300
+    assert not notes.has_entries() and notes.render().startswith(HEADER)
+    assert notes.urls() == set()
+    notes.add("web_answer", "fresh", "fresh text")  # adding also drops the stale file content
+    assert notes.render().count("\n## ") == 1 and "mid query" not in notes.render()
 
 
 @pytest.fixture
