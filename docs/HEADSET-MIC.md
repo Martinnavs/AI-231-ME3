@@ -1,6 +1,6 @@
 # A close microphone against background speech: measured (laptop, Sony WH-1000XM4)
 
-**Bottom line (2026-11-08).** The only thing that kept background speech out of the recording was a microphone close to the mouth: the XM4 worn on the head heard six of six test phrases exactly with a video playing, the laptop microphone one of six. Software did not help: an RNNoise filter left the background speech in and made the user's words worse, and the text-only addressee gate cannot tell a TV from the user. One speaker, one room, Whisper (small) transcripts rather than the project's recogniser, a single run per condition.
+**Bottom line (2026-11-08).** A microphone close to the mouth helped in one Whisper run (the XM4 worn on the head heard six of six test phrases exactly with a video playing, the laptop microphone one of six), but it did not hold up on the repeat or through the project's recogniser: a second video-on run gave six of six on both microphones with Whisper, and the live client (Kroko) with the headset still turned the video into six of its twelve turns, none dropped by the addressee gate. Software did not help either: an RNNoise filter left the background speech in and made the user's words worse, and the text-only gate cannot tell a TV from the user. One speaker, one room, the video's level varies between runs, one run per condition.
 
 ## What was measured
 
@@ -59,6 +59,23 @@ Say one phrase with the video playing and record both microphones for 10 s (`par
 ## Side fix found on the way
 
 In `--addressee log` mode an interrupted turn was logged without the gate's verdict, and the unlogged verdict stayed set for the next turn. `_take_addressee_note` now attaches it once to whichever record is written (`src/doc_chat/__main__.py`).
+
+## Live through the client, headset, video on (Kroko, second video-on run)
+
+`doc_chat --mic --mic-device pulse --addressee log` with `scripts/headset_mic.sh` holding the XM4, the same six phrases once, a video playing. Twelve turns reached the gate.
+
+| Turn | Heard (Kroko) | Verdict |
+|---|---|---|
+| 2 | What's no other tomorrow? (weather, misheard) | addressed |
+| 4 | Dad, can you pass the salt | addressed (leak) |
+| 5 | the video's words + "May some jazz" | unsure |
+| 7 | Hey, Jamie, dinner's ready | unsure (`followup` + `vocative`: a short turn right after a reply counts as a follow-up, so it is not dropped) |
+| 8 | Set a timer for ten minutes | addressed |
+| 9 | the video's words + "I forgot the water the herbs" | unsure |
+| 1, 3, 6, 10, 11, 12 | only the video ("which photo do you guys think was like the most?" was `addressed`) | unsure x5, addressed x1 |
+
+- The XM4 recording of the same run: floor -52 dBFS and speech p90 -29 dBFS, against -43 and -31 on the laptop microphone, so a 9 dB lower floor and 2 dB louder speech (the first run had 17 dB and 7 dB). Whisper heard all six phrases on both microphones this time and none of the video.
+- So with the project's recogniser the headset did not keep the video out of the transcript, and the gate let all of it through.
 
 ## A partial check with the project's recogniser (Kroko)
 
