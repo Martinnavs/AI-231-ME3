@@ -199,6 +199,13 @@ def test_case_f_has_the_three_rules_and_the_say_exemption() -> None:
     assert "chain_update has no `say`" in text
 
 
-def test_the_prompt_grew_by_less_than_990_characters() -> None:
-    assert len(PROMPT.read_text()) < 4976 + 990  # 4976: its size at HEAD 014b424; now 5942
-    assert "recent=true" in PROMPT.read_text()
+def test_the_prompt_grew_by_less_than_1260_characters() -> None:
+    text = PROMPT.read_text()
+    assert len(text) < 4976 + 1260  # 4976: its size at HEAD 014b424; now 6229
+    assert "recent=true" in text
+
+
+def test_case_f_sends_research_to_web_research_and_keeps_the_facts() -> None:
+    text = PROMPT.read_text()
+    assert "use web_research with recent=true, not web_answer" in text
+    assert "chain_update phase researching" in text and "name up to three and ask which" in text

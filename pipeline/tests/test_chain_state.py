@@ -100,3 +100,33 @@ def test_chain_tools() -> None:
     for name in ("chain_update", "web_research", "web_answer", "delegate", "delegate_status"):
         assert is_chain_tool(name)
     assert not is_chain_tool("weather")
+
+
+def test_researching_is_active_and_facts_add_up_without_duplicates(tmp_path: Path) -> None:
+    chain = ChainState(tmp_path)
+    chain.update("researching", subject="MIT event", facts=["Hunt is in January", "Other"])
+    assert chain.active()
+    chain.update("researching", facts=["hunt is in january", "x" * 300, "Third"])
+    assert chain.data["facts"] == ["Other", "hunt is in january", "x" * 160, "Third"]
+
+
+def test_research_facts_are_capped_at_eight_and_carry_into_the_next_phase(tmp_path: Path) -> None:
+    chain = ChainState(tmp_path)
+    chain.update("researching", facts=[f"fact {i}" for i in range(6)])
+    chain.update("researching", facts=[f"more {i}" for i in range(6)])
+    assert len(chain.data["facts"]) == 8 and chain.data["facts"][-1] == "more 5"
+    chain.update("awaiting_fact_approval", facts=["approved one"])
+    assert len(chain.data["facts"]) == 8 and chain.data["facts"][-1] == "approved one"
+    chain.update(
+        "awaiting_fact_approval", facts=["a", "b", "c", "d", "e"]
+    )  # other phases: as before
+    assert chain.data["facts"] == ["a", "b", "c"]
+
+
+def test_the_block_with_eight_long_facts_stays_under_900_characters(tmp_path: Path) -> None:
+    chain = ChainState(tmp_path)
+    chain.update("researching", subject="s" * 80, facts=[f"{i}" + "y" * 200 for i in range(8)])
+    chain.update("researching", job_id="job12", artifact_path="apps/some_site/index.html")
+    block = chain.block()
+    assert len(block) < 900 and block.startswith("[ACTIVE TASK: phase=researching")
+    assert len(block.splitlines()) <= 3
