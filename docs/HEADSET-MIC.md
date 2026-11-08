@@ -35,6 +35,15 @@ Gate verdicts on the live XM4 phrases (both microphones agree):
 | Set a timer for ten minutes. | addressed |
 | I forgot to water the herbs. | unsure (answered, default mode) |
 
+## Set-up in one command: `make calibrate`
+
+```bash
+make calibrate               # laptop microphone
+make calibrate HEADSET=1     # the Bluetooth headset (laptop microphone if it is not connected)
+```
+
+Picks the microphone (through `scripts/headset_mic.sh`, which holds the headset open while it runs), asks for 3 s of quiet, then for the six baseline phrases, one Enter each. Writes `out/calibration.json` (noise floor and speech level, which the music-pause gate reads) and `out/calibration-baseline.wav` (3 s quiet, then the six phrases at 3.5 s each) so the same audio can be replayed through the client later, per microphone. It needs you at the microphone. `python -m doc_chat.calibrate --mic-device <D> [--baseline]` is the part underneath. The laptop path also sets the default source to the laptop microphone and leaves it there.
+
 ## Running with the headset
 
 ```bash

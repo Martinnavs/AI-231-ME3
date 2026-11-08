@@ -24,6 +24,16 @@ PROMPTS = (
     "Set a timer for ten minutes, please.",
     "Can you play something relaxing?",
 )
+# --baseline: the phrases every microphone comparison uses (docs/HEADSET-MIC.md), recorded to a WAV
+BASELINE_PROMPTS = (
+    "What's the weather tomorrow?",
+    "Dad, can you pass the salt?",
+    "Play some jazz.",
+    "Hey Jamie, dinner's ready.",
+    "Set a timer for ten minutes.",
+    "I forgot to water the herbs.",
+)
+BASELINE_WAV = Path("out/calibration-baseline.wav")
 
 
 def dbfs(level: float) -> float:
@@ -99,25 +109,69 @@ def music_gate_db(cal: dict[str, Any] | None) -> float | None:
     return float((cal["user_db"] + cal["music_db"]) / 2.0)
 
 
-def _record(seconds: float) -> bytes:
+def _record(seconds: float, device: int | str | None = None) -> bytes:
     import sounddevice as sd
 
-    pcm = sd.rec(int(seconds * RATE), samplerate=RATE, channels=1, dtype="int16", blocking=True)
+    pcm = sd.rec(
+        int(seconds * RATE),
+        samplerate=RATE,
+        channels=1,
+        dtype="int16",
+        blocking=True,
+        device=device,
+    )
     return bytes(pcm.tobytes())
 
 
+def _input_name(device: int | str | None) -> str:
+    import sounddevice as sd
+
+    return str(sd.query_devices(device, kind="input")["name"])
+
+
+def _save_wav(path: Path, pcm: bytes) -> None:
+    import wave
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes(pcm)
+
+
 def main(argv: list[str] | None = None) -> int:
+    from doc_chat.speech import mic_device
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--music", action="store_true", help="also measure the music leak (8 s)")
     ap.add_argument("--out", default=str(PATH))
+    ap.add_argument(
+        "--mic-device",
+        default=None,
+        help="input device, a sounddevice index or part of its name (default: the system default)",
+    )
+    ap.add_argument(
+        "--baseline",
+        action="store_true",
+        help="say the six baseline phrases instead of the three prompts and keep the audio "
+        f"({BASELINE_WAV})",
+    )
+    ap.add_argument("--baseline-wav", default=str(BASELINE_WAV))
     args = ap.parse_args(argv)
+    device = mic_device(args.mic_device)
+    print(f"Microphone: {_input_name(device)}", flush=True)
     print("Quiet, please: measuring the room for 3 s...", flush=True)
-    noise = noise_db(block_levels(_record(3.0)))
+    quiet = _record(3.0, device)
+    noise = noise_db(block_levels(quiet))
     print(f"  noise floor {noise:.1f} dBFS")
     speech: list[float] = []
-    for line in PROMPTS:
+    kept = bytearray(quiet)
+    for line in BASELINE_PROMPTS if args.baseline else PROMPTS:
         input(f'Press Enter, then say: "{line}" ')
-        speech += block_levels(_record(3.5))
+        pcm = _record(3.5, device)
+        kept += pcm
+        speech += block_levels(pcm)
     user = speech_db(speech, noise)
     print(f"  your speech {user:.1f} dBFS")
     result: dict[str, Any] = {
@@ -127,12 +181,15 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.music:
         input("Start a song at your usual volume, stay quiet, press Enter... ")
-        result["music_db"] = round(music_db(block_levels(_record(8.0))), 1)
+        result["music_db"] = round(music_db(block_levels(_record(8.0, device))), 1)
         print(f"  music leak {result['music_db']:.1f} dBFS")
     path = Path(args.out)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, indent=2) + "\n")
     print(f"wrote {path}")
+    if args.baseline:
+        _save_wav(Path(args.baseline_wav), bytes(kept))
+        print(f"wrote {args.baseline_wav} (3 s quiet, then the six phrases at 3.5 s each)")
     return 0
 
 

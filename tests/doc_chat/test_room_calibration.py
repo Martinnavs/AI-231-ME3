@@ -104,3 +104,43 @@ def test_the_music_pause_ignores_speech_quieter_than_the_gate() -> None:
     assert p.paused == 1
     MusicVoice(p, "", vad=Vad()).feed(quiet)  # type: ignore[arg-type]
     assert p.paused == 2  # no gate: today's behaviour
+
+
+def _fake_main_run(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> list[object]:
+    devices: list[object] = []
+
+    def fake_record(seconds: float, device: object = None) -> bytes:
+        devices.append(device)
+        return pcm(0.01 if seconds == 3.0 else 0.1, seconds)
+
+    monkeypatch.setattr(calibrate, "_record", fake_record)
+    monkeypatch.setattr(calibrate, "_input_name", lambda device: f"fake input {device}")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    assert calibrate.main(argv) == 0
+    return devices
+
+
+def test_baseline_records_six_phrases_from_the_chosen_device_and_keeps_the_audio(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    out, wav = tmp_path / "cal.json", tmp_path / "baseline.wav"
+    devices = _fake_main_run(
+        monkeypatch,
+        ["--out", str(out), "--baseline", "--baseline-wav", str(wav), "--mic-device", "13"],
+    )
+    assert devices == [13] * 7  # 3 s of quiet, then the six baseline phrases
+    cal = json.loads(out.read_text())
+    assert cal["noise_db"] == pytest.approx(-40.0, abs=0.5)
+    assert cal["user_db"] == pytest.approx(-20.0, abs=0.5)
+    import wave
+
+    with wave.open(str(wav)) as w:
+        assert w.getframerate() == 16000 and w.getnframes() == int(16000 * (3.0 + 6 * 3.5))
+
+
+def test_default_run_keeps_the_three_prompts_and_writes_no_baseline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    out, wav = tmp_path / "cal.json", tmp_path / "baseline.wav"
+    devices = _fake_main_run(monkeypatch, ["--out", str(out), "--baseline-wav", str(wav)])
+    assert devices == [None] * 4 and out.exists() and not wav.exists()

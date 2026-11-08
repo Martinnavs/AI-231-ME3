@@ -214,6 +214,6 @@ async def test_the_verdict_is_taken_once_so_an_interrupted_turn_cannot_leak_it()
     ],
 )
 def test_mic_device_keeps_an_index_numeric_and_a_name_text(value: Any, expected: Any) -> None:
-    from doc_chat.__main__ import mic_device
+    from doc_chat.speech import mic_device
 
     assert mic_device(value) == expected
