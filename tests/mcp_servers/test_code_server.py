@@ -627,6 +627,6 @@ async def test_network_and_pylibs_reach_the_policy_only_when_asked(
     monkeypatch.setattr(code._state, "pylibs", libs)
     await code.bash("true")
     off, on = seen
-    assert not off.network and off.env == () and off.ro_binds == ()
+    assert not off.network and off.env == code.GIT_IDENTITY and off.ro_binds == ()
     assert on.network and on.ro_binds == (libs,)
     assert ("PYTHONPATH", str(libs)) in on.env and ("SDL_VIDEODRIVER", "dummy") in on.env
