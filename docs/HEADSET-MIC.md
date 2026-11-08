@@ -1,6 +1,6 @@
 # A close microphone against background speech: measured (laptop, Sony WH-1000XM4)
 
-**Bottom line (2026-11-08).** A microphone close to the mouth helped in one Whisper run (the XM4 worn on the head heard six of six test phrases exactly with a video playing, the laptop microphone one of six), but it did not hold up on the repeat or through the project's recogniser: a second video-on run gave six of six on both microphones with Whisper, and the live client (Kroko) with the headset still turned the video into six of its twelve turns, none dropped by the addressee gate. Software did not help either: an RNNoise filter left the background speech in and made the user's words worse, and the text-only gate cannot tell a TV from the user. One speaker, one room, the video's level varies between runs, one run per condition.
+**Bottom line (2026-11-08).** Through the full speech path (Kroko streaming + Parakeet per turn), your phrases are recognised well on both microphones in a quiet room (6 of 6, exact). With a video playing, the worn XM4 kept all six phrases both times, the laptop microphone kept six of six when the video was quiet and three of six when it was loud. But **neither microphone kept the video out of the transcript**: 4 to 6 extra turns per run were the video, two of them judged `addressed`, and the text-only addressee gate dropped none (one by accident on the laptop). A close microphone helps recognition under loud background speech; it does not solve background-speech turns. RNNoise made things worse. One speaker, one room, the video's level varies between runs, one run per condition.
 
 ## What was measured
 
@@ -77,7 +77,7 @@ In `--addressee log` mode an interrupted turn was logged without the gate's verd
 - The XM4 recording of the same run: floor -52 dBFS and speech p90 -29 dBFS, against -43 and -31 on the laptop microphone, so a 9 dB lower floor and 2 dB louder speech (the first run had 17 dB and 7 dB). Whisper heard all six phrases on both microphones this time and none of the video.
 - So with the project's recogniser the headset did not keep the video out of the transcript, and the gate let all of it through.
 
-## A partial check with the project's recogniser (Kroko)
+## Earlier partial check (Kroko alone, superseded by the next section)
 
 The same recordings were cut into phrases (boundaries from the Whisper word timings) and replayed through `doc_chat --wav` and the speech server (Kroko; Parakeet is not downloaded on this laptop). The replay was unreliable: with short or padded tails it returned empty turns and results one clip late, so there is **no clean per-microphone comparison**. What the runs did show:
 
@@ -85,6 +85,24 @@ The same recordings were cut into phrases (boundaries from the Whisper word timi
 - Both microphones, video playing: Kroko wrote down words of the video (`We say long-term relationship and it might scare away any short-term casual danger`, `A lot of girls`) and ran them into the user's phrases. It is more distracted by background speech than Whisper was, so the 6-of-6 against 1-of-6 above comes from Whisper and may overstate the gap for the project's recogniser.
 
 A fair comparison needs a live run through the client with the headset script, speaking the six phrases with the video on and then off, once per microphone.
+
+## Full architecture: Kroko + Parakeet, recordings replayed through the client's microphone path
+
+Method: `lan_speech --stt-model parakeet` (Kroko streams and ends turns, Parakeet re-transcribes each turn), then each recording (2 s of its own room tone looped to 14 s in front, so the client's warm-up measures the room) played into a virtual PipeWire sink and read by `doc_chat --mic --mic-device pulse --addressee log` with `PULSE_SOURCE=replay.monitor`. The same VAD, turn-end hold, recogniser and gate as a live session, on identical audio per microphone. A phrase counts as heard if its keyword is in some turn; "video-only" is a turn with none of the six keywords.
+
+| Recording | Turns | Phrases heard (of 6) | Video-only turns | of those `addressed` | Dropped (`ignore`) |
+|---|---|---|---|---|---|
+| XM4, video on (live run) | 12 | 6 | 6 | 2 | 0 |
+| Laptop, video on (live run) | 11 | 6 | 5 | 2 | 1 |
+| XM4, video on, louder video (earlier) | 10 | 6 | 4 | 2 | 0 |
+| Laptop, video on, louder video (earlier) | 7 | 3 | 4 | 2 | 1 |
+| XM4, quiet | 6 | 6 | 0 | 0 | 0 |
+| Laptop, quiet | 6 | 6 | 0 | 0 | 0 |
+
+- Quiet room: both microphones give the six phrases cleanly (`Can you please pass the salt?` for the salt line on both).
+- Video on: the laptop microphone fused a video question into the user's line (`Which photo do you guys think was liked the most? Hey Jamie, dinner's ready.`) and misheard `Set a timer` as `Simmer`. The XM4 produced separate turns, but also repeated-word loops from the video (`frantic more, frantic more, ...`).
+- The `addressed` video turns are one- or two-word fragments (`Be it.`, `Blurt out.`) kept by the follow-up rule (a short turn within 8 s of a reply). `Hey Jamie, dinner's ready.` stayed `unsure` for the same reason.
+- `Dad, can you pass the salt?` was `addressed` on every recording.
 
 ## Not covered
 
