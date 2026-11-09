@@ -1,6 +1,6 @@
 # A close microphone against background speech: measured (laptop, Sony WH-1000XM4)
 
-**Bottom line (2026-11-08).** Through the full speech path (Kroko streaming + Parakeet per turn), your phrases are recognised well on both microphones in a quiet room (6 of 6, exact). With a video playing, the worn XM4 kept all six phrases both times, the laptop microphone kept six of six when the video was quiet and three of six when it was loud. But **neither microphone kept the video out of the transcript**: 4 to 6 extra turns per run were the video, two of them judged `addressed`, and the text-only addressee gate dropped none (one by accident on the laptop). A close microphone helps recognition under loud background speech; it does not solve background-speech turns. RNNoise made things worse. One speaker, one room, the video's level varies between runs, one run per condition.
+**Bottom line (2026-11-08, corrected 2026-11-09).** Through the full speech path (Kroko streaming + Parakeet per turn), your phrases are recognised well on both microphones in a quiet room (6 of 6, exact). With a video playing, the worn XM4 kept all six phrases both times; the laptop microphone kept six of six when the video was quiet and three of six when it was loud. **Neither microphone kept the video out of the transcript**: 4 to 6 extra turns per run were the video, two per run judged `addressed` by the follow-up rule, and the text gate dropped none. A second set of runs after the room calibration existed (server `--endpoint-silence 0.7`) shows fewer such turns (8 `addressed` video turns down to 2 across four recordings), but **that change is not attributed**: the first set was also run at 0.7, not at the default 1.2, and the two sets differ in calibration, video level and run-to-run noise (one run each). RNNoise made things worse. One speaker, one room.
 
 ## What was measured
 
@@ -99,6 +99,8 @@ A fair comparison needs a live run through the client with the headset script, s
 
 Method: `lan_speech --stt-model parakeet` (Kroko streams and ends turns, Parakeet re-transcribes each turn), then each recording (2 s of its own room tone looped to 14 s in front, so the client's warm-up measures the room) played into a virtual PipeWire sink and read by `doc_chat --mic --mic-device pulse --addressee log` with `PULSE_SOURCE=replay.monitor`. The same VAD, turn-end hold, recogniser and gate as a live session, on identical audio per microphone. A phrase counts as heard if its keyword is in some turn; "video-only" is a turn with none of the six keywords.
 
+### First set: server `--endpoint-silence 0.7`, no room calibration
+
 | Recording | Turns | Phrases heard (of 6) | Video-only turns | of those `addressed` | Dropped (`ignore`) |
 |---|---|---|---|---|---|
 | XM4, video on (live run) | 12 | 6 | 6 | 2 | 0 |
@@ -113,6 +115,51 @@ Method: `lan_speech --stt-model parakeet` (Kroko streams and ends turns, Parakee
 - The `addressed` video turns are one- or two-word fragments (`Be it.`, `Blurt out.`) kept by the follow-up rule (a short turn within 8 s of a reply). `Hey Jamie, dinner's ready.` stayed `unsure` for the same reason.
 - `Dad, can you pass the salt?` was `addressed` on every recording.
 
+### Second set: after `make calibrate`, server `--endpoint-silence 0.7` (change not attributed)
+
+Written by another session from a later run. Status: **unverified as an effect of the 0.7 s setting.** The first set above was already run with `--endpoint-silence 0.7` (every server started for the first set used that flag; the server's own default is 1.2 s, `rule2_min_trailing_silence`), so 0.7 against 0.7 cannot explain a difference. What does differ: `out/calibration.json` existed for this set (noise -58, speech -19 dBFS; these look like the headset's, and the client applies them to the laptop recordings too, whose floor is about -44), the video's level varied, and each cell is one run.
+
+| Recording | Turns | Phrases heard (of 6) | Video-only turns | of those `addressed` | Dropped (`ignore`) |
+|---|---|---|---|---|---|
+| XM4, video on (live run) | 11 (-1) | 6 | 5 (-1) | 1 (-1) | 0 |
+| Laptop, video on (live run) | 9 (-2) | 6 | 3 (-2) | 0 (-2) | 0 |
+| XM4, video on, louder video (earlier) | 9 (-1) | 6 | 3 (-1) | 0 (-2) | 0 |
+| Laptop, video on, louder video (earlier) | 7 (=) | 4 (+1) | 3 (-1) | 1 (-1) | 0 |
+| XM4, quiet | 6 (=) | 6 | 0 | 0 | 0 |
+| Laptop, quiet | 6 (=) | 6 | 0 | 0 | 0 |
+
+(Differences are against the first set.)
+
+- `addressed` video turns: 8 in the first set (2 + 2 + 2 + 2), 2 in this one. Quiet-room results are unchanged.
+- `Be it.` did not occur here; `Blurt out.` still did (kept by the follow-up rule). On the laptop `Simmer for ten minutes` came out as `Timer for ten minutes`.
+- Still present: repeated-word loops from the video on the XM4 (`Francis more, Francis more ...`), and a video question fused in front of `Dad, can you pass the salt?` when there is no 0.7 s pause.
+- The earlier text of this section claimed latency of about 180 ms (speech recognition) and about 730 ms (end to end) against 1480 ms. No table here contains those figures and they were not measured in these runs; treat them as unsupported.
+
+## Open: what a proper test needs
+
+The recordings behind both sets were kept only in a session scratch directory and are gone; `out/calibration-baseline.wav` (your six phrases from `make calibrate`, no video) survives. A fair A/B therefore starts with new recordings.
+
+1. Record once, both microphones at the same time, six phrases, video on at the usual level (repeat for video off and for a louder video): `scripts/headset_mic.sh` in one terminal, then `parecord -d <headset source> xm4.wav` and `parecord -d <laptop Mic1 source> lap.wav` in two more, beep first (they speak after it). Keep the files under `out/` or a documented folder, not a temp directory.
+2. Replay each file through the client with one setting changed at a time: server `--endpoint-silence 1.2` against `0.7`, with `out/calibration.json` present and moved aside. At least three runs per cell; report the range, not one number.
+3. Judge: phrases heard (keyword present in some turn), video-only turns, of those `addressed`, `ignore`d. Compare cells only where everything else is equal.
+
+Replay method (what the sets above used):
+
+```bash
+# server (Kroko + Parakeet); change --endpoint-silence between cells
+uv run --group laptop python -m lan_speech --stt-model parakeet --insecure-loopback --endpoint-silence 0.7
+# virtual source; 14 s of the file's own room tone in front so the client's warm-up measures the room
+pactl load-module module-null-sink sink_name=replay
+ffmpeg -ss 0.7 -t 0.8 -i rec.wav -af "aloop=loop=16:size=12800" -t 14 -ar 16000 -ac 1 lead.wav
+ffmpeg -i lead.wav -i rec.wav -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" -ar 16000 -ac 1 replay.wav
+# client on the virtual source, then play the file into the sink and stop the client a few seconds after it ends
+PULSE_SOURCE=replay.monitor uv run --group laptop python -W ignore -m doc_chat --mic --mic-device pulse \
+    --llm echo --echo-random 1 --no-docs --history 0 --addressee log --log out/replay.jsonl &
+paplay --device=replay replay.wav
+```
+
+Notes: the first 0.7 s of a recording should be quiet (it is the room tone for the lead-in; a recording that starts with the beep needs `-ss` moved). `tests/doc_chat/test_flow.py` needs a live speech server on port 8765 (it fails with `speech server unavailable` without one). Do not use `pkill -f` patterns that appear in your own command line.
+
 ## Not covered
 
-Parakeet on headset audio; the Pi deployment (a worn headset is not the product setup: it needs a USB array or close microphone of its own); several speakers or rooms; Bluetooth latency in the loop.
+The Pi deployment (a worn headset is not the product setup: it needs a USB array or close microphone of its own); several speakers or rooms; Bluetooth latency in the loop; the calibration's effect on a different microphone than the one it was taken with.
