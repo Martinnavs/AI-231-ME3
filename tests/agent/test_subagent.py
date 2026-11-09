@@ -521,3 +521,25 @@ def test_ready_sentence_rules_in_the_prompt() -> None:
     assert (
         "never file housekeeping" in SYSTEM and "only write the files the task asks for" in SYSTEM
     )
+    assert "every url must be a specific article or page URL with a path" in SYSTEM
+    assert "list only sources whose facts are actually used" in SYSTEM
+
+
+async def test_check_sources_rejects_bare_domains_and_unused_sources() -> None:
+    from voice_agent.agent.subagent import check_sources
+
+    bare = json.dumps([{"url": "https://example.com", "fact": "f"}])
+    assert await check_sources(SourceFileTools(bare)) == ["bare domain https://example.com"]
+
+    bare_slash = json.dumps([{"url": "https://example.com/", "fact": "f"}])
+    assert await check_sources(SourceFileTools(bare_slash)) == ["bare domain https://example.com/"]
+
+    unused = json.dumps(
+        [{"url": "https://example.com/page", "fact": "not used in the cheat sheet"}]
+    )
+    assert await check_sources(SourceFileTools(unused)) == [
+        "unused source https://example.com/page"
+    ]
+
+    valid = json.dumps([{"url": "https://example.com/page", "fact": "used fact"}])
+    assert await check_sources(SourceFileTools(valid)) is None
