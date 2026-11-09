@@ -445,8 +445,34 @@ async def test_delegate_task_receives_facts_and_source_urls(
         )
     )
     task = record[-1]["args"]["task"]
-    assert "Verified facts from conversation: Fact 1 | Fact 2." in task
+    assert record[-1]["raw_task"] == "Build the poster."
+    assert "Notes from the conversation (unchecked): Fact 1 | Fact 2." in task
     assert "Primary source URLs: https://example.org/source1." in task
     assert "Notes and sources from the conversation are in /sandbox/scratch/NOTES.md" in task
     agent_tools.CHAIN = None
     agent_tools.SCRATCHPAD = None
+
+
+async def test_concurrent_lookups_do_not_hang_on_failure() -> None:
+    agent_tools.reset_turn_lookups()
+    record: list[dict[str, Any]] = []
+
+    async def failing_handler(params: Any) -> None:
+        raise RuntimeError("boom")
+
+    schema = FunctionSchema(
+        name="web_research", description="d", properties={}, required=[], handler=failing_handler
+    )
+    wrapped = _recorded(schema, record).handler
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        pass
+
+    with pytest.raises(RuntimeError):
+        await wrapped(
+            SimpleNamespace(
+                function_name="web_research", arguments={}, result_callback=sink, tool_call_id="1"
+            )
+        )
+    assert agent_tools._lookup_future is not None and agent_tools._lookup_future.done()
+    agent_tools.reset_turn_lookups()
