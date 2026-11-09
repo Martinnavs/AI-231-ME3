@@ -123,16 +123,62 @@ def chain_not_idle_before_build(trace: Trace) -> bool | None:
 
 
 def delegate_task_has_facts_or_url(trace: Trace) -> bool | None:
-    """The task carries the notes sentence, a URL, or says the facts are verified."""
+    """The model's pre-injection delegate task carries specific facts, details, or a URL."""
     turn = _build_turn(trace)
     if turn is None:
         return None
-    task = next(c["args"].get("task", "") for c in turn["calls"] if c["tool"] == "delegate")
-    return bool(
-        "/sandbox/scratch/NOTES.md" in task
-        or URL.search(task)
-        or re.search(r"\b(verified|facts|details)\b", task, re.IGNORECASE)
+    call = next((c for c in turn["calls"] if c["tool"] == "delegate"), None)
+    if call is None:
+        return None
+    # Inspect raw pre-injection task if recorded
+    task = str(call.get("raw_task") or call["args"].get("task", ""))
+    if "raw_task" not in call:
+        for marker in (
+            "Notes from the conversation (unchecked):",
+            "Verified facts from conversation:",
+            "Primary source URLs:",
+        ):
+            if marker in task:
+                task = task.split(marker)[0].strip()
+
+    has_notes = "/sandbox/scratch/NOTES.md" in task
+    has_url = bool(URL.search(task))
+    has_fact_keywords = bool(
+        re.search(
+            r"\b(verified|facts?|details?|differences?|features?|history)\b",
+            task,
+            re.IGNORECASE,
+        )
     )
+
+    prior_text = " ".join(t.get("reply", "") for t in trace["turns"] if t != turn)
+    prior_words = {w.lower() for w in re.findall(r"[a-z0-9_-]{4,}", prior_text)}
+    noise = {
+        "what",
+        "when",
+        "where",
+        "which",
+        "about",
+        "would",
+        "could",
+        "should",
+        "there",
+        "their",
+        "these",
+        "those",
+        "other",
+        "first",
+        "after",
+        "before",
+        "shall",
+        "done",
+    }
+    substantive_prior = prior_words - noise
+    task_words = {w.lower() for w in re.findall(r"[a-z0-9_-]{4,}", task)}
+    shared_facts = task_words & substantive_prior
+    has_shared_facts = len(shared_facts) >= 2
+
+    return bool(has_url or has_notes or has_fact_keywords or has_shared_facts)
 
 
 def deliverable_sources(trace: Trace) -> bool | None:
@@ -213,6 +259,12 @@ def delegate_reads_notes(trace: Trace) -> bool | None:
     return "/sandbox/scratch/NOTES.md" in task
 
 
+def no_stray_apps(trace: Trace) -> bool:
+    """Non-playable deliverables must not write stray files into apps/."""
+    apps_files = trace["files"].get("apps", [])
+    return len(apps_files) == 0
+
+
 PREDICATES: dict[str, Callable[..., bool | None]] = {
     "recency_tool": recency_tool,
     "max_lookups_per_turn": max_lookups_per_turn,
@@ -226,6 +278,7 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "playable_sentence": playable_sentence,
     "scratchpad_has_findings": scratchpad_has_findings,
     "delegate_reads_notes": delegate_reads_notes,
+    "no_stray_apps": no_stray_apps,
     "asked_or_flagged": asked_or_flagged,
 }
 REPORT_ONLY = frozenset({"asked_or_flagged"})  # shown, never scored
@@ -281,7 +334,7 @@ def _trace(scenario: Scenario, params: dict[str, str], trial: int) -> Trace:
         "trial": trial,
         "params": params,
         "turns": [],
-        "files": {"SOURCES.json": None, "text_deliverables": []},
+        "files": {"SOURCES.json": None, "text_deliverables": [], "apps": []},
         "web_urls": [],
         "job": None,
         "scratch": {"exists": False, "text": ""},
@@ -306,7 +359,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             task = f"Build the deliverable from these verified facts: x. Source {url}"
             if notes:
                 task += " Notes and sources from the conversation are in /sandbox/scratch/NOTES.md."
-            calls.append({"tool": "delegate", "args": {"task": task}})
+            calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
         elif scenario.kind in ("research_build", "code_only") or (
             scenario.kind == "followup" and index == 0
         ):
@@ -339,6 +392,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
         trace["files"] = {
             "SOURCES.json": json.dumps([{"url": url, "fact": "x"}]) if text else None,
             "text_deliverables": [f"out.{scenario.deliverable}"] if text else [],
+            "apps": ["snake_game/index.html"] if game else [],
         }
     return trace
 
@@ -492,6 +546,12 @@ def _collect_files(trace: Trace, workspace: Path) -> None:
         str(p.relative_to(workspace))
         for p in workspace.rglob("*")
         if p.is_file() and p.suffix in (".html", ".htm", ".md", ".txt", ".csv") and p != sources
+    )
+    apps_dir = workspace / "apps"
+    trace["files"]["apps"] = (
+        sorted(str(p.relative_to(apps_dir)) for p in apps_dir.rglob("*") if p.is_file())
+        if apps_dir.exists()
+        else []
     )
 
 

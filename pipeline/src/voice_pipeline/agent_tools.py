@@ -572,8 +572,13 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         if schema.name == "search_docs" and _about_own_work(question.current):
             await params.result_callback(NOT_IN_DOCUMENTS)
             return
-        args = {k: v for k, v in params.arguments.items() if k != "say"}
-        entry: dict[str, Any] = {"tool": schema.name, "args": args}
+        raw_args = {k: v for k, v in params.arguments.items() if k != "say"}
+        args = dict(raw_args)
+        entry: dict[str, Any] = {
+            "tool": schema.name,
+            "args": args,
+            "raw_task": raw_args.get("task"),
+        }
         record.append(entry)
         if CHAIN is not None and CHAIN.active() and not is_chain_tool(schema.name):
             CHAIN.touch_unrelated()
@@ -587,7 +592,9 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             if _lookup_future is not None and not _lookup_future.done():
                 entry["cached"] = True
                 try:
-                    cached_val = await asyncio.shield(_lookup_future)
+                    cached_val = await asyncio.wait_for(
+                        asyncio.shield(_lookup_future), timeout=10.0
+                    )
                     await params.result_callback(REPEAT_PREFIX + cached_val)
                 except Exception:
                     await params.result_callback(REPEAT_PREFIX + "no result")
@@ -598,20 +605,21 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             except RuntimeError:
                 loop = asyncio.get_event_loop()
             _lookup_future = loop.create_future()
+            fut = _lookup_future
             first_callback = params.result_callback
 
             async def remember(result: Any, *, properties: Any = None) -> None:
                 global _lookup_future
                 if isinstance(result, str) and not FAILURE.search(result):
                     _turn_lookups.append(result)
-                    if _lookup_future is not None and not _lookup_future.done():
-                        _lookup_future.set_result(result)
+                    if not fut.done():
+                        fut.set_result(result)
                     if SCRATCHPAD is not None:
                         query = str(args.get("query") or args.get("topic") or "")
                         SCRATCHPAD.add(schema.name, query, result)
                 else:
-                    if _lookup_future is not None and not _lookup_future.done():
-                        _lookup_future.set_result(str(result) if result is not None else "")
+                    if not fut.done():
+                        fut.set_result(str(result) if result is not None else "")
                 await first_callback(result, properties=properties)
 
             params.result_callback = remember
@@ -638,7 +646,7 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             if CHAIN is not None and CHAIN.data.get("facts"):
                 facts_str = " | ".join(CHAIN.data["facts"])
                 if facts_str not in task:
-                    injected_parts.append(f"Verified facts from conversation: {facts_str}.")
+                    injected_parts.append(f"Notes from the conversation (unchecked): {facts_str}.")
             if SCRATCHPAD is not None and SCRATCHPAD.has_entries():
                 urls = sorted(SCRATCHPAD.urls())
                 if urls and not any(u in task for u in urls):
@@ -647,6 +655,14 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                     injected_parts.append(NOTES_SENTENCE)
             if injected_parts:
                 args["task"] = f"{task.rstrip()} " + " ".join(injected_parts)
+            if re.search(
+                r"\b(?:markdown|cheat\s*sheet|\.md|\.py|python\s+script|table)\b",
+                task,
+                re.IGNORECASE,
+            ) and not re.search(r"\b(?:game|playable|interactive)\b", task, re.IGNORECASE):
+                args["task"] = re.sub(
+                    r"\s*Create a web version at apps/\S+", "", args.get("task", task)
+                )
             global _pending_destructive
             if DESTRUCTIVE.search(task):
                 if _pending_destructive is None or not CONFIRMED.search(question.current or ""):
@@ -679,7 +695,15 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                 )
 
             params.result_callback = result_callback
-        await inner(params)
+        try:
+            await inner(params)
+        finally:
+            if (
+                schema.name in LOOKUP_TOOLS
+                and _lookup_future is not None
+                and not _lookup_future.done()
+            ):
+                _lookup_future.set_result("")
 
     return FunctionSchema(
         name=schema.name,
