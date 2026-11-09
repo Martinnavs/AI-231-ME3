@@ -147,7 +147,10 @@ def sources_message(bad: list[str]) -> str:
 
 
 UNVERIFIED = "Unverified content: "
-LINT_RETRY = "Remove or source these before finishing: "
+LINT_RETRY = (
+    "Remove or source these before finishing, then summarize what you made and which sources "
+    "you used: "
+)
 LINT_SNIPPET_CHARS = 300
 QUOTE_MIN_WORDS = 6
 QUOTE_OVERLAP = 0.6
