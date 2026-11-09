@@ -434,6 +434,16 @@ async def test_written_paths_count_as_deliverables_and_sources_json_does_not() -
     assert deliverables(done) == ["page.html", "b.csv"]
 
 
+def test_needs_provenance_triggers_on_notes_or_sources_in_task() -> None:
+    from voice_agent.agent.subagent import RunResult, ToolSpec, needs_provenance
+
+    result = RunResult(written=["page.html"])
+    tools = [ToolSpec("web__web_research", "web", "web_research", "r", {})]
+    assert needs_provenance("Read the notes first", tools, result) is True
+    assert needs_provenance("Check our sources", tools, result) is True
+    assert needs_provenance("Build a simple calculator", tools, result) is False
+
+
 def test_unsourced_figures_are_flagged_unless_the_task_or_a_fact_has_them() -> None:
     from voice_agent.agent.subagent import lint_html
 

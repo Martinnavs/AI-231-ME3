@@ -2,7 +2,7 @@
 
 A spoken assistant for a home and a few "big tasks". The microphone is on the laptop; the answer plays from a USB loudspeaker on a Raspberry Pi 4 over one Ethernet cable. Everything that thinks runs on the laptop CPU: speech to text (Kroko streaming, Parakeet final), a 350M fine-tuned router that answers simple turns itself, text to speech (Kitten), and the agent server. The cloud handles the turns the router will not take (Gemini 3.1 flash-lite), web answers (Gemini with Google Search, then Tavily, then Wikipedia), and big tasks (a background "delegate" job on Claude Haiku 5.5 through OpenRouter, in a bubblewrap sandbox). The Pi runs no model.
 
-Read first: `docs/HANDOFF.md` (the map), `docs/ARCHITECTURE.md` (how a turn flows), `docs/PROGRESS-2026-11-08.md` (latest work), `docs/ISSUES-2026-11-07.md` (what is open, section H is the newest). Full document list: `docs/INDEX.md`.
+Read first: `docs/HANDOFF.md` (the map), `docs/ARCHITECTURE.md` (how a turn flows), `docs/PROGRESS-2026-11-09.md` (latest work), `docs/ISSUES-2026-11-07.md` (what is open, section H is the newest). Full document list: `docs/INDEX.md`.
 
 ## Layout
 
