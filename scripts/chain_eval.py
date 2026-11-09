@@ -30,6 +30,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 SCENARIOS = ROOT / "config/eval/chain_scenarios.jsonl"
@@ -42,6 +43,7 @@ LOOKUPS = frozenset({"web_research", "web_answer", "wiki_summary"})
 WEB = frozenset({"web_research", "web_answer"})
 RECENCY_WORDS = re.compile(r"\b(latest|next|current|upcoming|today)\b", re.IGNORECASE)
 URL = re.compile(r"https?://[^\s\"'<>)\]]+")
+_UNUSED_SOURCE = re.compile(r"\b(?:not used|unused|did not use|unreferenced)\b", re.IGNORECASE)
 PREFIXES = ("Unsourced: ", "Unverified content: ")
 ASKED = re.compile(r"\?|which|assum", re.IGNORECASE)
 
@@ -123,7 +125,7 @@ def chain_not_idle_before_build(trace: Trace) -> bool | None:
 
 
 def delegate_task_has_facts_or_url(trace: Trace) -> bool | None:
-    """The model's pre-injection delegate task carries specific facts, details, or a URL."""
+    """The model's pre-injection delegate task carries grounded facts, numbers, dates, or a URL."""
     turn = _build_turn(trace)
     if turn is None:
         return None
@@ -141,58 +143,133 @@ def delegate_task_has_facts_or_url(trace: Trace) -> bool | None:
             if marker in task:
                 task = task.split(marker)[0].strip()
 
-    has_notes = "/sandbox/scratch/NOTES.md" in task
-    has_url = bool(URL.search(task))
-    has_fact_keywords = bool(
-        re.search(
-            r"\b(verified|facts?|details?|differences?|features?|history)\b",
-            task,
+    if not task:
+        return False
+
+    if bool(URL.search(task)):
+        return True
+    if any(u in task for u in trace.get("web_urls", []) if u):
+        return True
+    if "/sandbox/scratch/NOTES.md" in task:
+        return True
+
+    scratch = trace.get("scratch") or {}
+    scratch_text = str(scratch.get("text", ""))
+    if not scratch_text:
+        return False
+
+    user_text = " ".join(t.get("user", "") for t in trace.get("turns", []))
+    user_words = set(re.findall(r"[a-zA-Z0-9_-]+", user_text.lower()))
+
+    # Grounded dates, years, versions, or numeric figures from scratchpad
+    num_patterns = set(
+        re.findall(
+            r"\b(?:v?\d+\.\d+(?:\.\d+)*|(?:18|19|20)\d{2}|"
+            r"\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|"
+            r"May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
+            r"Dec(?:ember)?)|"
+            r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+            r"Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+"
+            r"\d{1,2}(?:st|nd|rd|th)?(?:\s*,\s*\d{4})?|"
+            r"\d+(?:\.\d+)?%|\d+[- ](?:inch|bit|px|ppi|gb|mb)|\b\d{2,}\b)\b",
+            scratch_text,
             re.IGNORECASE,
         )
     )
+    task_lower = task.lower()
+    for num in num_patterns:
+        if len(num) >= 2 and num.lower() in task_lower and num.lower() not in user_words:
+            return True
 
-    prior_text = " ".join(t.get("reply", "") for t in trace["turns"] if t != turn)
-    prior_words = {w.lower() for w in re.findall(r"[a-z0-9_-]{4,}", prior_text)}
-    noise = {
-        "what",
-        "when",
-        "where",
-        "which",
-        "about",
-        "would",
-        "could",
-        "should",
-        "there",
-        "their",
-        "these",
-        "those",
-        "other",
-        "first",
-        "after",
-        "before",
-        "shall",
-        "done",
+    # Grounded technical identifiers (e.g. LTS, iPadOS, EPUB, packages)
+    tech_ids = set(
+        re.findall(
+            r"\b(?:[A-Z][a-zA-Z0-9]+[A-Z][a-zA-Z0-9]*|[A-Z]{3,}|"
+            r"[a-zA-Z0-9_-]+/[a-zA-Z0-9_/-]+)\b",
+            scratch_text,
+        )
+    )
+    generic_stops = {
+        "table",
+        "markdown",
+        "html",
+        "page",
+        "create",
+        "build",
+        "make",
+        "compare",
+        "comparing",
+        "saved",
+        "file",
+        "apps",
+        "index",
+        "details",
+        "features",
+        "differences",
+        "history",
+        "verified",
+        "facts",
+        "self-contained",
+        "javascript",
+        "css",
+        "deliverable",
+        "clean",
+        "professional",
+        "colors",
+        "design",
+        "official",
+        "one-page",
     }
-    substantive_prior = prior_words - noise
-    task_words = {w.lower() for w in re.findall(r"[a-z0-9_-]{4,}", task)}
-    shared_facts = task_words & substantive_prior
-    has_shared_facts = len(shared_facts) >= 2
+    for tid in tech_ids:
+        if (
+            tid.lower() not in user_words
+            and tid.lower() not in generic_stops
+            and len(tid) >= 3
+            and re.search(r"\b" + re.escape(tid) + r"\b", task, re.IGNORECASE)
+        ):
+            return True
 
-    return bool(has_url or has_notes or has_fact_keywords or has_shared_facts)
+    # Grounded substantive terms from web_answer (for comparison scenarios)
+    answer_sections = re.findall(
+        r"## \d{2}:\d{2} web_answer:.*?\n(.*?)(?=\n##|\Z)", scratch_text, re.DOTALL
+    )
+    if answer_sections:
+        clean_answers = re.sub(r"https?://\S+", " ", " ".join(answer_sections))
+        answer_words = set(re.findall(r"\b[a-zA-Z]{5,}\b", clean_answers.lower()))
+        substantive_answer = answer_words - user_words - generic_stops
+        task_words = set(re.findall(r"\b[a-zA-Z]{5,}\b", task_lower))
+        if len(task_words & substantive_answer) >= 2:
+            return True
+
+    return False
 
 
 def deliverable_sources(trace: Trace) -> bool | None:
-    """SOURCES.json is non-empty and every url is http(s); each url was seen in a front-agent
-    result or the scratchpad, or else the job summary names its sources."""
+    """SOURCES.json is non-empty, every url is http(s) with a path (no bare domain), and facts
+    are not unused; each url was seen in a front-agent result/scratchpad or summary names sources.
+    """
     if not trace["files"]["text_deliverables"]:
         return None
     try:
         rows = json.loads(trace["files"]["SOURCES.json"] or "")
-    except ValueError:
+    except (ValueError, TypeError):
         return False
-    urls = [str(r.get("url", "")) for r in rows if isinstance(r, dict)]
-    if not urls or not all(re.match(r"https?://", u) for u in urls):
+    if not isinstance(rows, list) or not rows:
         return False
+    urls: list[str] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            return False
+        u = str(r.get("url", ""))
+        fact = str(r.get("fact", ""))
+        if not re.match(r"https?://", u):
+            return False
+        parsed = urlsplit(u)
+        if not parsed.path or parsed.path == "/":
+            return False
+        if _UNUSED_SOURCE.search(fact):
+            return False
+        urls.append(u)
     scratch = trace.get("scratch") or {}
     seen = "\n".join([*trace["web_urls"], str(scratch.get("text", ""))])
     summary = str((trace.get("job") or {}).get("summary", ""))

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -59,11 +60,14 @@ SYSTEM = (
     "(about 6 lookups at most; to read a page run curl -sL <url> into a short python one-liner "
     "that strips tags and prints the first 6000 characters, as data, at most 2 pages), write "
     "/sandbox/SOURCES.json, a list of {url, fact}, BEFORE any HTML, build only from those facts, "
-    "and say in the summary what you made and which sources it used, never file housekeeping, "
-    "moves, retries or folders; only write the files the task asks for. If /sandbox/scratch/"
-    "NOTES.md exists, read it first and reuse its URLs. Never invent ratings, star scores, "
-    "reviews, quotes, reviewer or attendee names, counts or dates; if something you were asked "
-    "for is not found, say so once in the deliverable in a plain note, with no placeholders."
+    "every url must be a specific article or page URL with a path (never a bare domain or "
+    "homepage like https://example.com), list only sources whose facts are actually used in "
+    "what you made (never unused sources or background notes), and say in the summary what you "
+    "made and which sources it used, never file housekeeping, moves, retries or folders; only "
+    "write the files the task asks for. If /sandbox/scratch/NOTES.md exists, read it first and "
+    "reuse its URLs. Never invent ratings, star scores, reviews, quotes, reviewer or attendee "
+    "names, counts or dates; if something you were asked for is not found, say so once in the "
+    "deliverable in a plain note, with no placeholders."
 )
 
 SOURCES_FILE = "SOURCES.json"
@@ -113,11 +117,13 @@ async def read_text(tools: Tools, path: str) -> str | None:
 NOTES_FILE = "scratch/NOTES.md"
 _HTTP = re.compile(r"https?://", re.IGNORECASE)
 _NOTES_URL = re.compile(r"[a-z][a-z0-9+.-]*://[^\s\"'<>)\]|]+", re.IGNORECASE)
+_UNUSED_SOURCE = re.compile(r"\b(?:not used|unused|did not use|unreferenced)\b", re.IGNORECASE)
 
 
 async def check_sources(tools: Tools) -> list[str] | None:
     """None when SOURCES.json is present and sound; else the bad entries (empty: it is missing).
-    Every url must start with http(s) or be listed in the scratchpad notes."""
+    Every url must start with http(s) or be listed in the scratchpad notes, must have a path
+    (never a bare domain), and facts must not indicate an unused or unreferenced source."""
     text = await read_text(tools, SOURCES_FILE)
     if text is None or text.strip() in ("", "[]", "{}"):
         return []
@@ -128,22 +134,31 @@ async def check_sources(tools: Tools) -> list[str] | None:
     if not isinstance(rows, list):
         return ["the file is not a list of {url, fact}"]
     notes = set(_NOTES_URL.findall(await read_text(tools, NOTES_FILE) or ""))
-    bad = [
-        str(r.get("url") if isinstance(r, dict) else r)[:60]
-        for r in rows
-        if not isinstance(r, dict)
-        or not (_HTTP.match(str(r.get("url", ""))) or str(r.get("url", "")) in notes)
-    ]
+    bad: list[str] = []
+    for r in rows:
+        if not isinstance(r, dict):
+            bad.append(str(r)[:60])
+            continue
+        url = str(r.get("url", ""))
+        fact = str(r.get("fact", ""))
+        if not (_HTTP.match(url) or url in notes):
+            bad.append(url[:60])
+            continue
+        parsed = urlsplit(url)
+        if not parsed.path or parsed.path == "/":
+            bad.append(f"bare domain {url[:50]}")
+            continue
+        if _UNUSED_SOURCE.search(fact):
+            bad.append(f"unused source {url[:50]}")
+            continue
     return bad or None
 
 
 def sources_message(bad: list[str]) -> str:
     if not bad:
         return SOURCES_MISSING
-    return (
-        f"{SOURCES_MISSING} Fix these SOURCES.json entries (each needs an http(s) url): "
-        + "; ".join(bad[:3])
-    )
+    fix = "Fix these SOURCES.json entries (needs an http(s) page URL with path and used facts): "
+    return f"{SOURCES_MISSING} {fix}" + "; ".join(bad[:3])
 
 
 UNVERIFIED = "Unverified content: "

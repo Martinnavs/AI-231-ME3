@@ -102,7 +102,14 @@ def test_chain_not_idle_before_build_and_task_content() -> None:
     )
     assert ce.delegate_task_has_facts_or_url(bare) is True
     bare["turns"][1]["calls"][0]["args"]["task"] = "Make it from these details: x"
-    assert ce.delegate_task_has_facts_or_url(bare) is True
+    assert ce.delegate_task_has_facts_or_url(bare) is False  # generic word alone fails
+    bare["scratch"] = {"exists": True, "text": "## findings\nEvent held on November 19, 2026."}
+    bare["turns"][1]["calls"][0]["args"]["task"] = "Make an invitation for November 19, 2026."
+    assert ce.delegate_task_has_facts_or_url(bare) is True  # grounded date/year passes
+    bare["turns"][1]["calls"][0]["args"]["task"] = (
+        "Create an invitation for Boat Race or Eights Week."
+    )
+    assert ce.delegate_task_has_facts_or_url(bare) is False  # ungrounded memory recall fails
     assert ce.delegate_task_has_facts_or_url({"turns": [turn("hi")]}) is None
 
 
@@ -241,6 +248,17 @@ def test_deliverable_sources_new_rules() -> None:
     bad["files"]["SOURCES.json"] = json.dumps([{"url": "web_answer: when is it", "fact": "f"}])
     bad["job"]["summary"] = "sources named"
     assert ce.deliverable_sources(bad) is False  # non-http url always fails
+    bare = good()
+    bare["files"]["SOURCES.json"] = json.dumps([{"url": "https://example.org", "fact": "f"}])
+    assert ce.deliverable_sources(bare) is False  # bare domain without path fails
+    bare_slash = good()
+    bare_slash["files"]["SOURCES.json"] = json.dumps([{"url": "https://example.org/", "fact": "f"}])
+    assert ce.deliverable_sources(bare_slash) is False  # bare domain with slash fails
+    unused = good()
+    unused["files"]["SOURCES.json"] = json.dumps(
+        [{"url": URL, "fact": "not used in the cheat sheet"}]
+    )
+    assert ce.deliverable_sources(unused) is False  # unused source fails
     empty = good()
     empty["files"]["SOURCES.json"] = "[]"
     assert ce.deliverable_sources(empty) is False
