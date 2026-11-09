@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
         pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall pi-tune pi-netem \
-        spotify-login calibrate
+        spotify-login calibrate doctor-tools addressee-replay chain-eval-list chain-eval-dry chain-eval test-chain
 
 help: ## List documented targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:[^#]*## /\t/' | sort | awk -F'\t' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -53,6 +53,23 @@ calibrate: ## (laptop) room calibration + the six baseline phrases; HEADSET=1 us
 
 doctor-tools: ## (laptop) what the delegate sandbox can do with git, GitHub, Hugging Face (free; --offline skips the network)
 	.venv/bin/python scripts/delegate_doctor.py
+
+addressee-replay: ## (laptop, free) replay the addressee gate over the logged turns and the benchmark texts; DECL=1 also tries the opt-in statement rule
+	.venv/bin/python scripts/addressee_replay.py $(if $(DECL),--declaratives)
+
+chain-eval-list: ## (laptop, free) the chain evaluation scenarios and the estimated cost of one pass
+	pipeline/.venv/bin/python scripts/chain_eval.py --list
+
+chain-eval-dry: ## (laptop, free) the chain evaluation against fakes: checks the harness, no network, no spend
+	.venv/bin/python scripts/chain_eval.py --dry
+
+chain-eval: ## (laptop, SPENDS about $0.01 per scenario) live chain evaluation; needs YES=1. SEED=n MAX_USD=0.19 ONLY=id,id SEEDS=k
+	@test "$(YES)" = "1" || { echo "this calls Gemini, Tavily and the Haiku delegate (about \$$0.08 for all 8 scenarios): add YES=1"; exit 1; }
+	pipeline/.venv/bin/python scripts/chain_eval.py --max-usd $(or $(MAX_USD),0.19) --seed $(or $(SEED),1) $(if $(SEEDS),--seeds $(SEEDS)) $(if $(ONLY),--only $(ONLY))
+
+test-chain: ## (laptop, free) the tests behind the addressee gate, the delegate doctor, the chain state, the scratchpad and the chain evaluation
+	.venv/bin/python -m pytest -q tests/doc_chat/test_addressee.py tests/mcp_servers tests/agent tests/test_chain_eval.py
+	cd pipeline && .venv/bin/python -m pytest -q tests/test_chain_state.py tests/test_chain_wiring.py tests/test_scratchpad.py
 
 pi-check: ## (run ON the Pi) config/pi.env, venv, token mode, audio device, the six clips
 	scripts/stack/pi_check.sh
