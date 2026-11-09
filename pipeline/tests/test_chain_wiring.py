@@ -1,6 +1,7 @@
 """Chain wiring: web_research is not a spoken-result tool, chain_update and the delegate hooks,
 the agent server's steering while a chain is active, and the Case F prompt rules."""
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -366,3 +367,86 @@ async def test_a_failed_lookup_is_not_remembered() -> None:
         )
     assert len(calls) == 2
     agent_tools.reset_turn_lookups()
+
+
+async def test_concurrent_lookups_in_a_turn_wait_and_deduplicate() -> None:
+    calls: list[str] = []
+
+    async def slow_handler(params: Any) -> None:
+        calls.append(params.function_name)
+        await asyncio.sleep(0.05)
+        await params.result_callback(f"slow result for {params.function_name}")
+
+    got: list[Any] = []
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        got.append(value)
+
+    record: list[dict[str, Any]] = []
+
+    def wrapped(name: str) -> Any:
+        schema = FunctionSchema(
+            name=name, description="d", properties={}, required=[], handler=slow_handler
+        )
+        return _recorded(schema, record).handler
+
+    agent_tools.reset_turn_lookups()
+    # Call web_research and web_answer concurrently
+    await asyncio.gather(
+        wrapped("web_research")(
+            SimpleNamespace(
+                function_name="web_research", arguments={}, result_callback=sink, tool_call_id="1"
+            )
+        ),
+        wrapped("web_answer")(
+            SimpleNamespace(
+                function_name="web_answer", arguments={}, result_callback=sink, tool_call_id="2"
+            )
+        ),
+    )
+    assert calls == ["web_research"]
+    assert len(got) == 2
+    assert got[0] == "slow result for web_research"
+    assert got[1] == "(already looked up this turn) slow result for web_research"
+    assert record[0].get("cached") is not True
+    assert record[1].get("cached") is True
+    agent_tools.reset_turn_lookups()
+
+
+async def test_delegate_task_receives_facts_and_source_urls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_pipeline.scratchpad import Scratchpad
+
+    monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
+    agent_tools.CHAIN = chain = ChainState(tmp_path / "state")
+    chain.update("awaiting_fact_approval", facts=["Fact 1", "Fact 2"])
+    pad = Scratchpad(tmp_path / "NOTES.md")
+    pad.add("web_research", "query", "snippet", urls=["https://example.org/source1"])
+    agent_tools.SCRATCHPAD = pad
+    record: list[dict[str, Any]] = []
+
+    async def dummy_handler(params: Any) -> None:
+        await params.result_callback("ok")
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        pass
+
+    schema = FunctionSchema(
+        name="delegate", description="d", properties={}, required=[], handler=dummy_handler
+    )
+    wrapped = _recorded(schema, record).handler
+    await wrapped(
+        SimpleNamespace(
+            function_name="delegate",
+            arguments={"task": "Build the poster."},
+            result_callback=sink,
+            tool_call_id="d1",
+        )
+    )
+    task = record[-1]["args"]["task"]
+    assert "Verified facts from conversation: Fact 1 | Fact 2." in task
+    assert "Primary source URLs: https://example.org/source1." in task
+    assert "Notes and sources from the conversation are in /sandbox/scratch/NOTES.md" in task
+    agent_tools.CHAIN = None
+    agent_tools.SCRATCHPAD = None

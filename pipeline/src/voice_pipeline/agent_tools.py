@@ -148,10 +148,13 @@ def _job_row(result: Any) -> dict[str, Any] | None:
 LOOKUP_TOOLS = frozenset({"web_research", "web_answer", "wiki_summary"})
 REPEAT_PREFIX = "(already looked up this turn) "
 _turn_lookups: list[str] = []
+_lookup_future: asyncio.Future[str] | None = None
 
 
 def reset_turn_lookups() -> None:
+    global _lookup_future
     _turn_lookups.clear()
+    _lookup_future = None
 
 
 def job_started(result: Any) -> bool:
@@ -576,18 +579,39 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             CHAIN.touch_unrelated()
         params.arguments = args  # the real tool never sees `say`
         if schema.name in LOOKUP_TOOLS:
+            global _lookup_future
             if _turn_lookups:
                 entry["cached"] = True
                 await params.result_callback(REPEAT_PREFIX + _turn_lookups[0])
                 return
+            if _lookup_future is not None and not _lookup_future.done():
+                entry["cached"] = True
+                try:
+                    cached_val = await asyncio.shield(_lookup_future)
+                    await params.result_callback(REPEAT_PREFIX + cached_val)
+                except Exception:
+                    await params.result_callback(REPEAT_PREFIX + "no result")
+                return
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.get_event_loop()
+            _lookup_future = loop.create_future()
             first_callback = params.result_callback
 
             async def remember(result: Any, *, properties: Any = None) -> None:
+                global _lookup_future
                 if isinstance(result, str) and not FAILURE.search(result):
                     _turn_lookups.append(result)
+                    if _lookup_future is not None and not _lookup_future.done():
+                        _lookup_future.set_result(result)
                     if SCRATCHPAD is not None:
                         query = str(args.get("query") or args.get("topic") or "")
                         SCRATCHPAD.add(schema.name, query, result)
+                else:
+                    if _lookup_future is not None and not _lookup_future.done():
+                        _lookup_future.set_result(str(result) if result is not None else "")
                 await first_callback(result, properties=properties)
 
             params.result_callback = remember
@@ -610,8 +634,19 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         elif schema.name == "delegate":
             deliver_job = params.result_callback
             task = str(args.get("task", ""))
-            if SCRATCHPAD is not None and SCRATCHPAD.has_entries() and NOTES_SENTENCE not in task:
-                args["task"] = f"{task.rstrip()} {NOTES_SENTENCE}"
+            injected_parts: list[str] = []
+            if CHAIN is not None and CHAIN.data.get("facts"):
+                facts_str = " | ".join(CHAIN.data["facts"])
+                if facts_str not in task:
+                    injected_parts.append(f"Verified facts from conversation: {facts_str}.")
+            if SCRATCHPAD is not None and SCRATCHPAD.has_entries():
+                urls = sorted(SCRATCHPAD.urls())
+                if urls and not any(u in task for u in urls):
+                    injected_parts.append(f"Primary source URLs: {', '.join(urls[:5])}.")
+                if NOTES_SENTENCE not in task:
+                    injected_parts.append(NOTES_SENTENCE)
+            if injected_parts:
+                args["task"] = f"{task.rstrip()} " + " ".join(injected_parts)
             global _pending_destructive
             if DESTRUCTIVE.search(task):
                 if _pending_destructive is None or not CONFIRMED.search(question.current or ""):

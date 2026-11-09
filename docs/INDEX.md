@@ -36,6 +36,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `PROGRESS-2026-11-05.md` | kd-web3 retest and default, spoken v4, tickets G (no dropped turns) and H (delegate terminal work), latency studies (Nemotron, adaptive hold) |
 | `PROGRESS-2026-11-06.md` | the harness on the Pi (v4 47/8/4, 1.50 s tuned), kd-web4 router, Spotify through the desktop app, delegate safety after the deletion incident, latency tuning, network-resilience test |
 | `PROGRESS-2026-11-08.md` | the addressee gate, the delegate git/HF doctor, research-then-build chains (web_research, chain state, scratchpad, sub-agent source checks) and `scripts/chain_eval.py`: what was built, how to run it (`make` recipes), results, decisions waiting for the owner, next steps |
+| `PROGRESS-2026-11-09.md` | multi-step chain performance fixes (parallel lookup deduplication, delegate facts/URL bridge, subagent deliverable disambiguation) and 8/8 live chain-eval pass ($0.082) |
 | `../finetune/README.md` | start here on the cluster: the router fine-tuning project (contract, evaluation sets, baselines, tasks, rules); code in `finetune/` |
 
 ## Speech and the test client
