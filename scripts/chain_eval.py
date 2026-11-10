@@ -432,19 +432,25 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
         user = fill(template, params)
         last = index == len(scenario.turns) - 1
         calls: list[dict[str, Any]] = []
+        if scenario.kind == "research_build" and not notes:
+            recent = RECENCY_WORDS.search(user) is not None
+            calls.append({"tool": "web_research", "args": {"query": user, "recent": recent}})
+            notes.append(f"## 00:00 web_research: {user}\n{url}")
+            trace["web_urls"].append(url)
+            phase = "researching"
         if builds and last:
             task = f"Build the deliverable from these verified facts: x. Source {url}"
             if notes:
                 task += " Notes and sources from the conversation are in /sandbox/scratch/NOTES.md."
             calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
-        elif scenario.kind in ("research_build", "code_only") or (
+        elif (scenario.kind in ("research_build", "code_only") and not calls) or (
             scenario.kind == "followup" and index == 0
         ):
             recent = RECENCY_WORDS.search(user) is not None
             calls.append({"tool": "web_research", "args": {"query": user, "recent": recent}})
             notes.append(f"## 00:00 web_research: {user}\n{url}")
             trace["web_urls"].append(url)
-        reply = "Which one do you mean?" if index == 0 else "Done."
+        reply = "Which one do you mean?" if not last else "Done."
         trace["turns"].append(
             {
                 "user": user,
@@ -464,7 +470,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             "status": "done",
             "summary": "The snake web version is ready; say open it to play it."
             if game
-            else "Built it.",
+            else "Built it from sources.",
         }
         trace["files"] = {
             "SOURCES.json": json.dumps([{"url": url, "fact": "x"}]) if text else None,

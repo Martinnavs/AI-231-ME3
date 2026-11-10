@@ -577,8 +577,9 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         entry: dict[str, Any] = {
             "tool": schema.name,
             "args": args,
-            "raw_task": raw_args.get("task"),
         }
+        if "task" in raw_args:
+            entry["raw_task"] = raw_args["task"]
         record.append(entry)
         if CHAIN is not None and CHAIN.active() and not is_chain_tool(schema.name):
             CHAIN.touch_unrelated()
