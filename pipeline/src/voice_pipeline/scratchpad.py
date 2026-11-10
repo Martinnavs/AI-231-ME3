@@ -22,6 +22,14 @@ NOTES_SENTENCE = (
     "Notes and sources from the conversation are in /sandbox/scratch/NOTES.md: read it first, "
     "reuse its URLs, and research only the gaps."
 )
+PROFILE_FILE = "PROFILE.md"
+PROFILE_RULE = (
+    "Profile: the user wrote down who they are in /sandbox/scratch/PROFILE.md. This replaces the "
+    'rule above for "me", "about me" and "my ..." builds: no name question, no web_research and '
+    "no readback. Say in one short sentence that you will build it from their profile, then call "
+    "delegate with a task that names /sandbox/scratch/PROFILE.md and says to use only what it "
+    "says. Other kinds of tasks are unchanged."
+)
 _URL = re.compile(r"https?://[^\s\"'<>)\]|]+")
 _STAMP = re.compile(r"<!-- t=(\d+) -->")
 
@@ -85,3 +93,39 @@ class Scratchpad:
 
     def urls(self) -> set[str]:
         return set(_URL.findall(self.render()))
+
+
+_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_EMPTY_FIELD = re.compile(r"^[-*]?\s*[^:]{1,60}:\s*$")
+
+
+def profile_is_filled(text: str) -> bool:
+    """Whether the profile holds anything beyond headings, comments and empty fields."""
+    for line in _COMMENT.sub("", text).splitlines():
+        line = line.strip()
+        if (
+            line
+            and not line.startswith("#")
+            and line not in ("-", "*")
+            and not _EMPTY_FIELD.match(line)
+        ):
+            return True
+    return False
+
+
+def install_profile(source: Path, scratch_dir: Path) -> bool:
+    """Copy the owner's profile into the delegate workspace (scratch/PROFILE.md) when it is filled
+    in; otherwise remove a stale copy. True when a profile is installed."""
+    dest = scratch_dir / PROFILE_FILE
+    try:
+        text = source.read_text()
+    except OSError:
+        text = ""
+    if not profile_is_filled(text):
+        dest.unlink(missing_ok=True)
+        return False
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f"{dest.name}.{os.getpid()}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, dest)
+    return True
