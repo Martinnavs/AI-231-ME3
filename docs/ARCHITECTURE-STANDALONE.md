@@ -346,12 +346,12 @@ Line names include 17 home-control intents (for example `LIGHT_ON`, `TIMER`, `AL
 | Item | Value |
 |---|---|
 | Model | **Gemini 3.1 Flash-Lite**, through the Pipecat framework (version 1.13) using its Google LLM service. |
-| System prompt | About 720 words. Cases: home command, time/weather/knowledge, questions about a loaded document set, Pi tools, a command missing a value, big task (delegate), anything else. Every tool call also carries a short `say` argument. |
+| System prompt | About 1 055 words. Cases: home command, time/weather/knowledge, questions about a loaded document set, Pi tools, a command missing a value, big task (delegate), anything else. Every tool call also carries a short `say` argument. The big task's *chain protocol* (the multi-turn research/build sequence) is a separate block (`system_agent_case_f.txt`) appended to a turn only while a chain is active, when the router escalates it, or when there is no router. |
 | Tools | 13: home control (17 intents, with a phone book of 5 contacts), document search, current time, time conversion, weather, Wikipedia summary, web answer, delegate, delegate status, delegate cancel, and from the Pi: get volume, set volume, device status. The three Pi tools are absent if the Pi was unreachable at start; the prompt then tells the model to say the Pi cannot be reached. |
 | Connection | IPv4 only (IPv6 connections to Google were being reset on this network). A keep-alive of 300 s keeps idle connections warm. |
 | `say` sentence | A short line the model emits with a tool call so the user hears something during the tool. It is held for 0.6 s and dropped if the tool answers first. For weather it is not held. |
 | Sentence tools | Weather, Wikipedia, web answer, get volume and set volume return a ready sentence. The result is spoken directly without a second model call, unless it failed or the question needs reasoning. |
-| **Stall fallback** | After every tool in a response has returned, if the model says nothing for **4.0 s**, the turn is answered from the tool result (Pi status worded for the question, or the tool's own sentence, else "Sorry, I got the result but couldn't put it into words. Could you ask again?") and the model's late reply is interrupted. It was added after a 16 s stall on 2026-11-05. |
+| **Stall fallback** | After every tool in a response has returned, if the model says nothing for **8.0 s** (**16.0 s** after `web_research`, **10.0 s** after `search_docs`), the turn is answered from the tool result (Pi status worded for the question, or the tool's own sentence, else "Sorry, I got the result but couldn't put it into words. Could you ask again?"); for `web_research` and `search_docs` the answer is always the generic apology, never the untrusted search data, and the model's late reply is interrupted. It was added after a 16 s stall on 2026-11-05. |
 | Turn cap | 20 s; past it the turn returns an error. |
 | Warm-up | One "Say OK." request at start. |
 

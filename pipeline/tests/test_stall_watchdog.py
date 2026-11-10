@@ -189,4 +189,3 @@ def test_web_research_stall_window_covers_worst_case_first_chunk_retry() -> None
     web_research_stall = agent.STALL_BY_TOOL["web_research"]
     assert web_research_stall > worst_case_retry
     assert web_research_stall < agent.TURN_TIMEOUT_S
-
