@@ -65,10 +65,11 @@ SYSTEM = (
     "what you made (never unused sources or background notes), and say in the summary what you "
     "made and which sources it used, never file housekeeping, moves, retries or folders; only "
     "write the files the task asks for. If /sandbox/scratch/NOTES.md exists, read it first and "
-    "reuse its URLs. When news or facts are partial, assemble the deliverable with confirmed items, "
-    "date them honestly, and link each story to its source URL with clickable badges. Never abort "
-    "or leave empty placeholder files. Never invent ratings, star scores, reviews, quotes, reviewer "
-    "or attendee names, counts or dates; if something you were asked for is not found, say so once "
+    "reuse its URLs. If there are no confirmed items, write a plain note and stop. When news "
+    "or facts are partial, assemble the deliverable with confirmed items, date them honestly, "
+    "and link each story to its source URL with clickable badges. Never abort or leave empty "
+    "placeholder files. Never invent ratings, star scores, reviews, quotes, reviewer or "
+    "attendee names, counts or dates; if something you were asked for is not found, say so once "
     "in the deliverable in a plain note, with no placeholders."
 )
 

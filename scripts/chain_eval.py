@@ -342,7 +342,13 @@ def no_stray_apps(trace: Trace) -> bool:
     return len(apps_files) == 0
 
 
+def delegate_called(trace: Trace) -> bool:
+    """A build request must invoke the delegate tool, never stalling or surrendering."""
+    return any(c["tool"] == "delegate" for c in _calls(trace))
+
+
 PREDICATES: dict[str, Callable[..., bool | None]] = {
+    "delegate_called": delegate_called,
     "recency_tool": recency_tool,
     "max_lookups_per_turn": max_lookups_per_turn,
     "chain_not_idle_before_build": chain_not_idle_before_build,
@@ -431,6 +437,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
     for index, template in enumerate(scenario.turns):
         user = fill(template, params)
         last = index == len(scenario.turns) - 1
+        turn_phase = phase
         calls: list[dict[str, Any]] = []
         if scenario.kind == "research_build" and not notes:
             recent = RECENCY_WORDS.search(user) is not None
@@ -456,7 +463,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
                 "user": user,
                 "calls": calls,
                 "reply": reply,
-                "chain_phase": phase,
+                "chain_phase": turn_phase,
                 "scratch_entries": len(notes),
             }
         )
@@ -624,11 +631,15 @@ async def _wait_job(state: Path, job_id: str) -> dict[str, Any]:
 
 def _collect_files(trace: Trace, workspace: Path) -> None:
     sources = workspace / "SOURCES.json"
+    scratch_dir = workspace / "scratch"
     trace["files"]["SOURCES.json"] = sources.read_text() if sources.exists() else None
     trace["files"]["text_deliverables"] = sorted(
         str(p.relative_to(workspace))
         for p in workspace.rglob("*")
-        if p.is_file() and p.suffix in (".html", ".htm", ".md", ".txt", ".csv") and p != sources
+        if p.is_file()
+        and p.suffix in (".html", ".htm", ".md", ".txt", ".csv")
+        and p != sources
+        and not p.is_relative_to(scratch_dir)
     )
     apps_dir = workspace / "apps"
     trace["files"]["apps"] = (
@@ -680,7 +691,7 @@ async def evaluate(
 
 
 def table(rows: Sequence[dict[str, Any]], spent: float) -> str:
-    lines = [f"{'scenario':<22}{'trials':>7}{'pass^k':>8}  predicates (pass/fail/n.a. over trials)"]
+    lines = [f"{'scenario':<28}{'trials':>7}{'pass^k':>8}  predicates (pass/fail/n.a. over trials)"]
     for sid in dict.fromkeys(r["id"] for r in rows):
         mine = [r for r in rows if r["id"] == sid]
         names = list(dict.fromkeys(n for r in mine for n in r["results"]))
@@ -689,7 +700,7 @@ def table(rows: Sequence[dict[str, Any]], spent: float) -> str:
             vals = [r["results"].get(name) for r in mine]
             cells.append(f"{name} {vals.count(True)}/{vals.count(False)}/{vals.count(None)}")
         ok = all(r["pass"] for r in mine)
-        lines.append(f"{sid:<22}{len(mine):>7}{'yes' if ok else 'NO':>8}  " + "; ".join(cells))
+        lines.append(f"{sid:<28}{len(mine):>7}{'yes' if ok else 'NO':>8}  " + "; ".join(cells))
     lines.append(f"total spend ${spent:.3f}")
     return "\n".join(lines)
 
@@ -716,7 +727,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     cost = estimate(scenarios, args.trials * args.seeds)
     if args.list:
         for s in scenarios:
-            print(f"{s.id:<22}{s.kind:<15}{len(s.turns)} turns  expects {', '.join(s.expect)}")
+            print(f"{s.id:<28}{s.kind:<15}{len(s.turns)} turns  expects {', '.join(s.expect)}")
         print(
             f"estimate: about ${cost:.2f} for {len(scenarios)} scenarios x "
             f"{args.trials * args.seeds} trial(s)"

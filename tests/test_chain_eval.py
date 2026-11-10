@@ -192,7 +192,7 @@ def test_dry_run_end_to_end_passes_every_scenario(
     out = capsys.readouterr().out
     assert code == 0 and "total spend $0.000" in out and "pass^k" in out
     rows = [json.loads(line) for line in (tmp_path / "t" / "trials.jsonl").read_text().splitlines()]
-    assert len(rows) == 16 and all(r["pass"] for r in rows)
+    assert len(rows) == 2 * len(ce.load_scenarios(ce.SCENARIOS)) and all(r["pass"] for r in rows)
 
 
 def test_only_and_list_do_not_run_anything(
