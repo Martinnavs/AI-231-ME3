@@ -63,6 +63,7 @@ TURN_TIMEOUT_S = 20.0
 # 2026-11-05 (device_status back in 0.15 s) gave no text for 16 s and the client dropped the turn.
 STALL_S = 8.0
 STALL_BY_TOOL: Mapping[str, float] = {"web_research": 16.0, "search_docs": 10.0}
+STALL_TURN_MARGIN_S = 1.5  # the fallback must be spoken before the turn's own timeout fires
 STALL_GENERIC = "Sorry, I got the result but couldn't put it into words. Could you ask again?"
 # Turns are seconds to minutes apart, but the Gemini client lets an idle connection go after 15 s
 # (the SDK's aiohttp default) and the server may close sooner: every turn then paid a new TCP+TLS
@@ -303,6 +304,10 @@ class TurnTap(FrameProcessor):
             return
         self._drop_stall()
         delay = self.stall_delays.get(frame.function_name, self.stall_s)
+        # the watch counts from the result, the turn's timeout from its start: a result that
+        # arrives late must not push the fallback past the timeout (it would never be spoken)
+        left = TURN_TIMEOUT_S - STALL_TURN_MARGIN_S - (time.perf_counter() - self.started)
+        delay = max(0.0, min(delay, left))
         self._stall_task = asyncio.create_task(
             self._stall_watch(frame.function_name, frame.result, delay)
         )

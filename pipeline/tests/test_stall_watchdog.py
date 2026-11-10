@@ -2,6 +2,7 @@
 the result instead of being dropped by the client (2026-11-05: 16 s of silence)."""
 
 import asyncio
+import time
 from typing import Any
 
 import pytest
@@ -189,3 +190,23 @@ def test_web_research_stall_window_covers_worst_case_first_chunk_retry() -> None
     web_research_stall = agent.STALL_BY_TOOL["web_research"]
     assert web_research_stall > worst_case_retry
     assert web_research_stall < agent.TURN_TIMEOUT_S
+
+
+async def test_a_late_result_still_gets_its_fallback_before_the_turn_timeout() -> None:
+    from voice_pipeline import agent
+
+    rec = Recorder()
+    tap = TurnTap(say_delay_s=0, stall_delays={"web_research": 16.0})
+    tap.interrupt = rec.interrupt
+    tap.begin(rec.on_text)
+    await _feed(tap, LLMFullResponseStartFrame())
+    await _feed(tap, _call("web_research"))
+    # the lookup ended 3 s before the turn timeout: a 16 s watch from here would never fire
+    tap.started -= agent.TURN_TIMEOUT_S - 3.0
+    await _feed(tap, _result("web_research", "Paris is the capital of France."))
+    await _feed(tap, LLMFullResponseEndFrame())
+    await asyncio.wait_for(tap.done.wait(), 3)
+    assert time.perf_counter() - tap.started < agent.TURN_TIMEOUT_S
+    assert tap.stall_fallback is not None
+    assert tap.stall_fallback["after_s"] <= 3.0 - agent.STALL_TURN_MARGIN_S + 0.1
+    assert rec.interrupts == 1

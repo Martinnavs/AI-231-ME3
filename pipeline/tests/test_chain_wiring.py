@@ -252,7 +252,15 @@ async def test_the_model_cannot_end_a_chain_with_idle(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "phrase",
-    ["never mind", "Forget it.", "cancel that", "Cancel it please", "start over", "stop that"],
+    [
+        "never mind",
+        "Forget it.",
+        "start over",
+        "can you stop the ongoing job",
+        "Cancel the job please",
+        "stop that task",
+        "abort the build",
+    ],
 )
 async def test_cancel_words_end_the_chain_and_stop_its_job(tmp_path: Path, phrase: str) -> None:
     chain = ChainState(tmp_path)
@@ -480,3 +488,13 @@ async def test_concurrent_lookups_do_not_hang_on_failure() -> None:
         )
     assert agent_tools._lookup_future is not None and agent_tools._lookup_future.done()
     agent_tools.reset_turn_lookups()
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    ["stop that", "cancel that", "cancel it", "stop the music", "stop", "cancel the timer"],
+)
+def test_ambiguous_stop_words_do_not_drop_the_chain(phrase: str) -> None:
+    from voice_pipeline.chain_state import wants_cancel
+
+    assert not wants_cancel(phrase)

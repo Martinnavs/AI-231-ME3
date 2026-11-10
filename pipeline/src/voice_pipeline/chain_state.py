@@ -33,9 +33,13 @@ FACT_CHARS = 160
 CHAIN_TOOLS = frozenset({"chain_update", "web_research", "web_answer"})
 
 
-# The user drops the task: whole phrases, any case.
+# The user drops the task: whole phrases, any case. Deliberately not "stop that" / "cancel it":
+# with music, a timer or the bot's own speech to stop, those do not say which thing is meant, and
+# a wrong guess would kill the running job. Stopping the job takes a phrase that names it.
 CANCEL = re.compile(
-    r"\b(?:never mind|nevermind|forget it|cancel that|cancel it|start over|stop that)\b",
+    r"\b(?:never mind|nevermind|forget it|start over"
+    r"|(?:stop|cancel|abort|kill|end)\s+(?:the|that|this|my)?\s*"
+    r"(?:ongoing|current|running|background)?\s*(?:job|task|build|research))\b",
     re.IGNORECASE,
 )
 _ANSWER_WORDS = frozenset(
