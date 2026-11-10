@@ -362,13 +362,12 @@ def build_server(
             base |= {"topic": "news", "time_range": "year"}
         question = spoken_years_to_digits(query)
         queries = [question]
-        if recent and RECENT_SECOND_QUERY:
-            now = today()
-            queries.append(f"{question} {now:%B %Y}")  # pulls up pages that name the current date
-
         hint = authority_hint_for(question)
         if hint:
             queries.append(f"{question} ({hint})")
+        elif recent and RECENT_SECOND_QUERY:
+            now = today()
+            queries.append(f"{question} {now:%B %Y}")  # pulls up pages that name the current date
 
         async def one(text: str) -> list[Any] | None:
             try:
