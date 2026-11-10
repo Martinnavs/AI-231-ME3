@@ -213,3 +213,8 @@ async def test_a_turn_the_router_declines_receives_the_protocol(tmp_path: Path) 
     content = agent.asked[0][-1]["content"]
     assert content.endswith("PROTOCOL")
     assert "[ACTIVE TASK" not in content
+
+
+def test_a_vague_stop_during_a_chain_is_asked_about_not_acted_on() -> None:
+    assert "A vague stop" in BLOCK and "Cancel the job only when it is named" in BLOCK
+    assert "A vague stop" not in BASE  # it only matters while a chain (a job) exists
