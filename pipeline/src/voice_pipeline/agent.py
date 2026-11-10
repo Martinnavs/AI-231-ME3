@@ -61,7 +61,8 @@ STREAM_IDLE_S = 10.0
 TURN_TIMEOUT_S = 20.0
 # After a tool result the model's follow-up call normally starts in under a second; one in
 # 2026-11-05 (device_status back in 0.15 s) gave no text for 16 s and the client dropped the turn.
-STALL_S = 4.0
+STALL_S = 8.0
+STALL_BY_TOOL: Mapping[str, float] = {"web_research": 14.0, "search_docs": 10.0}
 STALL_GENERIC = "Sorry, I got the result but couldn't put it into words. Could you ask again?"
 # Turns are seconds to minutes apart, but the Gemini client lets an idle connection go after 15 s
 # (the SDK's aiohttp default) and the server may close sooner: every turn then paid a new TCP+TLS
@@ -132,6 +133,8 @@ def build_llm(
 def stall_sentence(name: str, result: Any, asked: str) -> str:
     """What to say when the model stalls after a tool: the Pi status worded for the question, a
     tool's own sentence (web_answer, weather, volume), else an apology."""
+    if name in ("web_research", "search_docs"):
+        return STALL_GENERIC
     if name == "device_status":
         said = device_sentence(result, asked)
         if said is not None:
@@ -159,11 +162,13 @@ class TurnTap(FrameProcessor):
         say_delay_s: float = SAY_DELAY_S,
         stall_s: float = STALL_S,
         say_delays: Mapping[str, float] | None = None,
+        stall_delays: Mapping[str, float] | None = None,
     ) -> None:
         super().__init__()
         self.say_delay_s = say_delay_s
         self.say_delays = SAY_DELAY_BY_TOOL if say_delays is None else say_delays
         self.stall_s = stall_s
+        self.stall_delays = STALL_BY_TOOL if stall_delays is None else stall_delays
         self.interrupt: Callable[[], Awaitable[None]] | None = None  # stops the model's late reply
         self._say_task: asyncio.Task[None] | None = None
         self._stall_task: asyncio.Task[None] | None = None
@@ -297,16 +302,20 @@ class TurnTap(FrameProcessor):
         if self.done.is_set() or self.results_seen < self.calls_started:
             return
         self._drop_stall()
-        self._stall_task = asyncio.create_task(self._stall_watch(frame.function_name, frame.result))
+        delay = self.stall_delays.get(frame.function_name, self.stall_s)
+        self._stall_task = asyncio.create_task(
+            self._stall_watch(frame.function_name, frame.result, delay)
+        )
 
-    async def _stall_watch(self, name: str, result: Any) -> None:
+    async def _stall_watch(self, name: str, result: Any, wait_s: float | None = None) -> None:
         """The model has had `stall_s` since a tool result and said nothing: speak a sentence
         built from the result, stop the model's late reply and end the turn."""
-        await asyncio.sleep(self.stall_s)
+        delay = self.stall_s if wait_s is None else wait_s
+        await asyncio.sleep(delay)
         if self.done.is_set():
             return
         sentence = stall_sentence(name, result, question.current)
-        self.stall_fallback = {"tool": name, "after_s": self.stall_s, "text": sentence}
+        self.stall_fallback = {"tool": name, "after_s": delay, "text": sentence}
         self.text.append(sentence + " ")
         if self.first_text is None:
             self.first_text = time.perf_counter() - self.started

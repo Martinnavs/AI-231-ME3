@@ -556,3 +556,18 @@ async def test_relevance_sorting_whole_word_matching_with_ai_query() -> None:
     assert lines[0].startswith("Best Open Source Voice AI Agent Frameworks")
     assert lines[1].startswith("Air Travel Notice")
 
+
+async def test_authority_hint_replaces_date_query_bounding_tavily_calls() -> None:
+    seen: list[httpx.Request] = []
+    server = build_server(
+        _two_query_transport(seen), "k", None, today=lambda: date(2026, 11, 8)
+    )
+    async with Client(server) as client:
+        await client.call_tool(
+            "web_research", {"query": "top philippine news for today", "recent": True}
+        )
+    queries = [json.loads(r.content)["query"] for r in seen]
+    assert len(queries) == 2
+    assert queries[0] == "top philippine news for today"
+    assert queries[1] == "top philippine news for today (Inquirer OR Philstar OR Rappler)"
+

@@ -286,10 +286,37 @@ def test_delegate_reads_notes() -> None:
     assert ce.delegate_reads_notes(t) is None
 
 
+def test_delegate_called() -> None:
+    assert ce.delegate_called(good()) is True
+    stalled = copy.deepcopy(good())
+    stalled["turns"][1]["calls"] = []
+    assert ce.delegate_called(stalled) is False
+
+
+def test_stall_fails_on_research_build_scenario() -> None:
+    scenario = next(s for s in ce.load_scenarios() if s.id == "event_invitation")
+    stalled = copy.deepcopy(good())
+    stalled["turns"][1]["calls"] = []
+    results = ce.score(scenario, stalled)
+    assert results["delegate_called"] is False
+    assert ce.trial_passes(results) is False
+
+
 def test_research_scenarios_declare_the_new_predicates_and_others_do_not() -> None:
     for s in ce.load_scenarios():
-        has = "scratchpad_has_findings" in s.expect and "delegate_reads_notes" in s.expect
+        has = (
+            "scratchpad_has_findings" in s.expect
+            and "delegate_reads_notes" in s.expect
+            and "delegate_called" in s.expect
+        )
         assert has == (s.kind == "research_build")
+
+
+def test_dry_single_turn_build_turn_records_idle_phase() -> None:
+    scenario = next(s for s in ce.load_scenarios() if s.id == "philippine_news_newsletter")
+    params = ce.pick_params(scenario, 0, 1)
+    trace = asyncio.run(ce.dry_runner(scenario, params, 0))
+    assert trace["turns"][0]["chain_phase"] == "idle"
 
 
 def test_asked_or_flagged_regex() -> None:
