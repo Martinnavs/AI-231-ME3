@@ -95,6 +95,17 @@ TOPIC_AUTHORITY_HINTS: dict[str, str] = {
     "voice agent": "Pipecat OR LiveKit OR Vapi",
     "voice agents": "Pipecat OR LiveKit OR Vapi",
 }
+
+
+def authority_hint_for(text: str) -> str | None:
+    """Return an authority hint if the text touches a topic, unless a publisher is named."""
+    lowered = text.lower()
+    for topic, hint in TOPIC_AUTHORITY_HINTS.items():
+        if re.search(rf"\b{re.escape(topic)}\b", lowered):
+            publishers = [p for p in hint.split() if p.upper() != "OR"]
+            if not any(re.search(rf"\b{re.escape(p.lower())}\b", lowered) for p in publishers):
+                return hint
+    return None
 _SCRIPT_STYLE = re.compile(r"<(script|style)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 _TAGS = re.compile(r"<[^>]*>")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -355,15 +366,7 @@ def build_server(
             now = today()
             queries.append(f"{question} {now:%B %Y}")  # pulls up pages that name the current date
 
-        lowered_q = question.lower()
-        hint = next(
-            (
-                h
-                for k, h in TOPIC_AUTHORITY_HINTS.items()
-                if k in lowered_q and not any(p.lower() in lowered_q for p in h.split())
-            ),
-            None,
-        )
+        hint = authority_hint_for(question)
         if hint:
             queries.append(f"{question} ({hint})")
 
@@ -390,11 +393,11 @@ def build_server(
             {"news", "latest", "top", "today", "breaking", "thing", "next"}
         )
 
-        def is_relevant(r: Any) -> bool:
+        def relevance_score(r: Any) -> int:
             if not core_terms or not isinstance(r, dict):
-                return True
-            blob = f"{r.get('title', '')} {r.get('content', '')}".lower()
-            return any(t in blob for t in core_terms)
+                return 0
+            blob = f"{r.get('title', '')} {r.get('content', '')}"
+            return len(content_words(blob) & core_terms)
 
         for row in zip_longest(*answers):
             for result in row:
@@ -403,8 +406,8 @@ def build_server(
                     seen_urls.add(url)
                     merged.append(result)
 
-        if core_terms and any(is_relevant(r) for r in merged):
-            merged.sort(key=lambda r: 0 if is_relevant(r) else 1)
+        if core_terms:
+            merged.sort(key=relevance_score, reverse=True)
 
         return research_text({"results": merged}, today().isoformat())
 

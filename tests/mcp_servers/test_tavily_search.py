@@ -518,3 +518,41 @@ async def test_not_recent_makes_one_query_and_the_constant_can_turn_the_second_o
     monkeypatch.setattr(tavily_search, "RECENT_SECOND_QUERY", False)
     await _recent(seen)
     assert len(seen) == 1
+
+
+def test_authority_hint_fires_for_natural_english_with_or_substrings() -> None:
+    hint_fn = tavily_search.authority_hint_for
+    # F1 regression: 'for', 'record', 'or' must not suppress the hint
+    assert hint_fn("top philippine news for today") == "Inquirer OR Philstar OR Rappler"
+    assert hint_fn("Philippine Sea temperature record") == "Inquirer OR Philstar OR Rappler"
+    assert hint_fn("latest voice agent frameworks or libraries") == "Pipecat OR LiveKit OR Vapi"
+    # When publisher is already named, it must be suppressed
+    assert hint_fn("Rappler report on Philippine economy") is None
+    assert hint_fn("Inquirer headlines today") is None
+    assert hint_fn("Pipecat voice agent tutorial") is None
+    assert hint_fn("general global climate update") is None
+
+
+async def test_relevance_sorting_whole_word_matching_with_ai_query() -> None:
+    # F2 regression: 'ai' in query must NOT match 'said', 'again', 'air' in filler content
+    filler = {
+        "title": "Air Travel Notice",
+        "url": "https://travel.example/air",
+        "content": "The said agency again announced air travel restrictions for flights.",
+    }
+    target = {
+        "title": "Best Open Source Voice AI Agent Frameworks in 2026",
+        "url": "https://voice.example/frameworks",
+        "content": "A detailed comparison of open source AI voice agent tools.",
+    }
+    mock_response = httpx.Response(200, json={"results": [filler, target]})
+    text, seen = await _research(
+        mock_response,
+        query="latest developments in open-source AI voice agent frameworks 2024 2025",
+    )
+    lines = [ln for ln in text.splitlines() if ln.startswith("Best") or ln.startswith("Air")]
+    assert len(lines) == 2
+    # Target article with high word overlap must sort before the filler
+    assert lines[0].startswith("Best Open Source Voice AI Agent Frameworks")
+    assert lines[1].startswith("Air Travel Notice")
+
