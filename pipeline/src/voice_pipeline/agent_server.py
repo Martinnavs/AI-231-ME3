@@ -161,8 +161,10 @@ class AgentServer:
         doc_request: Request | None = None,
         jobs_file: Path | None = None,
         chain: ChainState | None = None,
+        case_f_block: str = "",
     ) -> None:
         self.chain = chain  # set: a running research/build task steers the turns that follow it
+        self.case_f_block = case_f_block  # P2: the Case F chain protocol, out of the base prompt
         self.jobs_file = jobs_file  # set: delegate_status/cancel are offered only once a job exists
         self.doc_request = doc_request
         self.router = router
@@ -223,6 +225,25 @@ class AgentServer:
                 )
                 said = None
         return pairs[-HISTORY_PAIRS:]
+
+    def steer(self, messages: list[dict[str, Any]], *, case_f: bool) -> list[dict[str, Any]]:
+        """The messages for Gemini: the chain's state, and when `case_f` the Case F chain
+        protocol, appended to the last user message (P2). The protocol is not in the base
+        prompt: it goes with a turn while a chain is active, when the router escalates a
+        turn Gemini cannot see coming, and when there is no router to filter."""
+        if not messages:
+            return messages
+        last = messages[-1]
+        if last.get("role") != "user" or not isinstance(last.get("content"), str):
+            return messages
+        suffix = ""
+        if self.chain is not None and self.chain.active():
+            suffix += "\n" + self.chain.block()
+        if case_f and self.case_f_block:
+            suffix += "\n" + self.case_f_block
+        if not suffix:
+            return messages
+        return [*messages[:-1], {**last, "content": last["content"] + suffix}]
 
     async def call_tool(self, name: str, args: dict[str, Any]) -> Any:
         """Run one of the agent's tools directly and return its result."""
@@ -521,6 +542,8 @@ class AgentServer:
             return None
 
         if isinstance(self.agent, HedgedAgent):
+            # the requests start before the router decides, so the base prompt only; the Case F
+            # protocol joins the turns from the moment a chain is active (the handle above)
             result = await self.agent.ask(
                 messages, reset=True, on_text=on_text, on_tool=on_tool, on_say=on_say, local=local
             )
@@ -534,7 +557,8 @@ class AgentServer:
         if looked_up and (self.offline() or time.perf_counter() - started > LOOKUP_GIVE_S):
             # the link is slow or down: Gemini would only repeat the same slow trip
             return await self.spoken(LOOKUP_FAIL_SAY, on_text, **info)
-        result = await self.gemini(messages, on_text, on_tool, on_say)
+        # the router could not answer: the escalated turn gets the full Case F protocol
+        result = await self.gemini(self.steer(messages, case_f=True), on_text, on_tool, on_say)
         return {**result, **info}
 
     def collect_notices(self) -> None:
@@ -674,12 +698,8 @@ class AgentServer:
             elif found is not None and (found.tool == "clock" or found.tool in self.tools):
                 work = self.fast(found, on_text)
             elif chain is not None and chain.active() and last.get("role") == "user":
-                # a research/build task is under way: Gemini sees its state, the router does not
-                steered = [
-                    *messages[:-1],
-                    {**last, "content": f"{last['content']}\n{chain.block()}"},
-                ]
-                work = self.gemini(steered, on_text, on_tool, on_say)
+                # a research/build task is under way: Gemini sees its state and protocol
+                work = self.gemini(self.steer(messages, case_f=True), on_text, on_tool, on_say)
             elif (
                 self.router is not None
                 and last.get("role") == "user"
@@ -687,7 +707,10 @@ class AgentServer:
             ):
                 work = self.routed_turn(messages, on_text, on_tool, on_say)
             else:
-                work = self.gemini(messages, on_text, on_tool, on_say)
+                # no router: nothing filters the turn, so the Case F protocol goes with it
+                work = self.gemini(
+                    self.steer(messages, case_f=self.router is None), on_text, on_tool, on_say
+                )
             turn = asyncio.create_task(self.delayed(work, question.current))
             closed = asyncio.create_task(ws.wait_closed())
             await asyncio.wait({turn, closed}, return_when=asyncio.FIRST_COMPLETED)
@@ -754,6 +777,10 @@ async def run(
         record, live=live, servers=servers, optional=optional, chain=chain, scratchpad=scratch
     )
     system = system_file.read_text()
+    case_f_block = ""  # P2: the Case F chain protocol, kept out of the base prompt
+    if not builtin_search and system_file.name == "system_agent.txt":
+        with contextlib.suppress(OSError):
+            case_f_block = system_file.with_name("system_agent_case_f.txt").read_text()
     seen_by_model = with_builtin_search if builtin_search else (lambda t: t)
 
     def llm_tools(t: Any) -> Any:  # what the model sees: no music tool (smart_home reaches it)
@@ -808,6 +835,7 @@ async def run(
         doc_request,
         hide_idle_delegate,
         chain,
+        case_f_block=case_f_block,
     )
     server.test_delay = test_delay
     server.probe = OnlineProbe()

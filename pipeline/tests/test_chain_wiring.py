@@ -198,13 +198,17 @@ def test_case_f_has_the_three_rules_and_the_say_exemption() -> None:
     text = PROMPT.read_text()
     assert "call web_research first" in text
     assert "awaiting_name" in text and "do not know who" in text
-    assert "awaiting_fact_approval" in text and "Should I build it with only these public" in text
+    # P2: the multi-turn approval sequence lives in the Case F block, out of the base prompt
+    block = (PROMPT.parent / "system_agent_case_f.txt").read_text()
+    assert "awaiting_fact_approval" in block
+    assert "Should I build it with only these public" in block
     assert "chain_update has no `say`" in text
 
 
 def test_the_prompt_grew_by_less_than_1600_characters() -> None:
     text = PROMPT.read_text()
-    assert len(text) < 4976 + 1600  # 4976: its size at HEAD 014b424; now 6558
+    assert len(text) < 4976 + 1600  # 4976: its size at HEAD 014b424
+    # now 6297: P2 moved the multi-turn chain protocol out to system_agent_case_f.txt
     assert "recent=true" in text
 
 

@@ -549,8 +549,12 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
             wrapped.append(schema)
         tools = ToolsSchema(standard_tools=wrapped)
         system = (ROOT / "pipeline/config/eval/system_agent.txt").read_text()
+        block_file = ROOT / "pipeline/config/eval/system_agent_case_f.txt"
+        case_f_block = block_file.read_text() if block_file.exists() else ""
         agent = Agent(build_llm(system), without_tools(tools, MODEL_HIDDEN), usage=True)
-        server = AgentServer(agent, record, base / "log.jsonl", chain=chain)
+        server = AgentServer(
+            agent, record, base / "log.jsonl", chain=chain, case_f_block=case_f_block
+        )
         await agent.start()
         history: list[dict[str, Any]] = []
         spent0 = dict(agent.tap.usage)
@@ -558,12 +562,13 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
             for turn in scenario.turns:
                 user = fill(turn, params)
                 phase = chain.data["phase"]
-                content = f"{user}\n{chain.block()}" if chain.active() else user
+                # mirrors the production rule: the Case F protocol joins while a chain is active
+                steered = server.steer(
+                    [*history, {"role": "user", "content": user}], case_f=chain.active()
+                )
                 agent_tools.reset_turn_lookups()
                 before = len(record)
-                result = await agent.ask(
-                    [*history, {"role": "user", "content": content}], reset=True
-                )
+                result = await agent.ask(steered, reset=True)
                 await asyncio.sleep(2.5)
                 calls = [c for c in record[before:] if "tool" in c]
                 trace["turns"].append(

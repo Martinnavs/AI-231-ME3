@@ -293,14 +293,14 @@ Kroko's `finalize` path pads 1.5 s of zeros (`engines.py:21`, `FINALIZE_TAIL_S`)
 | Item | Value |
 |---|---|
 | Model | `gemini-3.1-flash-lite` (`agent.py:48`), native Pipecat `GoogleLLMService` (Pipecat 1.13) |
-| System prompt | `pipeline/config/eval/system_agent.txt` (720 words): cases A home command, B time/weather/knowledge, C Cormac McCarthy documents, D Pi tools, E command missing a value, F big task (delegate), G anything else; every tool call also carries a `say` argument |
+| System prompt | `pipeline/config/eval/system_agent.txt` (1 055 words): cases A home command, B time/weather/knowledge, C Cormac McCarthy documents, D Pi tools, E command missing a value, F big task (delegate), G anything else; every tool call also carries a `say` argument. **Prompt scoping (P2):** the Case F *chain protocol* (the multi-turn research/build sequence) is not in this file — it is `pipeline/config/eval/system_agent_case_f.txt`, appended to the turn's message by the server while a chain is active, when the router escalates a turn, or when there is no router; the base prompt keeps every rule a first turn needs |
 | Key | read from `~/.secrets/google-ai-studio/api-key.txt` at start (`agent.py` `read_key`); never logged |
 | Tools the model sees | 13: `smart_home` (17 intents, phonebook of 5 contacts in `pipeline/config/phonebook.json`), `search_docs`, `get_current_time`, `convert_time`, `weather`, `wiki_summary`, `web_answer`, `delegate`, `delegate_status`, `delegate_cancel`, and from the Pi `get_volume`, `set_volume`, `device_status` (the Pi's three are absent if the Pi was unreachable when the agent started) |
 | Connection | `--ipv4` (IPv6 to Google resets on this network); keep-alive **300 s** so idle connections stay warm (`KEEPALIVE_S`) |
 | Hedging | **off** in the deployed stack (`--hedge -1`); the code supports two racing requests (`hedge.py`) and the server default is on |
 | `say` sentence | a short line the model emits with a tool call; held 0.6 s and dropped if the tool answers first; `weather` has no hold (`SAY_DELAY_BY_TOOL`) |
 | One request for sentence tools | `weather`, `wiki_summary`, `web_answer`, `get_volume`, `set_volume` return a ready sentence; the result is spoken without a second LLM call unless it failed or the question needs reasoning (`agent_tools.py:50,134-153`) |
-| **Stall watchdog** | after every tool of a response has returned, if the model says nothing for **4.0 s** (`STALL_S`), the turn is answered from the tool result (Pi status worded for the question, or the tool's own sentence, else "Sorry, I got the result but couldn't put it into words. Could you ask again?"), and the model's late reply is interrupted. Added after a 16 s stall on 2026-11-05 (ticket G) |
+| **Stall watchdog** | after every tool of a response has returned, if the model says nothing for **8.0 s** (`STALL_S`; **16.0 s** after `web_research` — just past the 15 s worst-case first-chunk retry — and **10.0 s** after `search_docs`), the turn is answered from the tool result (Pi status worded for the question, or the tool's own sentence, else "Sorry, I got the result but couldn't put it into words. Could you ask again?"); for `web_research` and `search_docs` the answer is always the generic apology, never the untrusted search data. The model's late reply is interrupted. Added after a 16 s stall on 2026-11-05 (ticket G) |
 | Turn cap | `TURN_TIMEOUT_S = 20.0`; past it the turn returns `error` |
 | Warm-up | one "Say OK." request at start |
 
@@ -529,7 +529,8 @@ Mitigations in place: no sudo or ssh (`shell_policy`), no secrets mounted, memor
 | `--ipv4` | `up.sh:63` | on | Gemini over IPv4 only |
 | `--keepalive` | `agent.py:58` | 300 s | idle Gemini connections stay open |
 | Gemini model | `agent.py:48` | `gemini-3.1-flash-lite` | agent, doc answer, grounded answer |
-| `STALL_S` | `agent.py:52` | 4.0 s | post-tool model silence before answering from the result |
+| `STALL_S` | `agent.py:64` | 8.0 s | post-tool model silence before answering from the result |
+| `STALL_BY_TOOL` | `agent.py:65` | 16.0 s / 10.0 s | per-tool override: `web_research` / `search_docs` |
 | `TURN_TIMEOUT_S` | `agent.py:49` | 20 s | cap on one agent turn |
 | `SAY_DELAY_S` | `agent.py:44` | 0.6 s (weather 0) | hold on the model's `say` sentence |
 | `LOOKUP_ACK_S` | `agent_server.py:68` | 1.0 s | when the client is told a lookup is running |
