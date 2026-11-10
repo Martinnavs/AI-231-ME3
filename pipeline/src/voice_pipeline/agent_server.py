@@ -33,7 +33,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as HttpRequest
 from websockets.http11 import Response as HttpResponse
 
-from voice_pipeline import agent_tools, call_policy, fast_path, question
+from voice_pipeline import agent_tools, call_policy, fast_path, question, venue
 from voice_pipeline.agent import (
     KEEPALIVE_S,
     SAY_DELAY_SLOW,
@@ -685,7 +685,7 @@ class AgentServer:
             chain = self.chain
             if (
                 found is not None
-                and found.args.get("what") == "place"
+                and found.args.get("what") in ("place", "barangay")
                 and chain is not None
                 and chain.active()
             ):
@@ -790,6 +790,10 @@ async def run(
             system_file.name == "system_agent.txt"
         ):
             system += "\n\n" + PROFILE_RULE  # only when the owner filled one in
+    with contextlib.suppress(Exception):  # once, about 1 s; offline the answer names the city only
+        await asyncio.wait_for(venue.resolve(), venue.TIMEOUT_S + 1)
+    if (line := venue.prompt_line()) and system_file.name == "system_agent.txt":
+        system += "\n\n" + line
     case_f_block = ""  # P2: the Case F chain protocol, kept out of the base prompt
     if not builtin_search and system_file.name == "system_agent.txt":
         with contextlib.suppress(OSError):

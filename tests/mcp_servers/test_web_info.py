@@ -215,3 +215,15 @@ def test_nearby_kind_accepts_spoken_variants() -> None:
     assert (
         web_info.HOME_PLACE == "Cebu City" or "VOICE_AGENT_HOME_PLACE" in __import__("os").environ
     )
+
+
+async def test_nearby_uses_the_configured_venue_coordinates() -> None:
+    seen: list[httpx.Request] = []
+    routes = {PHOTON_URL: PHOTON}  # no geocoder route: the pin is enough
+    async with Client(
+        build_server(
+            "Cebu City", _transport(routes, seen), ping_every_s=None, coords="10.2980, 123.9000"
+        )
+    ) as client:
+        await client.call_tool("nearby", {"kind": "restaurant"})
+    assert (seen[-1].url.params["lat"], seen[-1].url.params["lon"]) == ("10.298", "123.9")

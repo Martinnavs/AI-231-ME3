@@ -3,6 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -178,6 +179,16 @@ def test_the_clock_answers_the_date_the_time_or_both() -> None:
     assert said["both"] == "It's 2:08 PM. Today is Tuesday, November 3."
 
 
+@pytest.fixture(autouse=True)
+def _venue_unresolved() -> Any:
+    from voice_pipeline import venue
+
+    before = venue.current
+    venue.current = venue.Venue("Cebu City")
+    yield
+    venue.current = before
+
+
 def test_where_are_we_is_answered_with_the_venue_and_no_llm() -> None:
     from voice_pipeline import fast_path
 
@@ -190,6 +201,6 @@ def test_where_are_we_is_answered_with_the_venue_and_no_llm() -> None:
         found = fast_path.match(said)
         assert found is not None and found.tool == "clock", said
         assert fast_path.local_answer(found, datetime(2026, 11, 12, 9, 0)) == (
-            f"We're in {fast_path.HOME_PLACE}."
+            "We're in Cebu City."
         )
     assert fast_path.match("where are we in the build") is None  # only the exact phrasings
