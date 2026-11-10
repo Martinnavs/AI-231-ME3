@@ -109,6 +109,7 @@ PI_URL = pi_url_from_env()
 # Tools whose result is already a sentence to say: no second LLM request (R5; TurnTap decides).
 SPOKEN_RESULT_TOOLS = {
     "weather",
+    "nearby",
     "wiki_summary",
     "web_answer",
     "get_volume",

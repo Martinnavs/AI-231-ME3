@@ -11,11 +11,13 @@ tool either.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+HOME_PLACE = os.environ.get("VOICE_AGENT_HOME_PLACE", "Cebu City")  # same default as web_info
 TIMEZONE = "Asia/Manila"  # the demo's time zone (the time server is told the same)
 UNITS = {"second": "seconds", "minute": "minutes", "hour": "hours"}
 ONES = {
@@ -140,6 +142,30 @@ LOCAL: dict[str, str] = {
         ],
         "date",
     ),
+    **dict.fromkeys(
+        [
+            "where are we",
+            "where are we now",
+            "where are we right now",
+            "where am i",
+            "where am i now",
+            "where am i right now",
+            "where is this",
+            "where are we located",
+            "what city are we in",
+            "what city is this",
+            "what is our location",
+            "what s our location",
+            "what is my location",
+            "what s my location",
+            "tell me where we are",
+            "tell me where we are right now",
+            "can you tell me where we are",
+            "can you tell me where we are right now",
+            "can you tell me where we are now",
+        ],
+        "place",
+    ),
 }  # fmt: skip
 TIMER = [
     re.compile(rf"set a timer for {NUMBER} (second|minute|hour)s?"),
@@ -202,6 +228,8 @@ def clock_question(text: str) -> str:
 def local_answer(found: Match, now: datetime) -> str:
     """The reply to a `clock` match, given the current time in the demo's time zone."""
     what = found.args["what"]
+    if what == "place":
+        return f"We're in {HOME_PLACE}."
     clock_text = f"It's {now.hour % 12 or 12}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'}."
     date_text = f"Today is {now:%A}, {now:%B} {now.day}."
     if what == "time":
