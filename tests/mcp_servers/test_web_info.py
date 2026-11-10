@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -227,3 +228,58 @@ async def test_nearby_uses_the_configured_venue_coordinates() -> None:
     ) as client:
         await client.call_tool("nearby", {"kind": "restaurant"})
     assert (seen[-1].url.params["lat"], seen[-1].url.params["lon"]) == ("10.298", "123.9")
+
+
+def test_split_kind_separates_a_qualifier_from_the_kind() -> None:
+    assert web_info.split_kind("restaurants") == ("restaurant", "")
+    assert web_info.split_kind("Sushi restaurant") == ("restaurant", "sushi")
+    assert web_info.split_kind("korean fast food") == ("fast food", "korean")
+    assert web_info.split_kind("spaceship") is None
+    assert web_info.split_kind("sushi place") is None  # not guessed
+
+
+def test_spoken_distance_switches_to_kilometers_consistently() -> None:
+    assert web_info.spoken_distance(20) == "50 meters"
+    assert web_info.spoken_distance(640) == "650 meters"
+    assert web_info.spoken_distance(980) == "1 kilometer"  # rounds to 1000
+    assert web_info.spoken_distance(1043) == "1.1 kilometers"
+    assert web_info.spoken_distance(1300) == "1.3 kilometers"
+
+
+async def test_a_cuisine_is_not_pretended_to_be_filtered() -> None:
+    routes = {"https://geocoding-api": CEBU, PHOTON_URL: PHOTON}
+    text = await _call_home(_transport(routes), "nearby", {"kind": "sushi restaurant"})
+    assert text.startswith(
+        "I can't search for sushi ones, but the closest restaurants to Cebu City"
+    )
+
+
+async def test_nearby_keeps_the_venue_point_after_the_weather_geocoded_the_city() -> None:
+    other = {"results": [{"name": "Cebu City", "latitude": 10.31672, "longitude": 123.89071}]}
+    forecast = {"https://api.open-meteo.com": FORECAST}
+    seen: list[httpx.Request] = []
+    routes = {"https://geocoding-api": other, PHOTON_URL: PHOTON, **forecast}
+    async with Client(build_server("Cebu City", _transport(routes, seen), ping_every_s=None)) as c:
+        await c.call_tool("weather", {})  # remembers the geocoder's point for the city
+        await c.call_tool("nearby", {"kind": "restaurant"})
+    params = seen[-1].url.params
+    assert (params["lat"], params["lon"]) == ("10.3157", "123.8854")
+
+
+async def test_the_common_kinds_are_fetched_at_boot_and_answered_from_memory() -> None:
+    seen: list[httpx.Request] = []
+    routes = {
+        "https://geocoding-api": CEBU,
+        PHOTON_URL: PHOTON,
+        "https://api.open-meteo.com": FORECAST,
+    }
+    transport = _transport(routes, seen)
+    async with Client(build_server("Cebu City", transport, ping_every_s=60.0)) as client:
+        for _ in range(100):  # the background refresh runs on the server's own event loop
+            if sum(r.url.host == "photon.komoot.io" for r in seen) >= len(web_info.WARM_KINDS):
+                break
+            await asyncio.sleep(0.05)
+        before = len(seen)
+        text = await client.call_tool("nearby", {"kind": "pharmacy"})
+    assert "The closest pharmacies" in str(text.structured_content["result"])
+    assert len(seen) == before  # no new request: it came from memory

@@ -33,7 +33,8 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 WIKI_SEARCH_URL = "https://en.wikipedia.org/w/rest.php/v1/search/title"
 WIKI_SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/"
 HOME_PLACE = os.environ.get("VOICE_AGENT_HOME_PLACE", "Cebu City")  # the demo venue
-# the venue's coordinates, so "near me" still resolves when the geocoder does not answer
+# the venue's point (Guadalupe, near the user; the geocoder's Cebu City point is in Calamba), so
+# "near me" and the boot-time barangay lookup agree and resolve with no geocoder
 KNOWN_PLACES = {"cebu city": {"name": "Cebu City", "latitude": 10.3157, "longitude": 123.8854}}
 # Photon's reverse search: the nearest places with an OSM tag, no text match (Overpass took 24 s or
 # timed out from Cebu on 2026-11-11; this answers in about 1.3 s)
@@ -47,7 +48,8 @@ GOOGLE_KEY_FILE = Path(
 HOME_COORDS = os.environ.get("VOICE_AGENT_HOME_COORDS", "")
 NEARBY_RADIUS_M = 1500
 NEARBY_COUNT = 3
-NEARBY_TTL_S = 600.0
+NEARBY_TTL_S = 3600.0  # places hardly change; the venue's common kinds are fetched at boot
+WARM_KINDS = ("restaurant", "cafe", "pharmacy", "atm")
 NEARBY_TIMEOUT_S = 8.0
 # kind: (OSM tag as key:value, Google place type, spoken plural)
 NEARBY_KINDS: dict[str, tuple[str, str, str]] = {
@@ -108,6 +110,19 @@ def nearby_kind(text: str) -> str | None:
     return said if said in NEARBY_KINDS else None
 
 
+def split_kind(text: str) -> tuple[str, str] | None:
+    """(kind, qualifier): "restaurants" -> ("restaurant", ""), "sushi restaurant" ->
+    ("restaurant", "sushi"); None when no known kind ends the phrase."""
+    words = " ".join(text.lower().replace("-", " ").split()).split()
+    for size in (3, 2, 1):
+        if size > len(words):
+            continue
+        kind = nearby_kind(" ".join(words[-size:]))
+        if kind:
+            return kind, " ".join(words[:-size])
+    return None
+
+
 def metres_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = math.sin(math.radians(lat2 - lat1) / 2) ** 2 + (
         math.cos(math.radians(lat1))
@@ -118,9 +133,11 @@ def metres_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def spoken_distance(metres: float) -> str:
-    if metres >= 1000:
-        return f"{metres / 1000:.1f} kilometers"
-    return f"{max(50, round(metres / 50) * 50)} meters"
+    near = max(50, round(metres / 50) * 50)
+    if near >= 1000:
+        km = f"{near / 1000:.1f}".removesuffix(".0")
+        return f"{km} kilometer{'' if km == '1' else 's'}"
+    return f"{near} meters"
 
 
 def nearby_sentence(plural: str, place: str, items: list[tuple[str, float, str]]) -> str:
@@ -233,7 +250,9 @@ def build_server(
             with contextlib.suppress(ValueError):
                 lat, lon = (float(part) for part in coords.split(","))
                 return {"name": home, "latitude": lat, "longitude": lon}
-        known = places.get(name.lower()) or KNOWN_PLACES.get(name.lower())
+        # the venue's own point first: the geocoder's point for "Cebu City" is in another barangay
+        # than the one the agent server looks up at boot (voice_pipeline.venue.CITY_CENTRES)
+        known = KNOWN_PLACES.get(name.lower()) or places.get(name.lower())
         if known is not None:
             return known
         try:
@@ -319,10 +338,30 @@ def build_server(
             )
         return sorted(seen.values(), key=lambda item: item[1])[:NEARBY_COUNT]
 
+    async def nearby_items(kind: str, lat: float, lon: float) -> list[tuple[str, float, str]]:
+        """The closest places of a kind, remembered for NEARBY_TTL_S."""
+        key = (kind, round(lat, 3), round(lon, 3))
+        cached = nearby_cache.get(key)
+        if cached is not None and clock() - cached[0] < NEARBY_TTL_S:
+            return cached[1]
+        items = await google_nearby(kind, lat, lon) or await photon_nearby(kind, lat, lon)
+        nearby_cache[key] = (clock(), items)
+        return items
+
+    async def warm_nearby() -> None:
+        """Fetch the common kinds around the venue now: a places service answers in 1 to 6 s."""
+        where = await locate(home)
+        if where is None:
+            return
+        for kind in WARM_KINDS:
+            with contextlib.suppress(Exception):
+                await nearby_items(kind, float(where["latitude"]), float(where["longitude"]))
+
     async def refresh_home() -> None:
         while True:
             with contextlib.suppress(Exception):
                 await fetch(home)
+            await warm_nearby()
             await asyncio.sleep(HOME_REFRESH_S)
 
     @contextlib.asynccontextmanager
@@ -377,28 +416,26 @@ def build_server(
     )
     async def nearby(kind: str, place: str | None = None) -> str:
         last_use[0] = clock()
-        which = nearby_kind(kind)
-        if which is None:
+        split = split_kind(kind)
+        if split is None:
             return "I can look up restaurants, cafes, pharmacies, ATMs, hospitals, hotels and more."
+        which, qualifier = split
         name = (place or home).strip()
         where = await locate(name)
         if where is None:
             return f"I couldn't find a place called {name}."
         lat, lon = float(where["latitude"]), float(where["longitude"])
-        key = (which, round(lat, 3), round(lon, 3))
-        cached = nearby_cache.get(key)
-        if cached is not None and clock() - cached[0] < NEARBY_TTL_S:
-            items = cached[1]
-        else:
-            try:
-                items = await google_nearby(which, lat, lon) or await photon_nearby(which, lat, lon)
-            except (httpx.HTTPError, KeyError, ValueError):
-                return "The places service did not answer, so I can't look that up right now."
-            nearby_cache[key] = (clock(), items)
+        try:
+            items = await nearby_items(which, lat, lon)
+        except (httpx.HTTPError, KeyError, ValueError):
+            return "The places service did not answer, so I can't look that up right now."
         plural = NEARBY_KINDS[which][2]
         if not items:
             return f"I couldn't find any {plural} near {where['name']}."
-        return nearby_sentence(plural, where["name"], items)
+        said = nearby_sentence(plural, where["name"], items)
+        if qualifier:  # the data has no cuisine filter: say so instead of passing it off
+            return f"I can't search for {qualifier} ones, but {said[0].lower()}{said[1:]}"
+        return said
 
     @server.tool(
         description=(
