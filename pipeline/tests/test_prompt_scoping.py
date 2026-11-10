@@ -218,3 +218,40 @@ async def test_a_turn_the_router_declines_receives_the_protocol(tmp_path: Path) 
 def test_a_vague_stop_during_a_chain_is_asked_about_not_acted_on() -> None:
     assert "A vague stop" in BLOCK and "Cancel the job only when it is named" in BLOCK
     assert "A vague stop" not in BASE  # it only matters while a chain (a job) exists
+
+
+FILLED = "# Profile\n<!-- note -->\n## Basics\n- Name: Ada Lovelace\n- City:\n"
+TEMPLATE = (
+    "# Profile\n<!--\n- Name: x\n-->\n## Basics\n- Name:\n- City:\n## Work\n-\n-\n"
+    "## Links\n- GitHub:\n"
+)
+
+
+def test_an_unfilled_template_is_not_a_profile() -> None:
+    from voice_pipeline.scratchpad import profile_is_filled
+
+    assert not profile_is_filled(TEMPLATE)
+    assert profile_is_filled(FILLED)
+    assert profile_is_filled(TEMPLATE + "- Bio: I build voice agents.")
+    assert profile_is_filled(TEMPLATE.replace("-\n-\n", "- Project X: a thing\n-\n"))
+
+
+def test_install_profile_copies_a_filled_file_and_removes_a_stale_copy(tmp_path: Path) -> None:
+    from voice_pipeline.scratchpad import install_profile
+
+    src, scratch = tmp_path / "profile.md", tmp_path / "ws" / "scratch"
+    src.write_text(FILLED)
+    assert install_profile(src, scratch) is True
+    assert (scratch / "PROFILE.md").read_text() == FILLED
+    src.write_text(TEMPLATE)  # emptied again: the stale copy must not keep feeding pages
+    assert install_profile(src, scratch) is False
+    assert not (scratch / "PROFILE.md").exists()
+    assert install_profile(tmp_path / "missing.md", scratch) is False  # no file at all
+
+
+def test_the_profile_rule_overrides_the_me_entry_and_names_the_file() -> None:
+    from voice_pipeline.scratchpad import PROFILE_RULE
+
+    assert "/sandbox/scratch/PROFILE.md" in PROFILE_RULE
+    assert "no name question" in PROFILE_RULE and "no web_research" in PROFILE_RULE
+    assert PROFILE_RULE not in BASE  # added only when a filled profile exists

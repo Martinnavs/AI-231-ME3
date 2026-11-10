@@ -77,7 +77,7 @@ from voice_pipeline.router import (
     Routed,
     spec,
 )
-from voice_pipeline.scratchpad import Scratchpad
+from voice_pipeline.scratchpad import PROFILE_RULE, Scratchpad, install_profile
 from voice_pipeline.tools.smart_home import load_phonebook
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -777,6 +777,12 @@ async def run(
         record, live=live, servers=servers, optional=optional, chain=chain, scratchpad=scratch
     )
     system = system_file.read_text()
+    with contextlib.suppress(OSError, KeyError, ValueError):
+        profile = agent_tools.REPO_ROOT / "config" / "profile.md"
+        if install_profile(profile, agent_tools.delegate_workspace() / "scratch") and (
+            system_file.name == "system_agent.txt"
+        ):
+            system += "\n\n" + PROFILE_RULE  # only when the owner filled one in
     case_f_block = ""  # P2: the Case F chain protocol, kept out of the base prompt
     if not builtin_search and system_file.name == "system_agent.txt":
         with contextlib.suppress(OSError):

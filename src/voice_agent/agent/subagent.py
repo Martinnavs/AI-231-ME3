@@ -65,7 +65,9 @@ SYSTEM = (
     "what you made (never unused sources or background notes), and say in the summary what you "
     "made and which sources it used, never file housekeeping, moves, retries or folders; only "
     "write the files the task asks for. If /sandbox/scratch/NOTES.md exists, read it first and "
-    "reuse its URLs. If there are no confirmed items, write a plain note and stop. When news "
+    "reuse its URLs. If the task names /sandbox/scratch/PROFILE.md it is the user's own profile: "
+    "build only from it, add nothing it does not say, and write no SOURCES.json. "
+    "If there are no confirmed items, write a plain note and stop. When news "
     "or facts are partial, assemble the deliverable with confirmed items, date them honestly, "
     "and link each story to its source URL with clickable badges. Never abort or leave empty "
     "placeholder files. Never invent ratings, star scores, reviews, quotes, reviewer or "
@@ -96,11 +98,20 @@ def deliverables(result: RunResult) -> list[str]:
     return list(seen)
 
 
+PROFILE_FILE = "scratch/PROFILE.md"
+
+
+def from_profile(task: str, tools: Sequence[ToolSpec], result: RunResult) -> bool:
+    """A page built from the owner's own profile file, with no web lookups."""
+    web = {t.name for t in tools if t.tool in WEB_TOOLS}
+    return "PROFILE.md" in task and not any(name in web for name in result.tool_calls)
+
+
 def needs_provenance(task: str, tools: Sequence[ToolSpec], result: RunResult) -> bool:
     """A text deliverable made from the web: a web tool was used, or the task carries a URL or
     says it holds verified facts or details. Code-only jobs and jobs without web tools: no."""
     web = {t.name for t in tools if t.tool in WEB_TOOLS}
-    if not web or not deliverables(result):
+    if not web or not deliverables(result) or from_profile(task, tools, result):
         return False
     return (
         any(name in web for name in result.tool_calls)
@@ -233,9 +244,10 @@ async def lint_pages(pages: Sequence[str], task: str, tools: Tools) -> list[str]
         facts = [str(r.get("fact", "")) for r in rows if isinstance(r, dict)]
     except (ValueError, AttributeError):
         facts = [raw]
-    notes = await read_text(tools, NOTES_FILE)
-    if notes:
-        facts.append(notes)
+    for name in (NOTES_FILE, PROFILE_FILE):
+        extra = await read_text(tools, name)
+        if extra:
+            facts.append(extra)
     flags: list[str] = []
     for page in pages:
         html = await read_text(tools, page)
@@ -467,7 +479,12 @@ async def run_task(
                     result.gated = True
                     messages.append({"role": "user", "content": sources_message(bad)})
                     continue
-                flags = await lint_pages(deliverables(result), task, tools) if research else []
+                profile = from_profile(task, tools.tools, result)
+                flags = (
+                    await lint_pages(deliverables(result), task, tools)
+                    if research or profile
+                    else []
+                )
                 result.lint_flags = len(flags)
                 if flags and not linted:
                     linted = True

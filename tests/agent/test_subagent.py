@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -357,7 +358,10 @@ class PageTools(SourcesTools):
             return ToolOutcome(
                 json.dumps([{"url": "https://x.example/u", "fact": f} for f in FACTS]), False, 0.0
             )
-        if name == "code__read_file" and arguments["path"] == "scratch/NOTES.md":
+        if name == "code__read_file" and arguments["path"] in (
+            "scratch/NOTES.md",
+            "scratch/PROFILE.md",
+        ):
             return ToolOutcome("file not found", True, 0.0)
         if name == "code__read_file":
             page = self.html[min(self.page_reads, len(self.html) - 1)]
@@ -442,6 +446,34 @@ def test_needs_provenance_triggers_on_notes_or_sources_in_task() -> None:
     assert needs_provenance("Read the notes first", tools, result) is True
     assert needs_provenance("Check our sources", tools, result) is True
     assert needs_provenance("Build a simple calculator", tools, result) is False
+
+
+def test_a_page_built_from_the_profile_needs_no_sources_unless_it_also_searched() -> None:
+    from voice_agent.agent.subagent import RunResult, ToolSpec, needs_provenance
+
+    tools = [ToolSpec("web__web_research", "web", "web_research", "r", {})]
+    task = "Build a personal page. Use only /sandbox/scratch/PROFILE.md; these are my details."
+    assert needs_provenance(task, tools, RunResult(written=["page.html"])) is False
+    searched = RunResult(written=["page.html"], tool_calls=["web__web_research"])
+    assert needs_provenance(task, tools, searched) is True
+
+
+async def test_profile_text_counts_as_a_source_for_figures_in_the_page() -> None:
+    from voice_agent.agent.subagent import lint_pages
+
+    class Files:
+        tools: list = []
+
+        async def call(self, name: str, arguments: dict) -> Any:
+            files = {
+                "SOURCES.json": "[]",
+                "scratch/PROFILE.md": "- Graduated: 2019",
+                "page.html": "<p>Class of 2019</p>",
+            }
+            path = arguments["path"]
+            return SimpleNamespace(is_error=path not in files, text=files.get(path, ""))
+
+    assert await lint_pages(["page.html"], "Build a page from PROFILE.md", Files()) == []
 
 
 def test_unsourced_figures_are_flagged_unless_the_task_or_a_fact_has_them() -> None:
