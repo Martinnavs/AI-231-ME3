@@ -1,10 +1,11 @@
-"""Weather and Wikipedia MCP server (fastmcp): keyless public APIs, short answers for a voice.
+"""Weather, nearby places and Wikipedia MCP server (fastmcp): short answers for a voice.
 
-uv run --group laptop python -m voice_agent.mcp_servers.web_info [--home "Quezon City"]
+uv run --group laptop python -m voice_agent.mcp_servers.web_info [--home "Cebu City"]
 
-Open-Meteo (geocoding and forecast) and Wikipedia's REST API need no key. Answers are one or two
-sentences the assistant can say as they are; a network problem comes back as a sentence too, so
-the model can tell the user instead of failing the turn.
+Open-Meteo (geocoding and forecast), Photon (OpenStreetMap, nearby places) and Wikipedia's REST
+API need no key; a Google Maps key file, when present, adds ratings to nearby places.
+Answers are one or two sentences the assistant can say as they are; a network problem comes
+back as a sentence too, so the model can tell the user instead of failing the turn.
 
 Speed: Open-Meteo's servers are about 270 ms away from the Philippines and a fresh TLS handshake
 costs about 0.6 s, so one HTTP client (one open connection per host) is kept for the server's
@@ -16,10 +17,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import math
 import os
 import re
 import time
 from collections.abc import AsyncIterator, Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -29,7 +32,46 @@ GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 WIKI_SEARCH_URL = "https://en.wikipedia.org/w/rest.php/v1/search/title"
 WIKI_SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/"
-HOME_PLACE = os.environ.get("VOICE_AGENT_HOME_PLACE", "Quezon City")
+HOME_PLACE = os.environ.get("VOICE_AGENT_HOME_PLACE", "Cebu City")  # the demo venue
+# the venue's coordinates, so "near me" still resolves when the geocoder does not answer
+KNOWN_PLACES = {"cebu city": {"name": "Cebu City", "latitude": 10.3157, "longitude": 123.8854}}
+# Photon's reverse search: the nearest places with an OSM tag, no text match (Overpass took 24 s or
+# timed out from Cebu on 2026-11-11; this answers in about 1.3 s)
+PHOTON_URL = "https://photon.komoot.io/reverse"
+GOOGLE_PLACES_URL = "https://places.googleapis.com/v1/places:searchNearby"
+# never read by an assistant; the server reads it when a nearby search runs (a Maps demo key)
+GOOGLE_KEY_FILE = Path(
+    os.environ.get("GOOGLE_MAPS_KEY_FILE", "~/.secrets/google/maps-key.txt")
+).expanduser()
+NEARBY_RADIUS_M = 1500
+NEARBY_COUNT = 3
+NEARBY_TTL_S = 600.0
+NEARBY_TIMEOUT_S = 8.0
+# kind: (OSM tag as key:value, Google place type, spoken plural)
+NEARBY_KINDS: dict[str, tuple[str, str, str]] = {
+    "restaurant": ("amenity:restaurant", "restaurant", "restaurants"),
+    "cafe": ("amenity:cafe", "cafe", "cafes"),
+    "fast food": ("amenity:fast_food", "fast_food_restaurant", "fast food places"),
+    "bar": ("amenity:bar", "bar", "bars"),
+    "pharmacy": ("amenity:pharmacy", "pharmacy", "pharmacies"),
+    "atm": ("amenity:atm", "atm", "ATMs"),
+    "hospital": ("amenity:hospital", "hospital", "hospitals"),
+    "supermarket": ("shop:supermarket", "supermarket", "supermarkets"),
+    "convenience store": ("shop:convenience", "convenience_store", "convenience stores"),
+    "gas station": ("amenity:fuel", "gas_station", "gas stations"),
+    "hotel": ("tourism:hotel", "hotel", "hotels"),
+}
+NEARBY_ALIASES = {
+    "restaurants": "restaurant", "food": "restaurant", "place to eat": "restaurant",
+    "places to eat": "restaurant", "eat": "restaurant", "cafes": "cafe", "coffee": "cafe",
+    "coffee shop": "cafe", "coffee shops": "cafe", "bars": "bar", "pharmacies": "pharmacy",
+    "drugstore": "pharmacy", "drugstores": "pharmacy", "atms": "atm", "cash machine": "atm",
+    "hospitals": "hospital", "clinic": "hospital", "supermarkets": "supermarket",
+    "grocery": "supermarket", "grocery store": "supermarket",
+    "convenience stores": "convenience store", "gas": "gas station",
+    "petrol station": "gas station", "fuel": "gas station", "hotels": "hotel",
+    "fast food restaurant": "fast food",
+}  # fmt: skip
 # Wikimedia refuses requests whose user agent has no contact (403, "robot policy")
 USER_AGENT = "me3-voice-agent/0.1 (https://github.com/Martinnavs/AI-231-ME3; course project)"
 TIMEOUT_S = 4.0
@@ -55,6 +97,37 @@ WEATHER_WORDS = {
     75: "heavy snow", 80: "light showers", 81: "showers", 82: "heavy showers",
     95: "thunderstorms", 96: "thunderstorms with hail", 99: "thunderstorms with hail",
 }  # fmt: skip
+
+
+def nearby_kind(text: str) -> str | None:
+    """The NEARBY_KINDS key a spoken kind of place means, or None."""
+    said = " ".join(text.lower().replace("-", " ").split())
+    said = NEARBY_ALIASES.get(said, said)
+    return said if said in NEARBY_KINDS else None
+
+
+def metres_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    a = math.sin(math.radians(lat2 - lat1) / 2) ** 2 + (
+        math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    )
+    return 12_742_000 * math.asin(math.sqrt(a))
+
+
+def spoken_distance(metres: float) -> str:
+    if metres >= 1000:
+        return f"{metres / 1000:.1f} kilometers"
+    return f"{max(50, round(metres / 50) * 50)} meters"
+
+
+def nearby_sentence(plural: str, place: str, items: list[tuple[str, float, str]]) -> str:
+    """'The closest cafes to Cebu City are A, 300 meters, B, ... and C, ...' for a voice."""
+    parts = [
+        f"{name}, {spoken_distance(m)}{', ' + extra if extra else ''}" for name, m, extra in items
+    ]
+    listed = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + f", and {parts[-1]}"
+    return f"The closest {plural} to {place} are {listed}."
 
 
 def first_sentences(text: str, n: int = MAX_SENTENCES, limit: int = MAX_CHARS) -> str:
@@ -149,6 +222,96 @@ def build_server(
                 return where, stale[1]
             return "The weather service did not answer, so I can't say right now."
 
+    nearby_cache: dict[tuple[str, float, float], tuple[float, list[tuple[str, float, str]]]] = {}
+
+    async def locate(name: str) -> dict[str, Any] | None:
+        """A place's name and coordinates: remembered, the venue's own, else geocoded."""
+        known = places.get(name.lower()) or KNOWN_PLACES.get(name.lower())
+        if known is not None:
+            return known
+        try:
+            geo = await client().get(GEOCODE_URL, params={"name": name, "count": 1})
+            found = geo.json().get("results") or []
+        except (httpx.HTTPError, ValueError):
+            return None
+        if found:
+            places[name.lower()] = found[0]
+        return found[0] if found else None
+
+    async def google_nearby(
+        kind: str, lat: float, lon: float
+    ) -> list[tuple[str, float, str]] | None:
+        """Nearest places with their ratings from Google, or None (no key, or it did not work)."""
+        try:
+            key = GOOGLE_KEY_FILE.read_text().strip()
+        except OSError:
+            return None
+        if not key:
+            return None
+        body = {
+            "includedTypes": [NEARBY_KINDS[kind][1]],
+            "maxResultCount": NEARBY_COUNT,
+            "rankPreference": "DISTANCE",
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lon},
+                    "radius": float(NEARBY_RADIUS_M),
+                }
+            },
+        }
+        headers = {
+            "X-Goog-Api-Key": key,
+            "X-Goog-FieldMask": "places.displayName,places.rating,places.location",
+        }
+        try:
+            r = await client().post(
+                GOOGLE_PLACES_URL, json=body, headers=headers, timeout=NEARBY_TIMEOUT_S
+            )
+            r.raise_for_status()
+            rows = r.json().get("places") or []
+            out = []
+            for row in rows[:NEARBY_COUNT]:
+                where = row["location"]
+                rating = row.get("rating")
+                out.append(
+                    (
+                        row["displayName"]["text"],
+                        metres_between(lat, lon, where["latitude"], where["longitude"]),
+                        f"rated {rating}" if rating else "",
+                    )
+                )
+            return out
+        except (httpx.HTTPError, KeyError, ValueError, TypeError):
+            return None
+
+    async def photon_nearby(kind: str, lat: float, lon: float) -> list[tuple[str, float, str]]:
+        r = await client().get(
+            PHOTON_URL,
+            params={
+                "lat": lat,
+                "lon": lon,
+                "radius": NEARBY_RADIUS_M / 1000,
+                "limit": 20,
+                "osm_tag": NEARBY_KINDS[kind][0],
+            },
+            timeout=NEARBY_TIMEOUT_S,
+        )
+        r.raise_for_status()
+        seen: dict[str, tuple[str, float, str]] = {}
+        for feature in r.json()["features"]:
+            props = feature.get("properties") or {}
+            name = str(props.get("name") or "").strip()
+            if not name or name.lower() in seen:
+                continue
+            there, here = feature["geometry"]["coordinates"]
+            street = str(props.get("street") or "").strip()
+            seen[name.lower()] = (
+                name,
+                metres_between(lat, lon, here, there),
+                f"on {street}" if street else "",
+            )
+        return sorted(seen.values(), key=lambda item: item[1])[:NEARBY_COUNT]
+
     async def refresh_home() -> None:
         while True:
             with contextlib.suppress(Exception):
@@ -195,6 +358,40 @@ def build_server(
             f"{when} in {where['name']}: {sky}, {low} to {high} degrees Celsius, "
             f"{rain} percent chance of rain."
         )
+
+    @server.tool(
+        description=(
+            "The closest places of one kind to the user: restaurant, cafe, fast food, bar, "
+            "pharmacy, atm, hospital, supermarket, convenience store, gas station or hotel. "
+            f"Leave `place` empty for 'near me', 'nearby' and 'here' (the user is in {home}); "
+            "give it only when the user names a city or area. Say the answer as it is; if the "
+            "kind is unclear (something to eat), ask which kind first."
+        )
+    )
+    async def nearby(kind: str, place: str | None = None) -> str:
+        last_use[0] = clock()
+        which = nearby_kind(kind)
+        if which is None:
+            return "I can look up restaurants, cafes, pharmacies, ATMs, hospitals, hotels and more."
+        name = (place or home).strip()
+        where = await locate(name)
+        if where is None:
+            return f"I couldn't find a place called {name}."
+        lat, lon = float(where["latitude"]), float(where["longitude"])
+        key = (which, round(lat, 3), round(lon, 3))
+        cached = nearby_cache.get(key)
+        if cached is not None and clock() - cached[0] < NEARBY_TTL_S:
+            items = cached[1]
+        else:
+            try:
+                items = await google_nearby(which, lat, lon) or await photon_nearby(which, lat, lon)
+            except (httpx.HTTPError, KeyError, ValueError):
+                return "The places service did not answer, so I can't look that up right now."
+            nearby_cache[key] = (clock(), items)
+        plural = NEARBY_KINDS[which][2]
+        if not items:
+            return f"I couldn't find any {plural} near {where['name']}."
+        return nearby_sentence(plural, where["name"], items)
 
     @server.tool(
         description=(

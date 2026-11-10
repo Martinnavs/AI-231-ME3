@@ -5,6 +5,8 @@ the "me" entry); the multi-turn chain protocol is a block the server appends whi
 is active, when the router escalates a turn, and when there is no router.
 """
 
+import asyncio
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,7 @@ from typing import Any
 import pytest
 from websockets.asyncio.client import connect
 from websockets.asyncio.server import serve
+from websockets.exceptions import ConnectionClosed
 
 from voice_pipeline.agent_server import AgentServer
 from voice_pipeline.chain_state import ChainState
@@ -255,3 +258,33 @@ def test_the_profile_rule_overrides_the_me_entry_and_names_the_file() -> None:
     assert "/sandbox/scratch/PROFILE.md" in PROFILE_RULE
     assert "no name question" in PROFILE_RULE and "no web_research" in PROFILE_RULE
     assert PROFILE_RULE not in BASE  # added only when a filled profile exists
+
+
+async def _frames(url: str, user: str) -> str:
+    seen: list[str] = []
+    async with connect(url) as ws:
+        await ws.send(json.dumps({"messages": [{"role": "user", "content": user}]}))
+        with contextlib.suppress(TimeoutError, ConnectionClosed):
+            while True:
+                seen.append(str(await asyncio.wait_for(ws.recv(), 1.0)))
+    return " ".join(seen)
+
+
+async def test_where_are_we_is_answered_by_the_fast_path_with_no_llm(tmp_path: Path) -> None:
+    agent = FakeAgent()
+    server = AgentServer(agent, [], tmp_path / "log.jsonl", chain=ChainState(tmp_path / "state"))
+    ws_server, url = await _serve(server)
+    frames = await _frames(url, "Can you tell me where we are right now?")
+    ws_server.close()
+    assert "We're in" in frames and agent.asked == []
+
+
+async def test_where_are_we_during_a_task_goes_to_the_model_with_its_state(tmp_path: Path) -> None:
+    chain = ChainState(tmp_path / "state")
+    chain.update("building", subject="event", job_id="job1")
+    agent = FakeAgent()
+    server = AgentServer(agent, [], tmp_path / "log.jsonl", chain=chain, case_f_block="PROTOCOL")
+    ws_server, url = await _serve(server)
+    await _frames(url, "Where are we right now?")
+    ws_server.close()
+    assert agent.asked and "[ACTIVE TASK" in agent.asked[0][-1]["content"]

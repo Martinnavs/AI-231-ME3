@@ -683,6 +683,13 @@ class AgentServer:
             )
             agent_tools.reset_turn_lookups()
             chain = self.chain
+            if (
+                found is not None
+                and found.args.get("what") == "place"
+                and chain is not None
+                and chain.active()
+            ):
+                found = None  # "where are we" during a task is about the task: Gemini sees it
             said = question.current
             if (
                 chain is not None

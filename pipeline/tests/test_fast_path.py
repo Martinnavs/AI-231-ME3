@@ -176,3 +176,20 @@ def test_the_clock_answers_the_date_the_time_or_both() -> None:
     assert said["time"] == "It's 2:08 PM."
     assert said["date"] == "Today is Tuesday, November 3."
     assert said["both"] == "It's 2:08 PM. Today is Tuesday, November 3."
+
+
+def test_where_are_we_is_answered_with_the_venue_and_no_llm() -> None:
+    from voice_pipeline import fast_path
+
+    for said in (
+        "Where are we right now?",
+        "Can you tell me where we are right now?",
+        "where am I",
+        "What city are we in?",
+    ):
+        found = fast_path.match(said)
+        assert found is not None and found.tool == "clock", said
+        assert fast_path.local_answer(found, datetime(2026, 11, 12, 9, 0)) == (
+            f"We're in {fast_path.HOME_PLACE}."
+        )
+    assert fast_path.match("where are we in the build") is None  # only the exact phrasings
