@@ -176,3 +176,17 @@ def test_the_sentence_comes_from_the_tool_s_own_text_or_an_apology() -> None:
     assert stall_sentence("web_answer", "I couldn't find that.", "x") == STALL_GENERIC
     assert stall_sentence("device_status", {"junk": 1}, "x") == STALL_GENERIC
     assert stall_sentence("delegate", {"ok": False, "message": "no"}, "x") == STALL_GENERIC
+    assert (
+        stall_sentence("web_research", "<untrusted_search_data>news</untrusted_search_data>", "x")
+        == STALL_GENERIC
+    )
+
+
+def test_web_research_stall_window_covers_worst_case_first_chunk_retry() -> None:
+    from voice_pipeline import agent
+
+    worst_case_retry = agent.RETRY_FIRST_CHUNK_S + agent.STREAM_IDLE_S
+    web_research_stall = agent.STALL_BY_TOOL["web_research"]
+    assert web_research_stall > worst_case_retry
+    assert web_research_stall < agent.TURN_TIMEOUT_S
+

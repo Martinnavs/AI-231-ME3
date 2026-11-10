@@ -62,7 +62,7 @@ TURN_TIMEOUT_S = 20.0
 # After a tool result the model's follow-up call normally starts in under a second; one in
 # 2026-11-05 (device_status back in 0.15 s) gave no text for 16 s and the client dropped the turn.
 STALL_S = 8.0
-STALL_BY_TOOL: Mapping[str, float] = {"web_research": 14.0, "search_docs": 10.0}
+STALL_BY_TOOL: Mapping[str, float] = {"web_research": 16.0, "search_docs": 10.0}
 STALL_GENERIC = "Sorry, I got the result but couldn't put it into words. Could you ask again?"
 # Turns are seconds to minutes apart, but the Gemini client lets an idle connection go after 15 s
 # (the SDK's aiohttp default) and the server may close sooner: every turn then paid a new TCP+TLS
