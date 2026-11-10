@@ -43,6 +43,8 @@ GOOGLE_PLACES_URL = "https://places.googleapis.com/v1/places:searchNearby"
 GOOGLE_KEY_FILE = Path(
     os.environ.get("GOOGLE_MAPS_KEY_FILE", "~/.secrets/google/maps-key.txt")
 ).expanduser()
+# "lat,lon" of the venue, copied from a map pin: "near me" then means near it, not the city centre
+HOME_COORDS = os.environ.get("VOICE_AGENT_HOME_COORDS", "")
 NEARBY_RADIUS_M = 1500
 NEARBY_COUNT = 3
 NEARBY_TTL_S = 600.0
@@ -158,6 +160,7 @@ def build_server(
     transport: httpx.AsyncBaseTransport | None = None,
     clock: Callable[[], float] = time.monotonic,
     ping_every_s: float | None = PING_EVERY_S,
+    coords: str = HOME_COORDS,
 ) -> FastMCP:
     """A FastMCP server with weather and wiki_summary; `transport`, `clock` and `ping_every_s`
     (None: no pings) are for tests."""
@@ -226,6 +229,10 @@ def build_server(
 
     async def locate(name: str) -> dict[str, Any] | None:
         """A place's name and coordinates: remembered, the venue's own, else geocoded."""
+        if name.lower() == home.lower() and coords:
+            with contextlib.suppress(ValueError):
+                lat, lon = (float(part) for part in coords.split(","))
+                return {"name": home, "latitude": lat, "longitude": lon}
         known = places.get(name.lower()) or KNOWN_PLACES.get(name.lower())
         if known is not None:
             return known
@@ -408,8 +415,9 @@ def build_server(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--home", default=HOME_PLACE, help="place used when none is given")
+    parser.add_argument("--coords", default=HOME_COORDS, help='the venue as "lat,lon"')
     args = parser.parse_args(argv)
-    build_server(args.home).run(show_banner=False)
+    build_server(args.home, coords=args.coords).run(show_banner=False)
     return 0
 
 

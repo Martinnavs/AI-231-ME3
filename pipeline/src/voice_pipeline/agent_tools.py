@@ -40,7 +40,20 @@ ROOT_MODULE = (
     [MCP_PYTHON, "-m"] if MCP_PYTHON else ["uv", "run", "--group", "laptop", "python", "-m"]
 )
 DOCS_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.docs"]
-WEB_INFO_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
+
+
+def web_info_command(env: Mapping[str, str] | None = None) -> list[str]:
+    """The weather/places server's command. The MCP child does not inherit the environment, so the
+    venue goes on the command line."""
+    env = os.environ if env is None else env
+    cmd = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
+    cmd += ["--home", env.get("VOICE_AGENT_HOME_PLACE") or "Cebu City"]
+    return cmd + (
+        ["--coords", env["VOICE_AGENT_HOME_COORDS"]] if env.get("VOICE_AGENT_HOME_COORDS") else []
+    )
+
+
+WEB_INFO_COMMAND = web_info_command()
 TAVILY_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.tavily_search"]
 # $DELEGATE_STATE_DIR (a second server for testing) keeps its jobs and notices apart from the
 # running stack's; the MCP child does not inherit the environment, so it goes on the command line
