@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from lan_speech.protocol import VoiceItem
+from lan_speech.speakable import speakable
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ class SupertonicTTSEngine:
     def synthesize_chunk(self, text: str, voice: str | None = None) -> bytes:
         import numpy as np
 
+        text = speakable(text)
         voice_name = voice or self._default_voice
         if voice_name not in self._styles:
             self._styles[voice_name] = self._tts.get_voice_style(voice_name)
@@ -376,7 +378,7 @@ class KittenTTSEngine:
         known = {*inner.voice_aliases, *inner.available_voices}
         name = voice if voice in known else self._default_voice
         spoken = kitten_text(
-            text, self._cleaner, self._year_words, self._say_number, self._say_ordinal
+            speakable(text), self._cleaner, self._year_words, self._say_number, self._say_ordinal
         )
         wav = np.asarray(inner.generate(spoken, voice=name, clean_text=False))
         clipped = match_level(np.clip(wav.squeeze(), -1.0, 1.0))

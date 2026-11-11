@@ -76,3 +76,18 @@ async def test_the_server_never_sends_the_json_and_logs_the_drop(tmp_path: Path)
     assert row["dropped_payload"] == ['{"job":"job20","status":"started"}']
     ws_server.close()
     await ws_server.wait_closed()
+
+
+def test_source_asides_are_dropped_even_when_they_arrive_in_pieces() -> None:
+    from voice_pipeline.payload_guard import SourceFilter, strip_sources
+
+    whole = "UP offers it (Source: coe.upd.edu.ph). Also a PhD (Sources: a.ph, b.ph) too (really)."
+    for size in (1, 2, 3, 7, 200):
+        f = SourceFilter()
+        out = "".join(f.feed(whole[i : i + size]) for i in range(0, len(whole), size))
+        out += "".join(f.finish())
+        assert "Source" not in out and "ph)" not in out, (size, out)
+        assert "(really)" in out and out.startswith("UP offers it") and "PhD" in out, (size, out)
+    assert strip_sources(whole).count("(") == 1
+    f = SourceFilter()
+    assert f.feed("a (sou") == "a " and f.finish() == ["(sou"]

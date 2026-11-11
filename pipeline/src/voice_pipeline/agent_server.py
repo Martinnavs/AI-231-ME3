@@ -73,7 +73,7 @@ from voice_pipeline.doc_answer import (
 from voice_pipeline.doc_answer import answer as doc_answer
 from voice_pipeline.hedge import HedgedAgent, HedgeGate, gated_tools
 from voice_pipeline.notices import NoticeQueue
-from voice_pipeline.payload_guard import PayloadFilter
+from voice_pipeline.payload_guard import PayloadFilter, SourceFilter, strip_sources
 from voice_pipeline.router import (
     HISTORY_PAIRS,
     NO_SLOT_SAY,
@@ -654,18 +654,19 @@ class AgentServer:
             await self.sync_music_paused()
 
         payloads = PayloadFilter()
+        sources = SourceFilter()
 
         async def send_event(event: dict[str, Any]) -> None:
             await ws.send(json.dumps(event))
 
         async def on_text(text: str) -> None:
-            if text := payloads.feed(text):
+            if text := sources.feed(payloads.feed(text)):
                 with contextlib.suppress(ConnectionClosed):
                     await ws.send(json.dumps({"text": text}))
 
         async def on_say(text: str) -> None:
             # its own flagged message: the client speaks it now instead of holding it back
-            if text := payloads.feed(text):
+            if text := sources.feed(payloads.feed(text)):
                 with contextlib.suppress(ConnectionClosed):
                     await ws.send(json.dumps({"text": text, "flush": True}))
 
@@ -733,8 +734,10 @@ class AgentServer:
             result = await turn
             agent_tools.set_event_sink(None)
             closed.cancel()
-            for held in payloads.finish():
+            for held in [*payloads.finish(), *sources.finish()]:
                 await on_text(held)
+            if isinstance(result.get("text"), str):
+                result["text"] = strip_sources(result["text"])
             if not cancelled:
                 reply = {"done": True} if result["status"] == "ok" else {"error": "timeout"}
                 try:

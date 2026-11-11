@@ -373,6 +373,64 @@ OPEN_APP_DESCRIPTION = (
 )
 
 
+READ_EXTENSIONS = frozenset({".md", ".txt", ".csv"})
+READ_CHARS = 1500  # about a minute of speech; the rest is read on "continue"
+READ_FILE_DESCRIPTION = (
+    "Read a text file the background assistant made (markdown, text or csv) so you can read it "
+    "aloud or summarize it. Use it when the user asks to read, hear, see or go over a file (an "
+    "email draft, a table, notes); never delegate just to read a file. `name` is the file name; "
+    "leave it empty to list the files. Long files come in parts: call again with `offset` to "
+    "continue. Speak it as plain sentences, with no symbols, and no file or web addresses."
+)
+
+
+def readable_files(root: Path) -> list[Path]:
+    """Text deliverables in the workspace, newest first (not scratch notes, not links out)."""
+    found: list[Path] = []
+    try:
+        for path in root.rglob("*"):
+            rel = path.relative_to(root)
+            if (
+                path.suffix.lower() in READ_EXTENSIONS
+                and len(rel.parts) <= 3
+                and rel.parts[0] not in ("scratch", "__pycache__")
+                and path.name not in ("SOURCES.json", "PROFILE.md", "NOTES.md")
+                and path.is_file()
+                and not path.is_symlink()
+            ):
+                found.append(path)
+    except OSError:
+        return []
+    return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def read_deliverable(name: str, offset: int = 0, root: Path | None = None) -> str:
+    """The text of the workspace file called `name` (a part of READ_CHARS from `offset`), or a
+    sentence saying what to do instead. Only the workspace's text deliverables can be read."""
+    base = delegate_workspace() if root is None else root
+    files = readable_files(base)
+    name = Path(name.strip()).name
+    if not name:
+        listed = ", ".join(p.name for p in files[:6])
+        return f"Files I can read: {listed}." if listed else "I have no text files to read yet."
+    match = next((p for p in files if p.name.lower() == name.lower()), None)
+    if match is None:
+        key = app_key(Path(name).stem)
+        match = next((p for p in files if key and app_key(p.stem) == key), None)
+    if match is None:
+        return f"I can't find a file called {name}."
+    try:
+        text = match.read_text(errors="replace")
+    except OSError:
+        return f"I can't read {name} right now."
+    start = max(offset, 0)
+    part = text[start : start + READ_CHARS]
+    more = start + READ_CHARS
+    if more < len(text):
+        part += f"\n[More follows: call read_file again with offset={more} when asked to continue.]"
+    return part or "That file is empty."
+
+
 def app_names(root: Path | None = None) -> list[str]:
     """The apps that have an index.html."""
     base = APPS_ROOT if root is None else root
@@ -460,6 +518,8 @@ def open_app(
             None,
         )
     spoken = name.replace("_", " ").replace("-", " ")
+    if Path(name).suffix.lower() in READ_EXTENSIONS:
+        return "That is a file, not an app. I can read it to you if you like.", None
     if not re.fullmatch(r"[A-Za-z0-9 _-]{1,60}", name):
         return (
             "I can't open that. App names use letters, digits, spaces, dashes and underscores.",
@@ -871,6 +931,15 @@ async def build_tools(
             said = "I can't open a page from here right now."
         await params.result_callback(said)
 
+    async def read_handler(params: FunctionCallParams) -> None:
+        try:
+            offset = int(params.arguments.get("offset") or 0)
+        except (TypeError, ValueError):
+            offset = 0
+        await params.result_callback(
+            read_deliverable(str(params.arguments.get("name") or ""), offset)
+        )
+
     tools: list[FunctionSchema] = [
         home,
         _recorded(
@@ -886,6 +955,20 @@ async def build_tools(
                 },
                 required=["name"],
                 handler=open_handler,
+            ),
+            record,
+        ),
+        _recorded(
+            FunctionSchema(
+                name="read_file",
+                description=READ_FILE_DESCRIPTION,
+                properties={
+                    "name": {"type": "string", "description": "the file name, e.g. notes.md"},
+                    "offset": {"type": "integer", "description": "characters to skip"},
+                    "say": SAY,
+                },
+                required=["name"],
+                handler=read_handler,
             ),
             record,
         ),
