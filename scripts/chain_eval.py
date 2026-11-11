@@ -347,6 +347,15 @@ def followup_merged(trace: Trace) -> bool | None:
     return len(jobs) == 2 and "continues" in str(jobs[1].get("task", "")).lower()
 
 
+def read_without_delegate(trace: Trace) -> bool | None:
+    """ "Read it to me" about a file already made is answered with read_file in the same turn:
+    no delegate job (slow, billed, announced minutes later) just to read a file."""
+    if len(trace["turns"]) < 2:
+        return None
+    tools = [c["tool"] for c in trace["turns"][-1]["calls"]]
+    return "read_file" in tools and "delegate" not in tools
+
+
 def job_count(trace: Trace, wanted: int) -> bool | None:
     """Exactly `wanted` jobs ran: a repeat is dropped (1), two different builds both run (2)."""
     jobs = trace.get("jobs")
@@ -416,6 +425,7 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "no_stray_apps": no_stray_apps,
     "followup_merged": followup_merged,
     "job_count": job_count,
+    "read_without_delegate": read_without_delegate,
     "independent_jobs": independent_jobs,
     "first_job_cancelled": first_job_cancelled,
     "deliverable_has_marker": deliverable_has_marker,
@@ -498,6 +508,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
         "plain",
         "unrelated_build",
         "overlap_build",
+        "readback",
     )
     for index, template in enumerate(scenario.turns):
         user = fill(template, params)
@@ -510,7 +521,12 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             notes.append(f"## 00:00 web_research: {user}\n{url}")
             trace["web_urls"].append(url)
             phase = "researching"
-        if scenario.kind == "overlap_build" and not last:
+        if scenario.kind == "readback" and last:
+            calls.append({"tool": "read_file", "args": {"name": "note.md"}})
+        elif scenario.kind == "readback":
+            task = "Write note.md."
+            calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
+        elif scenario.kind == "overlap_build" and not last:
             task = f"Build a one-page site. Source {url}"
             calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
         elif builds and last:

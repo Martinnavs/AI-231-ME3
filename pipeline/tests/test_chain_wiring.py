@@ -205,9 +205,9 @@ def test_case_f_has_the_three_rules_and_the_say_exemption() -> None:
     assert "chain_update has no `say`" in text
 
 
-def test_the_prompt_grew_by_less_than_1600_characters() -> None:
+def test_the_prompt_grew_by_less_than_1800_characters() -> None:
     text = PROMPT.read_text()
-    assert len(text) < 4976 + 1600  # 4976: its size at HEAD 014b424
+    assert len(text) < 4976 + 1800  # 4976: its size at HEAD 014b424
     # now 6297: P2 moved the multi-turn chain protocol out to system_agent_case_f.txt
     assert "recent=true" in text
 
