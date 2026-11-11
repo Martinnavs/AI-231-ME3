@@ -24,7 +24,7 @@ the end of its answer can still be picked up. Sit where you will sit at the demo
 
 ```bash
 uv run --group laptop python -W ignore -m lan_speech --stt-model parakeet --insecure-loopback \
-    --entities config/entities-docs.json
+    --entities config/entities-baby-onit.json
 ```
 
 Wait for `LanSpeechServer listening on 127.0.0.1:8765`. (If something else already uses 8765, add
@@ -45,7 +45,7 @@ show up here and in the results later.
 
 ```bash
 RUN=out/sessions/$(date +%m%d-%H%M)
-uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter \
+uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/baby-onit \
     --llm gemini --stream --log-turn-score --record $RUN \
     --note "laptop mic, quiet room, headset, server defaults"
 ```
@@ -110,7 +110,7 @@ lets me replay any turn that went wrong.
 | Answer starts more than ~2 s after you stop | look at "biggest stage" in the report; the language model's first word is about 0.9 s from this machine, the rest is the pause (0.6 s) and the server (0.4-0.6 s) | `--llm-model`, `--vad-hold`, `--early-decode-ms 200` on the server |
 | It cuts you off mid-sentence | longer pause, and make sure the room noise is low | `--vad-hold 0.8` |
 | Waiting for the pause feels slow | shorter pause (more cut-offs; ask-to-add catches some) | `--vad-hold 0.4` |
-| Wrong names | add the missing names; raise the name bonus a little (above ~1.5 over-boosts) | `config/entities-docs.json` or `scripts/make_entities.py`, server `--hotword-score` |
+| Wrong names | add the missing names; raise the name bonus a little (above ~1.5 over-boosts) | `config/entities-baby-onit.json` or `scripts/make_entities.py`, server `--hotword-score` |
 | It asks "anything to add?" when you were done (E block) | lower the threshold | `--add-threshold 0.2` |
 | It does not ask when you trailed off (D block) | raise the threshold, or the recogniser completed your phrase on its own (see `heard` vs `partial`) | `--add-threshold 0.5` |
 | It stops talking when you did not speak (its own voice, a cough) | `--barge-ratio 6` or `--barge-ms 450` | doc_chat flags |

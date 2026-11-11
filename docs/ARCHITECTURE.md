@@ -293,7 +293,7 @@ Kroko's `finalize` path pads 1.5 s of zeros (`engines.py:21`, `FINALIZE_TAIL_S`)
 | Item | Value |
 |---|---|
 | Model | `gemini-3.1-flash-lite` (`agent.py:48`), native Pipecat `GoogleLLMService` (Pipecat 1.13) |
-| System prompt | `pipeline/config/eval/system_agent.txt` (1 055 words): cases A home command, B time/weather/knowledge, C Cormac McCarthy documents, D Pi tools, E command missing a value, F big task (delegate), G anything else; every tool call also carries a `say` argument. **Prompt scoping (P2):** the Case F *chain protocol* (the multi-turn research/build sequence) is not in this file — it is `pipeline/config/eval/system_agent_case_f.txt`, appended to the turn's message by the server while a chain is active, when the router escalates a turn, or when there is no router; the base prompt keeps every rule a first turn needs |
+| System prompt | `pipeline/config/eval/system_agent.txt` (1 055 words): cases A home command, B time/weather/knowledge, C baby-onit documents, D Pi tools, E command missing a value, F big task (delegate), G anything else; every tool call also carries a `say` argument. **Prompt scoping (P2):** the Case F *chain protocol* (the multi-turn research/build sequence) is not in this file — it is `pipeline/config/eval/system_agent_case_f.txt`, appended to the turn's message by the server while a chain is active, when the router escalates a turn, or when there is no router; the base prompt keeps every rule a first turn needs |
 | Key | read from `~/.secrets/google-ai-studio/api-key.txt` at start (`agent.py` `read_key`); never logged |
 | Tools the model sees | 13: `smart_home` (17 intents, phonebook of 5 contacts in `pipeline/config/phonebook.json`), `search_docs`, `get_current_time`, `convert_time`, `weather`, `wiki_summary`, `web_answer`, `delegate`, `delegate_status`, `delegate_cancel`, and from the Pi `get_volume`, `set_volume`, `device_status` (the Pi's three are absent if the Pi was unreachable when the agent started) |
 | Connection | `--ipv4` (IPv6 to Google resets on this network); keep-alive **300 s** so idle connections stay warm (`KEEPALIVE_S`) |
@@ -308,7 +308,7 @@ Kroko's `finalize` path pads 1.5 s of zeros (`engines.py:21`, `FINALIZE_TAIL_S`)
 
 | Server | Tools | Notes |
 |---|---|---|
-| `docs` (required) | `search_docs` | BM25 over `corpus/cormac-mccarthy` (the sample corpus; `doc_chat --no-docs` loads nothing itself) |
+| `docs` (required) | `search_docs` | BM25 over `corpus/baby-onit` (the baby-onit teaching document, `docs/CORPUS-BABY-ONIT.md`; `doc_chat --no-docs` loads nothing itself) |
 | time (required) | `get_current_time`, `convert_time` | `mcp_server_time --local-timezone Asia/Manila` |
 | `web_info` (required) | `weather`, `wiki_summary` | Open-Meteo geocoding and forecast, Wikipedia; keyless |
 | `tavily_search` (required) | `web_answer` | section 5.5 |
@@ -572,7 +572,7 @@ Mitigations in place: no sudo or ssh (`shell_policy`), no secrets mounted, memor
 **Other limits found while writing this document**
 
 - Misses of kd-web3 on the held-out set: "Message <unknown name>" routes to `MESSAGE` (the tool refuses names outside the phonebook), and one statement repeated an escalate (`PROGRESS-2026-11-05.md`).
-- The documents served are the Cormac McCarthy sample corpus; the loaded-documents path is exercised by the race but real user documents are not wired in (`--no-docs`, default `docs` corpus of the `docs` MCP server).
+- The documents served are the baby-onit corpus (the Cormac McCarthy and Harry Potter corpora were removed 2026-11-11); the loaded-documents path is exercised by the race but real user documents are not wired in (`--no-docs`, default `docs` corpus of the `docs` MCP server).
 - The Pi URL constant (5.6) and the 2-hour Pi timeout (3.3) make a long session need `make up-pi` again.
 - Delegate jobs can reach the LAN (section 8).
 - Not verified live as of 2026-11-04: `make down`, `make talk` from the Makefile target, `PI_START=systemd`, `make pi-check` on the Pi (`PROGRESS-2026-11-04.md` Open 2). `make talk` has been used since (session `stack-1105-0829`).
@@ -603,7 +603,7 @@ The code or config wins.
 6. **Session record.** `out/sessions/stack-1105-0829/session.json` has the note "router-350m-kd-web2" and git commit `0031a26`, while `PROGRESS-2026-11-05.md` reports the spoken v4 result as kd-web3. The router was kd-web3: the stack was started with `ROUTER_MODEL=router-350m-kd-web3-s0-unverified make up` at 08:27, and `make status` at 08:28 showed the llama-server `model_path` `.../router-350m-kd-web3-s0-unverified/gguf/router-Q4_K_M.gguf`. The note is wrong because `make talk` was run without `ROUTER_MODEL`, and the Makefile default was still kd-web2 then (it became kd-web3 in b8ffe69). The note records the variable, not the running server.
 7. **System prompt path.** Older text says `config/eval/system_agent.txt`; the file is `pipeline/config/eval/system_agent.txt` (the server resolves it from `pipeline/`).
 8. **Agent server log path.** `LIVE-AGENT.md` says `pipeline/out/agent_server/`; `agent_server.py` docstring says `out/agent_server/`. The file is written under `pipeline/out/agent_server/` (the root is `pipeline/`).
-9. **Entities.** Older docs and `HANDOFF.md` mention `config/entities-docs.json` (Harry Potter names) as the loaded list; `make up` loads `config/entities.json`.
+9. **Entities.** Older docs and `HANDOFF.md` mention `config/entities-docs.json` (Harry Potter names) as the loaded list; since 2026-11-11 `make up` loads `config/entities-baby-onit.json` (the general names plus the baby-onit document names; `ENTITIES=config/entities.json` restores the plain list).
 10. **`config/agent.toml`** describes Deepgram, Cartesia and Claude models. The live stack does not read it (only `voice_agent/config.py` does).
 11. **TTS and STT defaults.** The speech server's own defaults are Supertonic TTS and Kroko STT (`lan_speech/__main__.py`); `make up` overrides them to Kitten (Jasper) and the hybrid. Older latency tables for TTS (352 ms, 2026-10-25) are Supertonic.
 12. **Pi tool URL.** Docs say the agent finds the Pi from `config/pi.env`; the agent server uses a hard-coded address (`agent_tools.py:35`) and `up.sh` does not pass `--pi-url`.

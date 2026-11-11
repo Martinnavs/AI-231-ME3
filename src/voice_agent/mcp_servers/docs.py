@@ -1,6 +1,6 @@
 """Docs MCP server (fastmcp): BM25 search over a doc-chat corpus folder.
 
-uv run --group laptop python -m voice_agent.mcp_servers.docs --corpus corpus/cormac-mccarthy
+uv run --group laptop python -m voice_agent.mcp_servers.docs --corpus corpus/baby-onit
 """
 
 from __future__ import annotations
@@ -14,9 +14,14 @@ from langchain_community.retrievers import BM25Retriever
 
 from doc_chat.corpus import load_and_split_corpus, tokenize
 
-DEFAULT_CORPUS = Path("corpus/cormac-mccarthy")
-DEFAULT_TOPIC = "the novelist Cormac McCarthy (his life, books, characters, adaptations)"
-CHUNK_SIZE = 1000
+DEFAULT_CORPUS = Path("corpus/baby-onit")
+DEFAULT_TOPIC = (
+    "baby-onit, the single-file agent harness distilled from onit (its config, secrets, providers, "
+    "system prompt, tools, dispatch, agent loop, session memory, text UI, doctor and setup)"
+)
+# 700 characters: with the shorter, name-heavy sections of the baby-onit corpus, 1,000-character
+# chunks ranked a section that merely repeats the name above the one that answers (2026-11-11)
+CHUNK_SIZE = 700
 
 
 def build_server(corpus: Path, topic: str = DEFAULT_TOPIC) -> FastMCP:

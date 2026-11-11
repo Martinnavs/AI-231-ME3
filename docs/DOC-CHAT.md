@@ -12,12 +12,12 @@ The same loop with the pieces built since the first version wired in. Nothing be
 
 ```bash
 uv run python scripts/fetch_laptop_models.py        # once; also fetches Parakeet (~660 MB)
-uv run python scripts/make_entities.py corpus/harry-potter -o config/entities-docs.json   # or use the committed file
+uv run python scripts/make_entities.py corpus/baby-onit -o config/entities-baby-onit.json   # or use the committed file
 # 1. the speech server: Kroko streams, Parakeet transcribes each finished turn, biased toward the names
 uv run --group laptop python -m lan_speech --stt-model parakeet --insecure-loopback \
-    --entities config/entities-docs.json
+    --entities config/entities-baby-onit.json
 # 2. the chat client
-uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter --llm qwen --stream
+uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/baby-onit --llm qwen --stream
 ```
 
 What is different from the first version:
@@ -25,7 +25,7 @@ What is different from the first version:
 | | First version | Improved loop |
 |---|---|---|
 | End of turn | waits for the server's own detector (1.5-2.5 s with Kroko) | this client ends the turn after `--vad-hold` seconds of quiet (default 0.6), measured against the room's noise; the server's detector is only a fallback |
-| Recogniser | Kroko (about 22% word errors on names) | Parakeet with the document's names as hotwords (`config/entities-docs.json`, 125 names pulled from the corpus by `scripts/make_entities.py`): "Dumbledore", "Order of the Phoenix" |
+| Recogniser | Kroko (about 22% word errors on names) | Parakeet with the document's names as hotwords (`config/entities-baby-onit.json`, 125 names pulled from the corpus by `scripts/make_entities.py`): "Dumbledore", "Order of the Phoenix" |
 | A name heard almost right | passes through as heard | repaired ("Hermoin" -> "Hermione"), and the screen shows `(recognised as: ...)` |
 | A name heard doubtfully | passes through | the assistant asks "Did you mean Dumbledore?" and waits: "yes" answers the corrected question, "no" asks you to say it again, anything else is taken as a new question |
 | Follow-ups ("and her sister?") | each question stands alone | the last `--history` (4) question/answer pairs go to the model, and a short follow-up is searched together with the previous question |
@@ -49,7 +49,7 @@ uv run --group laptop python -m lan_speech --insecure-loopback --endpoint-silenc
 curl http://127.0.0.1:8765/healthz        # {"ok": true, "stt": "sherpa-kroko", "tts": "supertonic-3"}
 
 # 2. the chat client
-uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter
+uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/baby-onit
 ```
 
 Speak a question and pause. The terminal shows what it heard, the answer, and a timing line, and the answer is spoken. Say "quit" or press Ctrl-C to stop.
@@ -111,7 +111,7 @@ wants to clarify (a doubtful name) take the "Did you mean?" path instead.
 
 ```bash
 uv run python scripts/fetch_turn_model.py          # 176 MB text model, once
-uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/harry-potter \
+uv run --group laptop python -W ignore -m doc_chat --mic --play --docs corpus/baby-onit \
     --llm gemini --stream --ask-to-add
 ```
 

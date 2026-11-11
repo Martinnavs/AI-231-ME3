@@ -10,7 +10,7 @@ help: ## List documented targets
 ROUTER_MODEL ?= router-350m-kd-web4-s0-unverified
 ROUTER_THREADS ?= 3
 GGUF_TOOLS ?= $(HOME)/work/gguf-tools
-ENTITIES ?= config/entities.json
+ENTITIES ?= config/entities-baby-onit.json
 KITTEN_VOICE ?= Jasper
 KITTEN_SITE ?= $(HOME)/work/tts-bakeoff/venv/lib/python3.12/site-packages
 SPEECH_ARGS ?=
