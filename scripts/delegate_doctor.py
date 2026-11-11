@@ -8,8 +8,13 @@ this script never touches it). It uses the delegate's policy (config/delegate.to
 `bash` tool's sandbox path, so what it reports is what the delegate's shell gets. No secret file is
 opened or listed; ~/.secrets/github and ~/.secrets/huggingface are only tested for existence.
 
+Optional: the owner profile (docs/PROFILE.md). It reports whether config/profile.md is filled in
+(never its contents) and whether the delegate can read the copy the agent server installs at
+/sandbox/scratch/PROFILE.md. Without a profile "make me a page about me" still works (the agent asks
+your name and searches the web), so a missing profile is a warning, never a failure.
+
 Exit 0 when the required checks pass (sandbox, git, local commit, and the GitHub read unless
---offline); gh, hf, Hugging Face reachability and credentials are warnings only.
+--offline); gh, hf, Hugging Face reachability, credentials and the profile are warnings only.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import shutil
 import sys
 import tomllib
@@ -49,6 +55,26 @@ class Check:
     required: bool = False
 
 
+PROFILE_IN_SANDBOX = "/sandbox/scratch/PROFILE.md"
+_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_EMPTY_FIELD = re.compile(r"^[-*]?\s*[^:]{1,60}:\s*$")
+
+
+def profile_state(path: Path) -> tuple[str, int]:
+    """("missing" | "template" | "filled", size in bytes). Mirrors
+    voice_pipeline.scratchpad.profile_is_filled (the pipeline venv cannot import from here)."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return "missing", 0
+    for line in _COMMENT.sub("", text).splitlines():
+        line = line.strip()
+        empty = not line or line.startswith("#") or line in ("-", "*") or _EMPTY_FIELD.match(line)
+        if not empty:
+            return "filled", len(text.encode())
+    return "template", len(text.encode())
+
+
 @dataclass
 class Probe:
     """Everything the checks touch, so tests can fake it."""
@@ -59,6 +85,7 @@ class Probe:
     host_has: Callable[[str], bool]
     dir_exists: Callable[[str], bool]
     ssh_refusal: str | None
+    profile: Callable[[], tuple[str, int]] = lambda: ("missing", 0)
 
 
 async def _sh(run: Runner, command: str) -> tuple[SandboxResult | None, str]:
@@ -73,13 +100,41 @@ def _line(res: SandboxResult | None) -> str:
     return text.splitlines()[-1] if text else ""
 
 
+async def _profile_checks(probe: Probe, sandbox_ok: bool) -> list[Check]:
+    """The optional owner profile: filled in on the host, and readable by the delegate."""
+    state, size = probe.profile()
+    if state == "missing":
+        why = "no config/profile.md: copy config/profile.example.md to it and fill it in"
+        return [Check("owner profile", MISSING, why + " (docs/PROFILE.md)")]
+    if state == "template":
+        why = "config/profile.md has no value filled in yet (docs/PROFILE.md)"
+        return [Check("owner profile", MISSING, why)]
+    checks = [Check("owner profile", OK, f"filled in ({size} bytes; its contents are never shown)")]
+    if not sandbox_ok:
+        return checks + [Check("profile in sandbox", BLOCKED, "the sandbox is not working")]
+    res, err = await _sh(probe.run, f"wc -c < {PROFILE_IN_SANDBOX}")
+    seen = res.stdout.strip() if res is not None and res.returncode == 0 else ""
+    if not seen.isdigit():
+        why = (
+            err
+            or "not in the sandbox yet: restart the agent server (it copies the profile at start)"
+        )
+        return checks + [Check("profile in sandbox", MISSING, why)]
+    if int(seen) != size:
+        why = f"out of date ({seen} bytes there, {size} in config/profile.md): restart the agent"
+        return checks + [Check("profile in sandbox", MISSING, why)]
+    return checks + [
+        Check("profile in sandbox", OK, f"the delegate reads it at {PROFILE_IN_SANDBOX}")
+    ]
+
+
 async def run_checks(probe: Probe, *, offline: bool) -> list[Check]:
     checks: list[Check] = []
     if probe.preflight_problems:
         checks.append(
             Check("sandbox preflight", BLOCKED, "; ".join(probe.preflight_problems), True)
         )
-        return checks + _static_checks(probe)
+        return checks + _static_checks(probe) + await _profile_checks(probe, False)
     checks.append(Check("sandbox preflight", OK, "bwrap, systemd-run, memory limit present", True))
 
     res, err = await _sh(probe.run, "command -v git")
@@ -139,7 +194,7 @@ async def run_checks(probe: Probe, *, offline: bool) -> list[Check]:
         if tool == "hf" and probe.host_has("hf"):
             hint = " (exists on the host PATH or ~/.local/bin, but is not visible in the sandbox)"
         checks.append(Check(f"{tool} on sandbox PATH", MISSING, "not found" + hint))
-    return checks + _static_checks(probe)
+    return checks + _static_checks(probe) + await _profile_checks(probe, True)
 
 
 def _static_checks(probe: Probe) -> list[Check]:
@@ -187,6 +242,8 @@ def format_report(checks: Sequence[Check]) -> str:
         can.append("clone and read public GitHub repos over https")
     if by.get("Hugging Face reachable"):
         can.append("fetch public Hugging Face URLs with curl")
+    if by.get("profile in sandbox"):
+        can.append("build a page about you from your profile")
     cannot = ["push, log in, or use private repos (no credentials, no gh, no ssh)"]
     if not by.get("hf on sandbox PATH"):
         cannot.append("use the hf command")
@@ -217,6 +274,7 @@ def real_probe() -> Probe:
         host_has=lambda n: bool(shutil.which(n) or (Path.home() / ".local/bin" / n).exists()),
         dir_exists=lambda p: os.path.isdir(os.path.expanduser(p)),
         ssh_refusal=check_command("ssh x"),
+        profile=lambda: profile_state(ROOT / "config" / "profile.md"),
     )
 
 

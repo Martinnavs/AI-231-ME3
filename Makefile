@@ -51,7 +51,7 @@ talk: ## (laptop) the live loop in the foreground; needs the microphone
 calibrate: ## (laptop) room calibration + the six baseline phrases; HEADSET=1 uses the headset microphone (else the laptop one); needs you at the mic
 	scripts/calibrate.sh $(if $(HEADSET),--headset)
 
-doctor-tools: ## (laptop) what the delegate sandbox can do with git, GitHub, Hugging Face (free; --offline skips the network)
+doctor-tools: ## (laptop) what the delegate sandbox can do with git, GitHub, Hugging Face, and whether your profile is in place (free; --offline skips the network)
 	.venv/bin/python scripts/delegate_doctor.py
 
 addressee-replay: ## (laptop, free) replay the addressee gate over the logged turns and the benchmark texts; DECL=1 also tries the opt-in statement rule
