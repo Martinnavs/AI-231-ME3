@@ -18,13 +18,14 @@ One file per section of the PDF, in its order and wording: `01-the-big-picture`,
 |---|---|
 | `pipeline/config/eval/system_agent.txt`, `system_agent_search.txt` | Case C is "anything about baby-onit or onit"; Case B says "not baby-onit or onit" |
 | `src/voice_agent/mcp_servers/tavily_search.py` | the `web_answer` description says "Not for baby-onit or onit (use search_docs)" |
+| `pipeline/src/voice_pipeline/call_policy.py` (`about_document_topic`) | the router's web lookup is **rejected** when the question names baby-onit or onit and `search_docs` is available, so the turn goes to Gemini's Case C. Without it the router (trained before this corpus) sent "How many tools does baby-onit ship?" to the web and Gemini spoke a confident wrong answer about a company that ships physical baby tools. |
 | `pipeline/config/eval/agent_prompts.jsonl` | the docs-kind regression prompts (`n03`, `d01`-`d08`) ask baby-onit questions |
 | `config/entities-baby-onit.json` | speech names: the 1,444 general names plus 35 document names (baby onit, onit, Ollama, vLLM, SGLang, OpenRouter, Vercel, DuckDuckGo, REPL, MCP, A2A and file and variable names in spoken form), category `doc`, curated by hand because `scripts/make_entities.py` only finds capitalised names. It is the `ENTITIES` default of `make up`; `ENTITIES=config/entities.json make up` restores the general list. `place_check` still reads `config/entities.json`. |
 | `tests/mcp_servers/test_docs_server.py` | the 21 questions above, the default corpus, the tool description, the "eight tools" wording, the top-k clamp |
 
 ## Checked live (2026-11-11, text turns, real router and Gemini)
 
-"What is baby-onit?", "Where do baby-onit's API keys live?" (environment variable, then keychain, then `~/.baby-onit/secrets.yaml`), "What does the agent loop do?", "How is baby-onit different from onit?", "What does baby-onit's doctor command check?" were answered from `search_docs`; "How many tools does baby-onit ship?" came back through the document race as "eight". "Who was Cormac McCarthy?" now goes to Gemini (no corpus); weather and time are unchanged.
+"What is baby-onit?", "Where do baby-onit's API keys live?" (environment variable, then keychain, then `~/.baby-onit/secrets.yaml`), "What does the agent loop do?", "How is baby-onit different from onit?", "What does baby-onit's doctor command check?" were answered from `search_docs`; "How many tools does baby-onit ship?" (with and without the hyphen) is answered from the documents as "said to ship eight tools, but the table lists nine" (after the guard above; before it, one run went to the web and answered wrongly). "Who was Cormac McCarthy?" now goes to Gemini (no corpus); weather and time are unchanged.
 
 ## Not checked, and limits
 
@@ -32,6 +33,8 @@ One file per section of the PDF, in its order and wording: `01-the-big-picture`,
 - **Read aloud:** Gemini sometimes says identifiers such as `BABY_ONIT_API_KEY` as written.
 - The 350M router was trained before this corpus; document questions reach `search_docs` through Gemini's Case C or through the race, not through a router intent.
 - Only this PDF is indexed, not the repository's code.
+- A turn is sent to the documents only if the words baby-onit, baby onit or onit are recognised; a misheard name ("baby unit") falls to the router and the web. The names file is meant to prevent that; it was not measured by voice.
+- **Network:** on this laptop about 1 in 12 fresh TCP connects to Google timed out (2 s) in a test; the agent's online probe goes offline after two misses in a row and then answers "I can't reach the internet right now" until the next success. It flipped once during the 2026-11-11 smoke test. Not changed here (`OnlineProbe`, `agent_server.py`); worth a 3-miss threshold if the venue link is poor.
 
 ## Replacing the corpus again
 

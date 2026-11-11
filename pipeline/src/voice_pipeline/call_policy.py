@@ -400,6 +400,18 @@ def names_an_app(user: str) -> bool:
     return any(app_key(app) and set(app_key(app).split()) <= spoken for app in known_apps())
 
 
+# What the loaded documents are about (corpus/baby-onit). The router was trained before that corpus
+# and answers such a question with a web lookup; the web has nothing on a teaching harness and
+# Gemini turned a search for "how many tools does baby-onit ship" into a company that ships
+# physical baby tools (2026-11-11). Such a turn goes to Gemini, whose Case C calls search_docs.
+DOCUMENT_TOPIC = re.compile(r"\bbaby[\s_-]?onit\b|\bonit\b", re.IGNORECASE)
+
+
+def about_document_topic(user: str) -> bool:
+    """The turn names the loaded documents' subject (baby-onit, onit)."""
+    return DOCUMENT_TOPIC.search(user) is not None
+
+
 OWN_WORK = re.compile(
     r"\b(?:game|games|app|apps|clone|the files?|the fix|the bug|the code"
     r"|you (?:made|built|wrote|created|coded)|in the game)\b",
@@ -585,6 +597,8 @@ def _verdict(calls: list[Any], available: set[str], user: str) -> str | None:
             spec.to_tool_args(call).get("place", "")
         ):
             return "unknown place"  # W4: Gemini corrects or asks
+        elif name in DOCUMENT_LOOKUPS and "search_docs" in available and about_document_topic(user):
+            return "about the loaded documents"  # Gemini's Case C searches them
         elif name in DOCUMENT_LOOKUPS and about_own_work(user):
             return "about the agent's own work"
         elif name in DOCUMENT_LOOKUPS and not _lookup_asked(
