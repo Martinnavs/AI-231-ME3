@@ -106,6 +106,8 @@ def authority_hint_for(text: str) -> str | None:
             if not any(re.search(rf"\b{re.escape(p.lower())}\b", lowered) for p in publishers):
                 return hint
     return None
+
+
 _SCRIPT_STYLE = re.compile(r"<(script|style)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 _TAGS = re.compile(r"<[^>]*>")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
