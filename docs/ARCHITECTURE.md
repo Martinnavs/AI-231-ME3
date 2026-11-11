@@ -224,7 +224,7 @@ The mic client keeps listening while the agent works and while the Pi plays (sec
 
 | Part | Model and setting |
 |---|---|
-| Streaming and turn ends | **Kroko** sherpa-onnx streaming zipformer `en-kroko-2025-08-06`, 2 threads; produces the partials; its own endpoint is 1.2 s of silence, but the client's 0.6 s hold decides first |
+| Streaming and turn ends | **Kroko** sherpa-onnx streaming zipformer `en-kroko-2025-08-06`, 2 threads; produces the partials; its own endpoint is 0.7 s of silence (`--endpoint-silence`, was 1.2 s until 2026-11-11), but the client's 0.6 s hold decides first |
 | Final | **Parakeet TDT 0.6B v2**, int8 (`nvidia/parakeet-tdt-0.6b-v2`, sherpa-onnx export, CC-BY-4.0), 2 threads, `modified_beam_search`, 4 active paths, hotword score 1.0 |
 | Library | sherpa-onnx 1.13.8 (`docs/LAPTOP-SPEECH.md:16`; not re-checked) |
 | Audio prepared for Parakeet | trim silence (keep 0.3 s lead, 0.4 s tail), then add **0.5 s of zeros before and 1.0 s after** (`hybrid_stt.py:150-151`, `lan_speech/__main__.py:46-55`); at most 25 s of audio kept |

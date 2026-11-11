@@ -135,6 +135,10 @@ Written by another session from a later run. Status: **unverified as an effect o
 - Still present: repeated-word loops from the video on the XM4 (`Francis more, Francis more ...`), and a video question fused in front of `Dad, can you pass the salt?` when there is no 0.7 s pause.
 - The earlier text of this section claimed latency of about 180 ms (speech recognition) and about 730 ms (end to end) against 1480 ms. No table here contains those figures and they were not measured in these runs; treat them as unsupported.
 
+## Update 2026-11-11: 0.7 s is now the server default
+
+`--endpoint-silence` defaults to 0.7 s (`ENDPOINT_SILENCE_S` in `src/lan_speech/hybrid_stt.py`); pass `--endpoint-silence 1.2` for the old behaviour. What was checked, free, with `scripts/try_stt.py --wav out/calibration-baseline.wav --vad-hold 6 --tail 4` against a private server, three runs per setting: at 0.7 s the server ended the first turn at the first pause of 0.7 s or more, and the final came 1.15-1.20 s after the speaker stopped (1203, 1158, 1150 ms); at 1.2 s the same clip stayed one turn, because it has no pause that long. So the setting works as intended and lowers the wait by 0.5 s. **Not checked:** whether 0.7 s cuts a user's mid-sentence pause into two turns, and whether it reduces spurious video turns; the clip has no video and the earlier recordings are gone, so the A/B below is still the open test.
+
 ## Open: what a proper test needs
 
 The recordings behind both sets were kept only in a session scratch directory and are gone; `out/calibration-baseline.wav` (your six phrases from `make calibrate`, no video) survives. A fair A/B therefore starts with new recordings.
