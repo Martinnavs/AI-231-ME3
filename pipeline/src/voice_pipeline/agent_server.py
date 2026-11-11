@@ -807,6 +807,8 @@ async def run(
             system_file.name == "system_agent.txt"
         ):
             system += "\n\n" + PROFILE_RULE  # only when the owner filled one in
+    if (who := selfinfo.owner_name()) and system_file.name == "system_agent.txt":
+        system += f"\n\nThe user's name is {who}: use it when they ask to be greeted or addressed."
     with contextlib.suppress(Exception):  # once, about 1 s; offline the answer names the city only
         await asyncio.wait_for(venue.resolve(), venue.TIMEOUT_S + 1)
     if (line := venue.prompt_line()) and system_file.name == "system_agent.txt":
