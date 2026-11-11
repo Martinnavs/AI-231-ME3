@@ -82,6 +82,12 @@ def _course() -> str | None:
     return f"You're taking {course}." if course else None
 
 
+def owner_name() -> str | None:
+    """The owner's name from the profile, for the one prompt line that lets the model greet them
+    ("greet me by my name" tried to read PROFILE.md through open_app, 2026-11-11)."""
+    return _find("name", "full name")
+
+
 def answer(what: str) -> str | None:
     """The spoken answer for a kind of question, or None when the profile does not say."""
     name = _find("name", "full name")

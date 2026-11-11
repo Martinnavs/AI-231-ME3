@@ -21,10 +21,32 @@ FILE_WORDS = {
     "css": "C S S file",
 }
 TLDS = "com|org|net|edu|gov|ph|io|ai|co|uk|dev|app|info|us|jp|au|ca|de"
-SPELLED = {"UP", "UPD", "UPV", "UPLB", "UPOU", "USC", "UST", "DOST", "CHED"}  # letters, not a word
+SPELLED = {
+    "AI",
+    "UP",
+    "UPD",
+    "UPV",
+    "UPLB",
+    "UPOU",
+    "USC",
+    "UST",
+    "DOST",
+    "CHED",
+}  # letters, not a word
 
 _URL = re.compile(r"\b(?:https?://)?(?:www\.)?((?:[A-Za-z0-9-]+\.)+(?:" + TLDS + r"))\b(?:/\S*)?")
 _FILE = re.compile(r"\b([A-Za-z0-9][\w-]*)\.(" + "|".join(FILE_WORDS) + r")\b")
+# abbreviations whose period the TTS text cleaner drops, leaving "dr" or "vs" to be read as letters
+_SAID = {
+    "Dr": "Doctor",
+    "Prof": "Professor",
+    "Mr": "Mister",
+    "Mrs": "Missus",
+    "Ms": "Miss",
+    "vs": "versus",
+    "etc": "et cetera",
+}
+_TITLES = re.compile(r"\b(" + "|".join(_SAID) + r")\.(?=\s|$)")
 _INITIALS = re.compile(r"\b(?:[A-Za-z]\.){2,}")
 _PHD = re.compile(r"\bPh\.?D\.?")
 _ACRONYM = re.compile(r"\b(" + "|".join(sorted(SPELLED, key=len, reverse=True)) + r")\b")
@@ -42,6 +64,7 @@ def speakable(text: str) -> str:
     marks put in the form a voice should say."""
     text = _FILE.sub(_file, text)
     text = _URL.sub(lambda m: m[1].replace(".", " dot "), text)
+    text = _TITLES.sub(lambda m: _SAID[m[1]], text)
     text = re.sub(r"\be\.g\.,?", "for example", text, flags=re.I)
     text = re.sub(r"\bi\.e\.,?", "that is", text, flags=re.I)
     text = _PHD.sub("P H D", text)

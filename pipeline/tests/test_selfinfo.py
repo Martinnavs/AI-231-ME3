@@ -107,3 +107,9 @@ def test_other_requests_about_me_are_not_taken_by_the_fast_path() -> None:
         "Build my website",
     ):
         assert fast_path.match(said) is None
+
+
+def test_owner_name_is_the_profile_name_and_none_without_a_profile() -> None:
+    assert selfinfo.owner_name() == "Ada Lovelace"
+    selfinfo.FIELDS.clear()
+    assert selfinfo.owner_name() is None
