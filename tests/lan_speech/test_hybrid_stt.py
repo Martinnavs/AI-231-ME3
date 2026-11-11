@@ -366,3 +366,22 @@ def test_the_soft_end_of_a_word_after_the_pause_cancels_the_early_decode() -> No
     assert s._spec is not None
     s.accept_waveform(SR, soft.tobytes())  # ... but the word was not over
     assert s._spec is None
+
+
+def test_the_server_ends_a_turn_after_0_7_s_of_silence_by_default() -> None:
+    import inspect
+
+    from lan_speech.hybrid_stt import ENDPOINT_SILENCE_S, ParakeetHybridSTTEngine
+
+    assert ENDPOINT_SILENCE_S == 0.7
+    default = inspect.signature(ParakeetHybridSTTEngine.__init__).parameters["endpoint_silence"]
+    assert default.default == ENDPOINT_SILENCE_S
+
+
+def test_the_command_line_default_is_the_same_constant(capsys: pytest.CaptureFixture[str]) -> None:
+    from lan_speech.__main__ import main
+    from lan_speech.hybrid_stt import ENDPOINT_SILENCE_S
+
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert f"(default: {ENDPOINT_SILENCE_S})" in capsys.readouterr().out

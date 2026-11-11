@@ -19,7 +19,7 @@ from lan_speech.engines import (
     TTSEngine,
 )
 from lan_speech.hotwords import load_entities
-from lan_speech.hybrid_stt import ParakeetHybridSTTEngine
+from lan_speech.hybrid_stt import ENDPOINT_SILENCE_S, ParakeetHybridSTTEngine
 from lan_speech.models import required_dirs, verify_all
 from lan_speech.server import LanSpeechServer
 
@@ -110,8 +110,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument(
         "--endpoint-silence",
         type=float,
-        default=1.2,
-        help="Seconds of trailing silence after speech that ends a turn (default: 1.2)",
+        default=ENDPOINT_SILENCE_S,
+        help="Seconds of trailing silence after speech that ends a turn "
+        f"(default: {ENDPOINT_SILENCE_S})",
     )
     ap.add_argument(
         "--stt-int8",

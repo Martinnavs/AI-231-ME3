@@ -74,6 +74,13 @@ def pad_with_zeros(
     return np.concatenate([lead, samples, tail])
 
 
+# Trailing silence that ends a turn on the server: just above the client's 0.6 s VAD hold, so the
+# client normally decides first and the server is the backstop (it was 1.2 s). Replay evidence is
+# in docs/HEADSET-MIC.md: the delay is exact by construction; the effect on false turns is not
+# yet measured against 1.2 s.
+ENDPOINT_SILENCE_S = 0.7
+
+
 class ParakeetTranscriber:
     """Parakeet-TDT 0.6B (sherpa-onnx, int8) with optional hotwords; one shared recogniser."""
 
@@ -297,7 +304,7 @@ class ParakeetHybridSTTEngine:
         kroko_threads: int = 2,
         parakeet_threads: int = 2,
         hotword_score: float = 1.0,
-        endpoint_silence: float = 1.2,
+        endpoint_silence: float = ENDPOINT_SILENCE_S,
         pad_lead_s: float = 0.5,
         pad_tail_s: float = 1.0,
         early_decode_s: float | None = None,
