@@ -1,5 +1,7 @@
 # Documentation index
 
+> **This is the production tree.** Research notes, history, experiments (scripts, tests, recorded results) live on the development branch `agy/interrupts`; a file named in a doc below that is not here is there, or is a local file (`config/pi.env`, `config/profile.md`) or runtime output (`out/`).
+
 Start with **`HANDOFF.md`**. Everything else is linked from there; this is the full list.
 
 ## The handoff set (read first)
@@ -9,15 +11,8 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `HANDOFF.md` | the map: state, findings, decisions, open questions, next actions, working agreements |
 | `ARCHITECTURE.md` | the voice agent as deployed on 2026-11-05: topology and ports, lifecycle (`make pi-detect`, `up`, `talk`, `down`), one turn end to end, every component with its settings, state on disk, measured numbers against the industry, security, config table, differences from older docs |
 | `PI-TEST-PLAN.md` | runbook for the Raspberry Pi echo test (what to run, how to read it, what each outcome means) |
-| `PI-RESULTS.md` | what the Pi echo test showed (split mic/speaker, with and without software AEC), and what it did not |
-| `PI-BRIDGE.md` | the Pi microphone and speaker with the laptop's STT and TTS over a cable: how to run it, Pi setup in one command (`make pi-detect`, `make up`), the traps hit, and the measured latency (2.0 s to sound) |
 | `PI-REMOTE-SPEAKER.md` | the laptop microphone with the Pi as loudspeaker: how the Pi speaker echo defeats Silero, the echo guard that fixes it, and how well it worked (6 of 6 interruptions, 0 of 6 false) |
 | `CORPUS-BABY-ONIT.md` | the document search corpus (baby-onit, Explained): what is in it, how it is chunked and searched, where it is wired, what was checked |
-| `RESEARCH-HANDOFF-PI.md` | **for the Pi agent**: research status after the Pi test, closed leads, verified sources, next experiments in order |
-| `SILERO-SPEECH-COMMANDS.md` | laptop test: Silero does hear a clean one-word "stop" (so the Pi's low confidence is not the model); the 250 ms hold costs short words |
-| `BRANCHES.md` | the three branches, how they relate, how to land them, how to resolve conflicts |
-| `ECHO-RESEARCH.md` | how assistants and frameworks handle echo and barge-in; how far to trust the report |
-| `AGY-CODING.md` | how agy writes code here: level-3 tickets with the full code, the bubblewrap fence, the dry run of every Proof command, the byte-for-byte review, and what went wrong |
 | `LIVE-AGENT.md` | the agent (smart_home + docs MCP server) in the live voice loop: what was built, the stress dry run, the two spoken sessions (latency, tool routing, interruptions) and what broke (echo in the transcripts) |
 | `AEC-REMOTE-SPEAKER.md` | echo cancellation across two devices (laptop mic, Pi speaker): the 137 ppm clock drift, offline results on real recordings, what is not shown |
 | `SMART-HOME-TOOL.md` | the one `smart_home` tool for the 19 ME2 commands, the separate Pipecat project `pipeline/`, and the LLM choice: native Gemini 3.1 flash-lite + router prompt 50/50, first reply 0.52 s (plain) / 1.31 s (tool) |
@@ -25,24 +20,9 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `PUBLISH-PAGES.md` | publishing a finished app to GitHub Pages after a spoken yes: owner setup, what is checked, what is not covered |
 | `PROFILE.md` | the owner profile (`config/profile.md`): what it is, setup, how it is installed, the optional doctor check, the Pi, the live check |
 | `LATENCY.md` | where an answer's time goes, the LLM spike probe, the research on fillers, and the safeguards (fast path, the tools' `say` sentence, doc_chat fillers with a give-up at 8 s): landed 2026-10-24/25 (the spoken sessions, R4, R5, R6 and what each changed are in its later sections) |
-| `INDUSTRY-COMPARISON.md` | our latency, turn-end, STT, TTS and interruption numbers against the industry targets (from the owner's course notes and the cited papers), what has been looked up already, and what would move each number |
 | `ONIT-PARITY.md` | the professor's added criterion (the voice agent must do all that OnIt can do): OnIt and baby-onit inventoried, the minimum MCP servers and tools to replicate the fundamentals, voice-specific issues, open questions (analysis only, 2026-10-27) |
-| `LOCAL-LLM-BRIEF.md` | standalone context sent to the agent that proposed a local LLM, and its reply (`LOCAL-LLM-BRIEF-RESPONSE.md`): it withdrew its speed, cache and flag claims; local model not pursued |
-| `LOCAL-LLM-FINETUNE-PLAN.md` | the plan to fine-tune Granite 4.0 H-1B on the cluster for the agent's 36-name tool language (one line per call): targets, data, training, export, evaluation, offline staging, open decisions; the contract is built in `.scratch/local-llm/finetune/` (2026-10-28) |
-| `LOCAL-LLM-BASELINE-FEEDBACK.md` | the baseline router's GGUF evaluation (OnIt 89.6%, pack 73.9% on Q4_K_M, latency), a failure analysis with a scorer artifact, the data to generate next, and the GGUF conversion pitfalls (2026-10-28) |
-| `LOCAL-LLM-RESULTS.md` | what the local-LLM experiments measured (five models, Granite optimisations, smaller Granite 4.0, the H-1B ladder, the OnIt set and the split of work) and the pitfalls found (2026-10-28) |
-| `SESSION-2026-10-29.md` | the 350M router, the Kitten voice (with level matching and its text path), Tavily web search over MCP, the echo guard's minimum bar, router robustness fixes: decisions, evidence, how to bring it all up, what is open |
-| `STRESS-TEST.md` | the 33-turn spoken stress script (`docs/stress/`), its scorer (`scripts/score_stress.py`) and the first full result: latency by route, interruptions, echo gate, seven bugs found |
 | `ROUTER-WEB-AND-DOCS-RACE.md` | the router's web lookups (cluster tickets 01/02, kd-web2 candidate), the documents-vs-web race in the harness, measurements and a latency estimate (2026-11-03) |
-| `PROGRESS-2026-11-04.md` | what landed on 2026-11-04 (laptop tickets A-F, spoken tests, one-command Pi and laptop start), what is open |
-| `PROGRESS-2026-11-05.md` | kd-web3 retest and default, spoken v4, tickets G (no dropped turns) and H (delegate terminal work), latency studies (Nemotron, adaptive hold) |
-| `PROGRESS-2026-11-06.md` | the harness on the Pi (v4 47/8/4, 1.50 s tuned), kd-web4 router, Spotify through the desktop app, delegate safety after the deletion incident, latency tuning, network-resilience test |
-| `PROGRESS-2026-11-08.md` | the addressee gate, the delegate git/HF doctor, research-then-build chains (web_research, chain state, scratchpad, sub-agent source checks) and `scripts/chain_eval.py`: what was built, how to run it (`make` recipes), results, decisions waiting for the owner, next steps |
-| `EVALUATOR-PROMPT.md` | prompt to paste to an agent that reviews other agents' work critique-first: claims against raw artifacts, predicate validity, coverage, report format |
-| `PROGRESS-2026-11-09.md` | multi-step chain performance fixes (parallel lookup deduplication, delegate facts/URL bridge, subagent deliverable disambiguation) and 8/8 live chain-eval pass ($0.082) |
-| `PROGRESS-2026-11-10.md` | single-turn build resilience, the stall watchdog, the P2 prompt split, the 15/20 live multi-trial pass, the Pi audio path |
 | `PROGRESS-2026-11-11.md` | **latest:** the harness review and fixes, owner profile file, Cebu venue and barangay, nearby/nearest places (Photon, Google), endpoint silence 0.7, GitHub Pages publish (ticket 04); evidence, how to run, open items in order |
-| `CHAIN-SIMPLIFICATION-AUDIT.md` | architecture audit: 65% core vs 35% overengineering debt, OnIt/baby-onit parity assessment, and 5-phase lean roadmap |
 | `../finetune/README.md` | start here on the cluster: the router fine-tuning project (contract, evaluation sets, baselines, tasks, rules); code in `finetune/` |
 
 ## Speech and the test client
@@ -51,7 +31,6 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 |---|---|
 | `LAPTOP-SPEECH.md` | the laptop speech server: benchmark results (Kokoro, Supertonic, Kroko), the WebSocket protocol |
 | `STT-HOSTING.md` | STT accuracy and hosting findings: Parakeet, hotwords, name repair, padding, live sessions, latency, early decode |
-| `STT-COMPARE.md` | comparing STT models on your own voice (the Kroko decision) |
 | `DOC-CHAT.md` | the voice test client: every option, the improved loop, barge-in, Gemini, ask-to-add |
 | `IRL-RECIPE.md` | a real-voice test with recording and a report |
 
@@ -59,10 +38,8 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 
 | File | What it is |
 |---|---|
-| `SMART-TURN.md` | experiments: Smart Turn v3 (audio), Turnsense (text), the confirm-and-stitch simulation; why none is adopted |
 | `BARGE-IN.md` | the original barge-in design and the measurements on the laptop (echo with and without cancellation) |
 | `INTERRUPTS.md` | the model-free interruption bench, the detector ablation, what it shows |
-| `AUDIO-IO-AND-AEC.md` | **current audio architecture**: end-to-end audio input and output paths, component ownership (laptop owns mic, WebRTC AEC3, VAD, pause detection; Pi is strictly a remote output sink with no mic/AEC), dataflow diagram, clock drift handling, and historical context |
 
 ## Project 2 design (from `main`)
 
