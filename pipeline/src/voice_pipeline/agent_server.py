@@ -33,7 +33,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as HttpRequest
 from websockets.http11 import Response as HttpResponse
 
-from voice_pipeline import agent_tools, call_policy, fast_path, question, venue
+from voice_pipeline import agent_tools, call_policy, fast_path, question, selfinfo, venue
 from voice_pipeline.agent import (
     KEEPALIVE_S,
     SAY_DELAY_SLOW,
@@ -55,7 +55,13 @@ from voice_pipeline.agent_tools import (
     with_builtin_search,
     without_tools,
 )
-from voice_pipeline.chain_state import ChainState, is_followup, wants_cancel
+from voice_pipeline.chain_state import (
+    ChainState,
+    is_answer,
+    is_chain_tool,
+    is_followup,
+    wants_cancel,
+)
 from voice_pipeline.device_say import device_sentence
 from voice_pipeline.doc_answer import (
     DOC_ANSWER_TIMEOUT_S,
@@ -745,6 +751,13 @@ class AgentServer:
             }
             with self.log.open("a") as sink:
                 sink.write(json.dumps(row) + "\n")
+            if chain is not None and not cancelled and chain.active():
+                # lights, music, the clock: turns the router or the fast path handle make no chain
+                # call, so they never counted; five of them left a research chain alive until a
+                # website request picked its notes up (2026-11-11)
+                used = [str(c.get("tool", "")) for c in self.record[before:]]
+                if not any(is_chain_tool(t) for t in used) and not is_answer(said):
+                    chain.touch_unrelated()
 
 
 async def run(
@@ -784,6 +797,7 @@ async def run(
         record, live=live, servers=servers, optional=optional, chain=chain, scratchpad=scratch
     )
     system = system_file.read_text()
+    selfinfo.load(agent_tools.REPO_ROOT / "config" / "profile.md")  # answers about the owner, local
     with contextlib.suppress(OSError, KeyError, ValueError):
         profile = agent_tools.REPO_ROOT / "config" / "profile.md"
         if install_profile(profile, agent_tools.delegate_workspace() / "scratch") and (

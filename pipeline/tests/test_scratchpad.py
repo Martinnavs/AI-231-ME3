@@ -134,12 +134,13 @@ async def test_the_delegate_task_gets_the_notes_sentence_once_and_only_with_note
 ) -> None:
     monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
     record: list[dict[str, Any]] = []
-    await _run("delegate", '{"status":"busy"}', {"task": "Make it."}, record)
-    assert record[-1]["args"]["task"] == "Make it."  # empty pad: unchanged
-    wired.add("web_answer", "q", "a")
-    await _run("delegate", '{"status":"busy"}', {"task": "Make it."}, record)
-    assert record[-1]["args"]["task"] == f"Make it. {NOTES_SENTENCE}"
-    await _run("delegate", '{"status":"busy"}', {"task": f"Make it. {NOTES_SENTENCE}"}, record)
+    task = "Make a poster about the Oxford graduation."
+    await _run("delegate", '{"status":"busy"}', {"task": task}, record)
+    assert record[-1]["args"]["task"] == task  # empty pad: unchanged
+    wired.add("web_answer", "Oxford graduation date", "The Oxford graduation is in June.")
+    await _run("delegate", '{"status":"busy"}', {"task": task}, record)
+    assert record[-1]["args"]["task"] == f"{task} {NOTES_SENTENCE}"
+    await _run("delegate", '{"status":"busy"}', {"task": f"{task} {NOTES_SENTENCE}"}, record)
     assert record[-1]["args"]["task"].count(NOTES_SENTENCE) == 1
 
 
@@ -163,3 +164,14 @@ async def test_chain_update_facts_are_noted(tmp_path: Path, wired: Scratchpad) -
     args = {"phase": "researching", "subject": "topic", "facts": "one | two"}
     await schema.handler(SimpleNamespace(arguments=args, result_callback=done))
     assert "facts: topic" in wired.render() and "one\ntwo" in wired.render()
+
+
+async def test_notes_about_something_else_are_not_handed_to_a_build(
+    wired: Scratchpad, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
+    wired.add("web_research", "top restaurants in Quezon City", "Wine Spectator and Tatler lists.")
+    record: list[dict[str, Any]] = []
+    task = "Create a website all about the user using /sandbox/scratch/PROFILE.md."
+    await _run("delegate", '{"status":"busy"}', {"task": task}, record)
+    assert record[-1]["args"]["task"] == task  # no NOTES sentence, no restaurant URLs

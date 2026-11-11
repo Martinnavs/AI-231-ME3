@@ -87,6 +87,14 @@ def same_task(a: str, b: str) -> bool:
     return smaller >= SAME_TASK_MIN and len(words_a & words_b) / smaller >= SAME_TASK
 
 
+FOLLOWUP_MIN_NEW = 2  # new distinctive words that make an overlapping request an addition
+
+
+def added_words(new: str, old: str) -> set[str]:
+    """The distinctive words of `new` that `old` does not have: what a follow-up adds."""
+    return (content_words(new) - GENERIC) - content_words(old)
+
+
 def expand(path: str) -> Path:
     return Path(path).expanduser()
 
@@ -127,6 +135,7 @@ class Delegator:
         self.run = run or self.run_in_sandbox
         self.tasks: dict[str, asyncio.Task[None]] = {}
         self.inline: set[str] = set()
+        self.followups: dict[str, list[str]] = {}  # running job id -> additions to run after it
         paths = config["paths"]
         self.sandbox = expand(paths["sandbox_root"])
         self.workspace = expand(paths.get("workspace", "~/agent_sandbox/workspace"))
@@ -217,6 +226,23 @@ class Delegator:
         job = self.table.finish(job_id, status, summary, result.usd)
         if job_id not in self.inline:
             self.table.notify(job)
+        self.start_followups(job)
+
+    def start_followups(self, parent: Job) -> None:
+        """Run what the user added while `parent` was running, as one job that updates its files.
+        A request that overlaps a running job used to be dropped as a repeat, so a follow-up such
+        as "also add public information" never reached the page (2026-11-11)."""
+        queued = self.followups.pop(parent.id, [])
+        if not queued or parent.status != DONE:  # nothing to build on when it did not finish
+            return
+        made = ", ".join(parent.files) or "its files"
+        task = (
+            f"This continues {parent.id}, which already made {made} in the shared workspace: "
+            "update those files in place and keep what is there; do not start a new page. "
+            "New request: " + " Also: ".join(queued)
+        )
+        job = self.table.create(task, self.config["backend"]["default"])
+        self.tasks[job.id] = asyncio.create_task(self.work(job.id))
 
     def write_log(self, job: Job, result: RunResult) -> None:
         head = f"task: {job.task}\nbackend: {job.backend}\nstatus: {result.status}"
@@ -247,6 +273,16 @@ class Delegator:
         for running in self.table.jobs.values():
             worker = self.tasks.get(running.id)
             if worker is not None and not worker.done() and same_task(task, running.task):
+                if len(added_words(task, running.task)) >= FOLLOWUP_MIN_NEW:
+                    queued = self.followups.setdefault(running.id, [])
+                    if not any(same_task(task, other) for other in queued):
+                        queued.append(task)
+                    return {
+                        "status": "queued",
+                        "job": running.id,
+                        "message": f"{running.id} is still running; your addition is queued and "
+                        "will update its result when it finishes.",
+                    }
                 return {
                     "status": "already_running",
                     "job": running.id,
@@ -325,6 +361,7 @@ class Delegator:
         if found is None or found.status != RUNNING or found.id not in self.tasks:
             return {"status": "none", "message": "There is no running task to stop."}
         self.tasks[found.id].cancel()
+        self.followups.pop(found.id, None)  # the additions were for a job that is no more
         self.table.finish(found.id, CANCELLED)
         return {"job": found.id, "status": CANCELLED, "task": found.task[:120]}
 

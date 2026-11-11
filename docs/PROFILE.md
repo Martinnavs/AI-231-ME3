@@ -21,6 +21,25 @@ It counts as filled in once **at least one field has a value** (headings, commen
 
 Code: `pipeline/src/voice_pipeline/scratchpad.py` (`profile_is_filled`, `install_profile`, `PROFILE_RULE`), `agent_server.py` (the install at start), `src/voice_agent/agent/subagent.py` (`from_profile`).
 
+## Asking about yourself by voice (fast path, 2026-11-11)
+
+`pipeline/src/voice_pipeline/selfinfo.py` answers these locally, in about 0.0 s, with **no model and no delegate job**; the profile text never goes to a cloud model:
+
+| You say | It answers from |
+|---|---|
+| "What's my name?", "Can you tell me my name?" | `Name` |
+| "Where do I work?", "What do I do?", "What's my job?" | `Occupation`, `Employer` |
+| "Where do I study?", "What am I studying?" | `Degree Program`, `School` (a `Demo School Name` is not the school) |
+| "Where do I live?", "What city do I live in?" | `City` |
+| "What course am I taking?", "Who is my instructor?" | `Current Course Name`, `Instructor Name` |
+| "Tell me about myself", "Who am I?" | name, work and study together |
+
+Links and email addresses are never read out. With no profile, or a field it lacks, the question goes on to the model as before. The fields are read when the agent server starts.
+
+## Public information on a page (2026-11-11)
+
+"Create a website about me, with publicly available information" no longer drops the second half. The front agent still does not search and never sees your name; it tells the delegate to read `PROFILE.md` **and** research publicly available professional information about that person (name and affiliation from the profile), keep only facts that clearly match the profile's links or affiliation, and list each source in `SOURCES.json`. If you ask for it while a page is still being built, it is **queued** and applied to the same page when the first job ends (`docs/MCP-SERVERS.md`, delegate). Check the sources: the first live trial added a "Professional experience" section from the public LinkedIn page.
+
 ## The doctor (optional check)
 
 `make doctor-tools` (or `.venv/bin/python scripts/delegate_doctor.py --offline`) reports two **optional** lines; neither can make the doctor fail, and the profile's contents are never printed:
@@ -42,7 +61,8 @@ Isolated copy of the stack, workspace inside the repository's `.scratch/`, profi
 
 ## Known limits
 
-- Restart needed after every edit.
+- Restart needed after every edit (the fast-path answers too).
+- Fields such as "Current Course" and "Demo Information" in your profile are published like any other: the delegate does not know they are for the demo. Delete or move them out of `config/profile.md` if they should not appear on a page, or say "remove the course and demo sections" after a build (the "delete or overwrite files?" question will ask for a yes first).
 - The page's text is written by a model from your fields; it can paraphrase but, in the one trial, added nothing.
 - The delegate's spoken summary for any page ends with "say open it to see it" (an app-oriented sentence).
-- Only "me/about me/my" requests use it; the profile is not answered from by voice ("what's my school?" is not wired).
+- A page build uses it for "me/about me/my" requests. Questions about yourself are answered by voice from the profile's fields (see below); other questions about yourself ("what is my article about?") are not.

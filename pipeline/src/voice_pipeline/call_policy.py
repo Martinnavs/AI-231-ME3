@@ -392,12 +392,24 @@ def known_apps() -> list[str]:
     return _apps_cache[1]
 
 
+# App names made only of these say nothing: an app called "about me" would otherwise be "named" by
+# every "tell me about Peru" (2026-11-11, after the agent built an about_me page).
+COMMON_APP_WORDS = frozenset(
+    {"about", "me", "my", "the", "a", "an", "and", "of", "to", "it", "is", "in", "on", "for"}
+    | {"game", "app", "play", "new", "test", "demo", "page", "site", "website", "simple"}
+)
+
+
 def names_an_app(user: str) -> bool:
     """The user's words contain the name of an existing app (angry birds, flappy bird)."""
     from voice_pipeline.agent_tools import app_key
 
     spoken = set(app_key(user).split())
-    return any(app_key(app) and set(app_key(app).split()) <= spoken for app in known_apps())
+    for app in known_apps():
+        words = set(app_key(app).split())
+        if words and not words <= COMMON_APP_WORDS and words <= spoken:
+            return True
+    return False
 
 
 # What the loaded documents are about (corpus/baby-onit). The router was trained before that corpus
