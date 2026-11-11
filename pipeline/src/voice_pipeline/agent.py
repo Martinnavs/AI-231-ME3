@@ -44,7 +44,7 @@ from voice_pipeline.device_say import device_sentence
 SAY_DELAY_S = 0.6  # a tool that answers within this makes the `say` sentence unnecessary
 # Tools that never answer that fast: their `say` is spoken at once (weather took 1.3-4.2 s every
 # time in the 2026-10-27 session, so holding its `say` 0.6 s only delayed it).
-SAY_DELAY_TODAY = {"weather": 0.0, "nearby": 0.0}
+SAY_DELAY_TODAY = {"weather": 0.0, "nearby": 0.0, "nearest": 0.0}
 # 2026-11-05 logs: first text came exactly one hold after the first call (80 Gemini tool turns,
 # median 0.61 s), and these tools took 0.63 s at the fastest (routed web lookups, median 1.9 s)
 SAY_DELAY_SLOW = {**SAY_DELAY_TODAY, "web_answer": 0.0, "search_docs": 0.0, "delegate": 0.0}
