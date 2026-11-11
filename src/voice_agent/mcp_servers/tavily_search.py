@@ -23,6 +23,7 @@ import contextlib
 import difflib
 import os
 import re
+import sys
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Callable, Sequence
@@ -84,6 +85,10 @@ SPELLING_MATCH = 0.8
 
 
 RESEARCH_RESULTS = 4
+# Only a question about the news may be limited to Tavily's news index: with recent=true on an
+# ordinary one ("graduate programs in AI at UP Diliman") it hid the university's own page and the
+# agent told the owner the program does not exist (live, 2026-11-11).
+NEWS_WORDS = re.compile(r"\b(news|headlines?|breaking|press release|this week|today's)\b", re.I)
 RECENT_SECOND_QUERY = True  # recent=true also searches with the current month and year added
 RESEARCH_TIMEOUT_S = 12.0  # basic depth is slower than the fast one web_answer uses
 RESEARCH_SNIPPET = 400
@@ -360,9 +365,9 @@ def build_server(
             "include_raw_content": False,
             "max_results": RESEARCH_RESULTS,
         }
-        if recent:
-            base |= {"topic": "news", "time_range": "year"}
         question = spoken_years_to_digits(query)
+        if recent and NEWS_WORDS.search(question):
+            base |= {"topic": "news", "time_range": "year"}
         queries = [question]
         hint = authority_hint_for(question)
         if hint:
@@ -372,17 +377,28 @@ def build_server(
             queries.append(f"{question} {now:%B %Y}")  # pulls up pages that name the current date
 
         async def one(text: str) -> list[Any] | None:
-            try:
-                async with asyncio.timeout(RESEARCH_TIMEOUT_S):
-                    response = await client().post(
-                        TAVILY_URL,
-                        json={**base, "query": text},
-                        headers={"Authorization": f"Bearer {api_key}"},
+            for attempt in range(2):  # one retry: a single blip used to end a research turn
+                try:
+                    async with asyncio.timeout(RESEARCH_TIMEOUT_S):
+                        response = await client().post(
+                            TAVILY_URL,
+                            json={**base, "query": text},
+                            headers={"Authorization": f"Bearer {api_key}"},
+                        )
+                    response.raise_for_status()
+                    return list(response.json().get("results") or [])
+                except (httpx.HTTPError, ValueError, TimeoutError, AttributeError) as error:
+                    print(
+                        f"web_research attempt {attempt + 1}: {type(error).__name__}",
+                        file=sys.stderr,
                     )
-                response.raise_for_status()
-                return list(response.json().get("results") or [])
-            except (httpx.HTTPError, ValueError, TimeoutError, AttributeError):
-                return None
+                    client_error = isinstance(error, httpx.HTTPStatusError) and (
+                        error.response.status_code in (400, 401, 403, 432, 433)
+                    )
+                    if client_error:
+                        break  # a refusal or an exhausted plan will not change on a retry
+                    await asyncio.sleep(0.3)
+            return None
 
         answers = [r for r in await asyncio.gather(*(one(q) for q in queries)) if r is not None]
         if not answers:

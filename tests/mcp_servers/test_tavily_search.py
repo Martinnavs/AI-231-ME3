@@ -388,12 +388,15 @@ RESEARCH = {
 
 
 async def _research(
-    tavily: httpx.Response | None, key: str | None = "test-key", **args: object
+    tavily: httpx.Response | None,
+    key: str | None = "test-key",
+    query: str = "Nobel prize winner",
+    **args: object,
 ) -> tuple[str, list[httpx.Request]]:
     seen: list[httpx.Request] = []
     server = build_server(_transport(tavily, seen), key, None, today=lambda: date(2026, 11, 8))
     async with Client(server) as client:
-        result = await client.call_tool("web_research", {"query": "Nobel prize winner", **args})
+        result = await client.call_tool("web_research", {"query": query, **args})
     return str(result.structured_content["result"]), seen
 
 
@@ -450,7 +453,7 @@ DATED = {
 
 
 async def test_recent_true_asks_for_news_of_the_last_year_and_shows_dates() -> None:
-    text, seen = await _research(httpx.Response(200, json=DATED), recent=True)
+    text, seen = await _research(httpx.Response(200, json=DATED), query="Nobel news", recent=True)
     body = json.loads(seen[0].content)
     assert body["topic"] == "news" and body["time_range"] == "year"
     lines = text.splitlines()
@@ -568,3 +571,49 @@ async def test_authority_hint_replaces_date_query_bounding_tavily_calls() -> Non
     assert len(queries) == 2
     assert queries[0] == "top philippine news for today"
     assert queries[1] == "top philippine news for today (Inquirer OR Philstar OR Rappler)"
+
+
+@pytest.mark.parametrize(
+    "query, news",
+    [
+        ("graduate degree programs in Artificial Intelligence UP Diliman", False),
+        ("latest version of ripgrep", False),
+        ("next public holiday in Japan", False),
+        ("top Philippine technology news for today", True),
+        ("breaking headlines in Cebu", True),
+    ],
+)
+async def test_recent_limits_the_search_to_news_only_for_a_news_question(
+    query: str, news: bool
+) -> None:
+    _, seen = await _research(httpx.Response(200, json=DATED), query=query, recent=True)
+    body = json.loads(seen[0].content)
+    assert (body.get("topic") == "news") is news
+    assert ("time_range" in body) is news
+
+
+async def test_web_research_retries_one_transient_failure_but_not_a_refusal() -> None:
+    calls = {"n": 0}
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(503) if calls["n"] == 1 else httpx.Response(200, json=DATED)
+
+    server = build_server(httpx.MockTransport(flaky), "k", None, today=lambda: date(2026, 11, 8))
+    async with Client(server) as client:
+        out = await client.call_tool("web_research", {"query": "Nobel prize winner"})
+    assert "Nobel 2025" in str(out.structured_content["result"]) and calls["n"] == 2
+
+    refused = {"n": 0}
+
+    def forbidden(request: httpx.Request) -> httpx.Response:
+        refused["n"] += 1
+        return httpx.Response(432)
+
+    server = build_server(
+        httpx.MockTransport(forbidden), "k", None, today=lambda: date(2026, 11, 8)
+    )
+    async with Client(server) as client:
+        out = await client.call_tool("web_research", {"query": "Nobel prize winner"})
+    assert str(out.structured_content["result"]) == "I couldn't search the web right now."
+    assert refused["n"] == 1
