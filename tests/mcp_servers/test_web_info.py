@@ -386,3 +386,24 @@ def test_name_matches_needs_every_word() -> None:
     assert web_info.name_matches("mercury drug", "Mercury Drug - Osmeña")
     assert not web_info.name_matches("jollibee", "Chowking")
     assert not web_info.name_matches("", "Anything")
+
+
+@pytest.mark.parametrize(
+    "text, first",
+    [
+        (
+            "Dr. Eugene Rex L. Jalao coordinates the program. He is a professor.",
+            "Dr. Eugene Rex L. Jalao coordinates the program.",
+        ),
+        (
+            "It was founded by J. P. Laurel in 1945. Next.",
+            "It was founded by J. P. Laurel in 1945.",
+        ),
+        ("Mt. Apo is the highest. It is in Davao.", "Mt. Apo is the highest."),
+        ("It rains. It pours.", "It rains."),
+    ],
+)
+def test_first_sentences_does_not_split_after_an_initial_or_a_title(text: str, first: str) -> None:
+    from voice_agent.mcp_servers.web_info import first_sentences
+
+    assert first_sentences(text, 1) == first

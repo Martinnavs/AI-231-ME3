@@ -164,9 +164,27 @@ def nearby_sentence(plural: str, place: str, items: list[tuple[str, float, str]]
     return f"The closest {plural} to {place} are {listed}."
 
 
+NOT_AN_END = re.compile(
+    r"(?:\b[A-Z]|\b(?:Dr|Mr|Mrs|Ms|Prof|Jr|Sr|St|Mt|Gen|Col|Sen|Rep|Gov|vs|No|Inc|Ltd|Co))\.$"
+)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Sentences, not breaking after an initial or a title: "Dr. Eugene Rex L. Jalao" is one
+    name (the answer was cut after "Rex L." in the live session of 2026-11-11)."""
+    pieces = re.split(r"(?<=[.!?])\s+", text.strip())
+    out: list[str] = []
+    for piece in pieces:
+        if out and NOT_AN_END.search(out[-1]):
+            out[-1] += " " + piece
+        else:
+            out.append(piece)
+    return out
+
+
 def first_sentences(text: str, n: int = MAX_SENTENCES, limit: int = MAX_CHARS) -> str:
     """The first `n` sentences of `text`, cut at `limit` characters."""
-    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    sentences = split_sentences(text)
     out = " ".join(sentences[:n])
     return out if len(out) <= limit else out[: limit - 3].rsplit(" ", 1)[0] + "..."
 

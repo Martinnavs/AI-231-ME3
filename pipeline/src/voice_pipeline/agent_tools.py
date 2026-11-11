@@ -709,11 +709,38 @@ def _about_own_work(user: str) -> bool:
     return about_own_work(user)
 
 
+WHO_QUESTION = re.compile(r"\s*who(?:'s|\s+(?:is|are|was|were))\b", re.IGNORECASE)
+NOT_ONE_FACT = re.compile(
+    r"\b(said|says?|think|thought|review\w*|opinions?|history|news|compare|why|how|best|top)\b",
+    re.IGNORECASE,
+)
+_web_answer: list[Callable[[FunctionCallParams], Awaitable[None]]] = []
+
+
+def one_fact_question(user: str) -> bool:
+    """A "who is ..." question with nothing that asks for several sources: one fact, so the
+    grounded web_answer, not a run of web_research searches (eight in a row for "who is the
+    coordinator of the AI program", 2026-11-11: the front agent kept choosing web_research)."""
+    return (
+        bool(WHO_QUESTION.match(user)) and not NOT_ONE_FACT.search(user) and len(user.split()) <= 25
+    )
+
+
 def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionSchema:
     inner = schema.handler
     assert inner is not None
 
     async def handler(params: FunctionCallParams) -> None:
+        if (
+            schema.name == "web_research"
+            and _web_answer
+            and one_fact_question(question.current)
+            and not (CHAIN is not None and CHAIN.active())
+        ):
+            params.arguments = {"query": question.current}  # the user's own full question
+            params.function_name = "web_answer"  # the MCP wrapper runs the tool named by the call
+            await _web_answer[0](params)
+            return
         if schema.name == "search_docs" and _about_own_work(question.current):
             await params.result_callback(NOT_IN_DOCUMENTS)
             return
@@ -888,6 +915,8 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             ):
                 _lookup_future.set_result("")
 
+    if schema.name == "web_answer":
+        _web_answer[:] = [handler]  # the newest build wins; web_research redirects to it
     return FunctionSchema(
         name=schema.name,
         description=schema.description,
