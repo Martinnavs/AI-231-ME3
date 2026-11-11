@@ -171,7 +171,18 @@ async def test_nearby_failure_is_a_sentence_the_model_can_recover_from() -> None
     assert text == "The places service did not answer, so I can't look that up right now."
 
 
-async def test_nearby_uses_google_with_ratings_when_a_key_file_exists(
+def _google(name: str, lat: float, rating: float | None, count: int = 100) -> dict[str, object]:
+    row: dict[str, object] = {
+        "displayName": {"text": name},
+        "location": {"latitude": lat, "longitude": 123.8854},
+        "userRatingCount": count,
+    }
+    if rating is not None:
+        row["rating"] = rating
+    return row
+
+
+async def test_nearby_uses_google_ratings_for_food_and_skips_unrated_pins(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     key = tmp_path / "key.txt"
@@ -179,19 +190,35 @@ async def test_nearby_uses_google_with_ratings_when_a_key_file_exists(
     monkeypatch.setattr(web_info, "GOOGLE_KEY_FILE", key)
     google = {
         "places": [
-            {
-                "displayName": {"text": "Casa Verde"},
-                "rating": 4.5,
-                "location": {"latitude": 10.3167, "longitude": 123.8854},
-            }
+            _google("Far Fave", 10.3250, 4.5),
+            _google("Casa Verde", 10.3167, 4.4),
+            _google("Pin With No Rating", 10.3158, None),
+            _google("Two Reviews", 10.3159, 5.0, count=2),
         ]
     }
     seen: list[httpx.Request] = []
     routes = {"https://geocoding-api": CEBU, "https://places.googleapis.com/": google}
     text = await _call_home(_transport(routes, seen), "nearby", {"kind": "restaurant"})
-    assert text == "The closest restaurants to Cebu City are Casa Verde, 100 meters, rated 4.5."
+    assert text == (
+        "The closest restaurants to Cebu City are Casa Verde, 100 meters, rated 4.4, "
+        "and Far Fave, 1.1 kilometers, rated 4.5."
+    )  # unrated and barely-rated pins dropped, nearest first
     sent = seen[-1]
     assert sent.headers["X-Goog-Api-Key"] == "test-key" and "key=" not in str(sent.url)
+    assert b'"POPULARITY"' in sent.content
+
+
+async def test_a_pharmacy_never_goes_to_google(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = tmp_path / "key.txt"
+    key.write_text("test-key")
+    monkeypatch.setattr(web_info, "GOOGLE_KEY_FILE", key)
+    seen: list[httpx.Request] = []
+    routes = {"https://geocoding-api": CEBU, PHOTON_URL: PHOTON}
+    text = await _call_home(_transport(routes, seen), "nearby", {"kind": "pharmacy"})
+    assert text.startswith("The closest pharmacies")
+    assert not any(r.url.host == "places.googleapis.com" for r in seen)
 
 
 async def test_a_google_failure_falls_back_to_photon(
