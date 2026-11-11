@@ -347,6 +347,28 @@ def followup_merged(trace: Trace) -> bool | None:
     return len(jobs) == 2 and "continues" in str(jobs[1].get("task", "")).lower()
 
 
+def job_count(trace: Trace, wanted: int) -> bool | None:
+    """Exactly `wanted` jobs ran: a repeat is dropped (1), two different builds both run (2)."""
+    jobs = trace.get("jobs")
+    return None if jobs is None else len(jobs) == wanted
+
+
+def independent_jobs(trace: Trace) -> bool | None:
+    """No job is a continuation of another: unrelated builds must not be merged."""
+    jobs = trace.get("jobs")
+    if not jobs:
+        return None
+    return not any("continues job" in str(j.get("task", "")).lower() for j in jobs)
+
+
+def first_job_cancelled(trace: Trace) -> bool | None:
+    """ "Stop the job" while it runs ends it, and starts nothing else."""
+    jobs = trace.get("jobs")
+    if not jobs:
+        return None
+    return len(jobs) == 1 and jobs[0].get("status") == "cancelled"
+
+
 def deliverable_has_marker(trace: Trace) -> bool | None:
     """What the follow-up asked to add (params["marker"]) is in a deliverable, so it was applied."""
     marker = str(trace["params"].get("marker", "")).lower()[:5]
@@ -393,6 +415,9 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "delegate_reads_notes": delegate_reads_notes,
     "no_stray_apps": no_stray_apps,
     "followup_merged": followup_merged,
+    "job_count": job_count,
+    "independent_jobs": independent_jobs,
+    "first_job_cancelled": first_job_cancelled,
     "deliverable_has_marker": deliverable_has_marker,
     "no_stale_context": no_stale_context,
     "asked_or_flagged": asked_or_flagged,
@@ -406,7 +431,7 @@ def score(scenario: Scenario, trace: Trace) -> dict[str, bool | None]:
     for name, wanted in scenario.expect.items():
         if not wanted:
             continue
-        args = [wanted] if name == "max_lookups_per_turn" and not isinstance(wanted, bool) else []
+        args = [] if isinstance(wanted, bool) else [wanted]
         results[name] = PREDICATES[name](trace, *args)
     return results
 
@@ -529,10 +554,17 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             "text": str(params.get("marker", "")) if text else "",
         }
         if scenario.overlap:
-            trace["jobs"] = [
-                {"id": "job1", "task": "Build a one-page site."},
-                {"id": "job2", "task": "This continues job1 ... update those files in place."},
-            ]
+            expect = scenario.expect
+            first = {"id": "job1", "task": "Build a one-page site.", "status": "done"}
+            if "first_job_cancelled" in expect:
+                trace["jobs"] = [{**first, "status": "cancelled"}]
+            elif "job_count" in expect:
+                trace["jobs"] = [first, {**first, "id": "job2"}][: int(expect["job_count"])]
+            else:
+                trace["jobs"] = [
+                    first,
+                    {"id": "job2", "task": "This continues job1 ... update those files in place."},
+                ]
     return trace
 
 
