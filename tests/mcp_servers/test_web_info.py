@@ -283,3 +283,22 @@ async def test_the_common_kinds_are_fetched_at_boot_and_answered_from_memory() -
         text = await client.call_tool("nearby", {"kind": "pharmacy"})
     assert "The closest pharmacies" in str(text.structured_content["result"])
     assert len(seen) == before  # no new request: it came from memory
+
+
+async def test_a_key_google_refuses_is_tried_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = tmp_path / "key.txt"
+    key.write_text("not-enabled")
+    monkeypatch.setattr(web_info, "GOOGLE_KEY_FILE", key)
+    seen: list[httpx.Request] = []
+    routes = {
+        "https://geocoding-api": CEBU,
+        "https://places.googleapis.com/": 403,
+        PHOTON_URL: PHOTON,
+    }
+    async with Client(build_server("Cebu City", _transport(routes, seen), ping_every_s=None)) as c:
+        await c.call_tool("nearby", {"kind": "restaurant"})
+        await c.call_tool("nearby", {"kind": "cafe"})
+    assert sum(r.url.host == "places.googleapis.com" for r in seen) == 1
+    assert sum(r.url.host == "photon.komoot.io" for r in seen) == 2  # both still answered

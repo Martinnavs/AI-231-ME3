@@ -42,7 +42,7 @@ PHOTON_URL = "https://photon.komoot.io/reverse"
 GOOGLE_PLACES_URL = "https://places.googleapis.com/v1/places:searchNearby"
 # never read by an assistant; the server reads it when a nearby search runs (a Maps demo key)
 GOOGLE_KEY_FILE = Path(
-    os.environ.get("GOOGLE_MAPS_KEY_FILE", "~/.secrets/google/maps-key.txt")
+    os.environ.get("GOOGLE_MAPS_KEY_FILE", "~/.secrets/google-maps/api-key.txt")
 ).expanduser()
 # "lat,lon" of the venue, copied from a map pin: "near me" then means near it, not the city centre
 HOME_COORDS = os.environ.get("VOICE_AGENT_HOME_COORDS", "")
@@ -242,6 +242,7 @@ def build_server(
                 return where, stale[1]
             return "The weather service did not answer, so I can't say right now."
 
+    google_refused: list[bool] = []
     nearby_cache: dict[tuple[str, float, float], tuple[float, list[tuple[str, float, str]]]] = {}
 
     async def locate(name: str) -> dict[str, Any] | None:
@@ -267,7 +268,10 @@ def build_server(
     async def google_nearby(
         kind: str, lat: float, lon: float
     ) -> list[tuple[str, float, str]] | None:
-        """Nearest places with their ratings from Google, or None (no key, or it did not work)."""
+        """Nearest places with their ratings from Google, or None (no key, or it did not work).
+        A key Google refuses (401/403: the API is not enabled for it) is not tried again."""
+        if google_refused:
+            return None
         try:
             key = GOOGLE_KEY_FILE.read_text().strip()
         except OSError:
@@ -307,6 +311,10 @@ def build_server(
                     )
                 )
             return out
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 403):
+                google_refused.append(True)
+            return None
         except (httpx.HTTPError, KeyError, ValueError, TypeError):
             return None
 
