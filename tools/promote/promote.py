@@ -125,9 +125,10 @@ def promoted(path: str, rules: list[Rule]) -> bool:
 
 # ---- docs index --------------------------------------------------------------------------
 BANNER = (
-    "> **This is the production tree.** Research notes, history, experiments and recorded results "
-    "live on the development branch `agy/interrupts` (`docs/`, `.scratch/`, `finetune/`); a doc "
-    "named below that is not in `docs/` is there.\n"
+    "> **This is the production tree.** Research notes, history, experiments (scripts, tests, "
+    "recorded results) live on the development branch `agy/interrupts`; a file named in a doc "
+    "below that is not here is there, or is a local file (`config/pi.env`, `config/profile.md`) "
+    "or runtime output (`out/`).\n"
 )
 ROW = re.compile(r"^\|\s*`([A-Za-z0-9_.-]+\.md)`\s*\|")
 
