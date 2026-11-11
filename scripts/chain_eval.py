@@ -356,6 +356,13 @@ def read_without_delegate(trace: Trace) -> bool | None:
     return "open_app" in tools and "delegate" not in tools  # open_app on a file name reads it
 
 
+def answered_by_web_answer(trace: Trace) -> bool:
+    """One fact, even a current one (who holds a role now): the grounded web_answer, once, not
+    several web_research searches (eight in a row in the live session of 2026-11-11)."""
+    tools = [c["tool"] for c in _calls(trace)]
+    return tools.count("web_answer") == 1 and "web_research" not in tools
+
+
 def job_count(trace: Trace, wanted: int) -> bool | None:
     """Exactly `wanted` jobs ran: a repeat is dropped (1), two different builds both run (2)."""
     jobs = trace.get("jobs")
@@ -424,6 +431,7 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "delegate_reads_notes": delegate_reads_notes,
     "no_stray_apps": no_stray_apps,
     "followup_merged": followup_merged,
+    "answered_by_web_answer": answered_by_web_answer,
     "job_count": job_count,
     "read_without_delegate": read_without_delegate,
     "independent_jobs": independent_jobs,
@@ -521,7 +529,9 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             notes.append(f"## 00:00 web_research: {user}\n{url}")
             trace["web_urls"].append(url)
             phase = "researching"
-        if scenario.kind == "readback" and last:
+        if scenario.kind == "lookup":
+            calls.append({"tool": "web_answer", "args": {"query": user}})
+        elif scenario.kind == "readback" and last:
             calls.append({"tool": "open_app", "args": {"name": "note.md"}})
         elif scenario.kind == "readback":
             task = "Write note.md."
@@ -664,6 +674,7 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
                     [*history, {"role": "user", "content": user}], case_f=chain.active()
                 )
                 agent_tools.reset_turn_lookups()
+                load("voice_pipeline.question").current = user  # as agent_server.handle sets it
                 before = len(record)
                 result = await agent.ask(steered, reset=True)
                 await asyncio.sleep(2.5)

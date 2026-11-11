@@ -1,0 +1,8 @@
+{"id": "recent_local_person", "span": "recent local", "question": "Who is the current coordinator of the Artificial Intelligence Program at UP Diliman?", "keywords": "coordinator Artificial Intelligence Program UP Diliman", "must": ["Jalao"]}
+{"id": "recent_local_office", "span": "recent local", "question": "Who is the current mayor of Cebu City?", "keywords": "current mayor of Cebu City 2026", "must": ["Archival"]}
+{"id": "recent_global_version", "span": "recent global", "question": "What is the latest stable version of Python?", "keywords": "latest stable Python version release date 2026", "must": ["3.15"]}
+{"id": "old_local_history", "span": "old local", "question": "Who was the first president of the University of the Philippines and when was it founded?", "keywords": "University of the Philippines first president founded year", "must": ["Bartlett", "1908"]}
+{"id": "old_global_prize", "span": "old global", "question": "Who won the 2018 Nobel Prize in Physics?", "keywords": "2018 Nobel Prize Physics winners", "must": ["Ashkin", "Strickland"]}
+{"id": "niche_local_existence", "span": "niche local", "question": "Does UP Cebu offer data science courses?", "keywords": "UP Cebu data science degree programs", "must": ["Data Science"]}
+{"id": "old_local_event", "span": "old local", "question": "Who killed Ferdinand Magellan in Cebu and in what year?", "keywords": "Magellan killed Mactan Lapu-Lapu year", "must": ["Lapu", "1521"]}
+{"id": "stable_global_fact", "span": "old global", "question": "What is the capital city of Australia?", "keywords": "capital city of Australia", "must": ["Canberra"]}
