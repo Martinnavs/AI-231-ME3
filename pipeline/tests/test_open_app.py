@@ -74,7 +74,7 @@ def test_the_sentence_is_spoken_as_it_is_with_no_second_request() -> None:
 async def test_the_tool_is_offered_and_answers_with_the_sentence(apps) -> None:  # type: ignore[no-untyped-def]
     tools = await build_tools([])
     schema = next(t for t in tools.standard_tools if t.name == "open_app")
-    assert set(schema.properties) == {"name", "say"} and schema.required == ["name"]
+    assert set(schema.properties) == {"name", "offset", "say"} and schema.required == ["name"]
     got: list[Any] = []
 
     async def result_callback(result: Any, *, properties: Any = None) -> None:

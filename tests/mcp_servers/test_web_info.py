@@ -55,7 +55,7 @@ async def _call(transport: httpx.MockTransport, tool: str, args: dict[str, objec
 async def test_lists_the_four_tools() -> None:
     async with Client(build_server("Quezon City", _transport({}), ping_every_s=None)) as client:
         names = sorted(t.name for t in await client.list_tools())
-    assert names == ["nearby", "nearest", "weather", "wiki_summary"]
+    assert names == ["nearby", "weather", "wiki_summary"]
 
 
 async def test_weather_today_at_home_is_one_sayable_sentence() -> None:
@@ -348,7 +348,7 @@ async def test_nearest_picks_the_closest_place_with_the_name_from_google(
     monkeypatch.setattr(web_info, "GOOGLE_KEY_FILE", key)
     seen: list[httpx.Request] = []
     routes = {"https://geocoding-api": CEBU, "https://places.googleapis.com/": GOOGLE_TEXT}
-    text = await _call_home(_transport(routes, seen), "nearest", {"name": "Jollibee"})
+    text = await _call_home(_transport(routes, seen), "nearby", {"name": "Jollibee"})
     assert text == "The nearest Jollibee is Jollibee Lahug, 1.8 kilometers away, rated 4.1."
     assert b'"textQuery":"Jollibee"' in seen[-1].content.replace(b" ", b"")
 
@@ -365,7 +365,7 @@ async def test_nearest_falls_back_to_photon_without_a_key(
         ]
     }
     routes = {"https://geocoding-api": CEBU, "https://photon.komoot.io/api/": photon}
-    text = await _call_home(_transport(routes), "nearest", {"name": "jollibee"})
+    text = await _call_home(_transport(routes), "nearby", {"name": "jollibee"})
     assert (
         text
         == "The nearest jollibee is Jollibee Guadalupe, 150 meters away, on Vicente Rama Avenue."
@@ -377,7 +377,7 @@ async def test_nearest_says_when_nothing_by_that_name_is_found(
 ) -> None:
     monkeypatch.setattr(web_info, "GOOGLE_KEY_FILE", tmp_path / "missing.txt")
     routes = {"https://geocoding-api": CEBU, "https://photon.komoot.io/api/": {"features": []}}
-    text = await _call_home(_transport(routes), "nearest", {"name": "Nowhere Burger"})
+    text = await _call_home(_transport(routes), "nearby", {"name": "Nowhere Burger"})
     assert text == "I couldn't find a Nowhere Burger near Cebu City."
 
 

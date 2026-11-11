@@ -369,19 +369,15 @@ OPEN_APP_DESCRIPTION = (
     "Open a web app (a game or demo the background assistant made) in the user's browser. Use it "
     "only when the user asks to open or play one, or says yes to your offer to open it. `name` is "
     "the app's folder name (letters, digits, - and _); leave it empty to hear which apps exist. "
-    "If the app does not exist the reply says so: offer to make it with `delegate`."
+    "If the app does not exist the reply says so: offer to make it with `delegate`. A text file "
+    "(a name ending .md, .txt or .csv) is not opened but read back to you, so you can read it "
+    "aloud or summarize it as plain sentences, with no symbols and no file or web addresses; a "
+    "long file comes in parts (call again with `offset`). Never delegate just to read a file."
 )
 
 
 READ_EXTENSIONS = frozenset({".md", ".txt", ".csv"})
 READ_CHARS = 1500  # about a minute of speech; the rest is read on "continue"
-READ_FILE_DESCRIPTION = (
-    "Read a text file the background assistant made (markdown, text or csv) so you can read it "
-    "aloud or summarize it. Use it when the user asks to read, hear, see or go over a file (an "
-    "email draft, a table, notes); never delegate just to read a file. `name` is the file name; "
-    "leave it empty to list the files. Long files come in parts: call again with `offset` to "
-    "continue. Speak it as plain sentences, with no symbols, and no file or web addresses."
-)
 
 
 def readable_files(root: Path) -> list[Path]:
@@ -558,7 +554,10 @@ def open_app(
 # The Pi's music MCP server has one tool; the model does not see it (it keeps using smart_home),
 # the home commands PLAY_MUSIC, PAUSE, STOP, NEXT, VOLUME_UP and VOLUME_DOWN reach it.
 MUSIC_TOOL = "music"
-MODEL_HIDDEN = frozenset({MUSIC_TOOL})
+# Not shown to the model: music (the router plays it), convert_time (get_current_time takes any
+# zone) and wiki_summary (web_answer covers it, and the router's wiki_summary calls already run as
+# web_answer). Fewer tools to choose between; the router path still reaches all of them.
+MODEL_HIDDEN = frozenset({MUSIC_TOOL, "convert_time", "wiki_summary"})
 MUSIC_INTENTS = {
     "PLAY_MUSIC": "play",
     "PAUSE": "pause",
@@ -920,6 +919,14 @@ async def build_tools(
     )
 
     async def open_handler(params: FunctionCallParams) -> None:
+        name = str(params.arguments.get("name") or "")
+        if Path(name).suffix.lower() in READ_EXTENSIONS:  # a text file is read back, not opened
+            try:
+                offset = int(params.arguments.get("offset") or 0)
+            except (TypeError, ValueError):
+                offset = 0
+            await params.result_callback(read_deliverable(name, offset))
+            return
         said, url = open_app(
             str(params.arguments.get("name") or ""), question.current, host=APPS_HOST
         )
@@ -930,15 +937,6 @@ async def build_tools(
         ):
             said = "I can't open a page from here right now."
         await params.result_callback(said)
-
-    async def read_handler(params: FunctionCallParams) -> None:
-        try:
-            offset = int(params.arguments.get("offset") or 0)
-        except (TypeError, ValueError):
-            offset = 0
-        await params.result_callback(
-            read_deliverable(str(params.arguments.get("name") or ""), offset)
-        )
 
     tools: list[FunctionSchema] = [
         home,
@@ -951,24 +949,14 @@ async def build_tools(
                         "type": "string",
                         "description": "the app's folder name, e.g. flappy_bird",
                     },
+                    "offset": {
+                        "type": "integer",
+                        "description": "for a long text file: skip this many characters",
+                    },
                     "say": SAY,
                 },
                 required=["name"],
                 handler=open_handler,
-            ),
-            record,
-        ),
-        _recorded(
-            FunctionSchema(
-                name="read_file",
-                description=READ_FILE_DESCRIPTION,
-                properties={
-                    "name": {"type": "string", "description": "the file name, e.g. notes.md"},
-                    "offset": {"type": "integer", "description": "characters to skip"},
-                    "say": SAY,
-                },
-                required=["name"],
-                handler=read_handler,
             ),
             record,
         ),

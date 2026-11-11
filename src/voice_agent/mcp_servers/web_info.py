@@ -510,19 +510,25 @@ def build_server(
             "pharmacy, atm, hospital, supermarket, convenience store, gas station or hotel. "
             f"Leave `place` empty for 'near me', 'nearby' and 'here' (the user is in {home}); "
             "give it only when the user names a city or area. Say the answer as it is; if the "
-            "kind is unclear (something to eat), ask which kind first."
+            "kind is unclear (something to eat), ask which kind first. For one NAMED place or "
+            "chain (Jollibee, 7-Eleven, Mercury Drug) give `name` instead of `kind`: the nearest "
+            "one."
         )
     )
-    async def nearby(kind: str, place: str | None = None) -> str:
+    async def nearby(kind: str = "", place: str | None = None, name: str = "") -> str:
+        if name.strip():
+            return await nearest(name, place)
         last_use[0] = clock()
+        if not kind.strip():
+            return "Which kind of place, or which name, should I look for?"
         split = split_kind(kind)
         if split is None:
             return "I can look up restaurants, cafes, pharmacies, ATMs, hospitals, hotels and more."
         which, qualifier = split
-        name = (place or home).strip()
-        where = await locate(name)
+        label = (place or home).strip()
+        where = await locate(label)
         if where is None:
-            return f"I couldn't find a place called {name}."
+            return f"I couldn't find a place called {label}."
         lat, lon = float(where["latitude"]), float(where["longitude"])
         try:
             items = await nearby_items(which, lat, lon)
@@ -536,15 +542,8 @@ def build_server(
             return f"I can't search for {qualifier} ones, but {said[0].lower()}{said[1:]}"
         return said
 
-    @server.tool(
-        description=(
-            "The nearest place with a given NAME, a chain or a business: Jollibee, 7-Eleven, "
-            "Mercury Drug, a named cafe. For a kind of place (restaurants, pharmacies) use "
-            f"nearby. Leave `place` empty for 'from here' (the user is in {home}). Say the "
-            "answer as it is."
-        )
-    )
     async def nearest(name: str, place: str | None = None) -> str:
+        """One named place, reached through `nearby(name=...)`: one tool for the model, not two."""
         last_use[0] = clock()
         wanted = " ".join(name.split())
         if not wanted:
