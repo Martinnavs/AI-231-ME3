@@ -794,6 +794,8 @@ async def run(
         await asyncio.wait_for(venue.resolve(), venue.TIMEOUT_S + 1)
     if (line := venue.prompt_line()) and system_file.name == "system_agent.txt":
         system += "\n\n" + line
+    if agent_tools.publish_configured() and system_file.name == "system_agent.txt":
+        system += "\n\n" + agent_tools.PUBLISH_RULE  # the tool exists only when a repo is set
     case_f_block = ""  # P2: the Case F chain protocol, kept out of the base prompt
     if not builtin_search and system_file.name == "system_agent.txt":
         with contextlib.suppress(OSError):

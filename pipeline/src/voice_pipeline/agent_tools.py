@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -124,6 +125,7 @@ SPOKEN_RESULT_TOOLS = {
     "weather",
     "nearby",
     "nearest",
+    "publish_pages",
     "wiki_summary",
     "web_answer",
     "get_volume",
@@ -146,6 +148,18 @@ CONFIRMED = re.compile(
     r"\b(yes|yeah|yep|yup|sure|go ahead|do it|confirm(ed)?|please do|oo|sige)\b", re.I
 )
 ASK_DESTRUCTIVE = "That would delete or overwrite files in the shared folder. Should I go ahead?"
+# Publishing to GitHub Pages (voice_agent.mcp_servers.pages): the first call is always a dry run
+# whose summary is spoken with a question; only a call for the same app, within PUBLISH_YES_S and
+# while the user's own words are a yes, publishes. Code enforces it: the model cannot skip it.
+PUBLISH_READY = "Ready to publish"  # the pages server's dry-run prefix (pages.READY)
+PUBLISH_ASK = " Should I go ahead and publish it?"
+PUBLISH_YES_S = 90.0
+_pending_publish: tuple[str, float] | None = None
+PUBLISH_RULE = (
+    "Publishing: to put an app that was already made on GitHub Pages ('publish it', 'put it "
+    "online'), call publish_pages with its folder name (open_app with an empty name lists them). "
+    "It asks the user to confirm; say what it returns. Never publish anything else."
+)
 DELEGATE_GRACE_S = 1.5
 _pending_destructive: str | None = None
 
@@ -554,6 +568,21 @@ def local_device_server() -> MCPClient:
     )
 
 
+def publish_config() -> Path:
+    return Path(os.environ.get("PUBLISH_CONFIG") or REPO_ROOT / "config" / "publish.toml")
+
+
+def publish_configured(path: Path | None = None) -> bool:
+    """Whether config/publish.toml names a repository (else the tool is not offered at all)."""
+    import tomllib
+
+    try:
+        repo = tomllib.loads((path or publish_config()).read_text()).get("repo", "")
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return bool(str(repo).strip())
+
+
 def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list[MCPClient]]:
     """(required, optional) servers: docs, time, web_info, tavily_search; delegate and the Pi's
     (if reachable) are optional."""
@@ -565,6 +594,8 @@ def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list
         stdio_server(TAVILY_COMMAND),
     ]
     optional = [stdio_server(delegate_command())]
+    if publish_configured():
+        optional.append(stdio_server([*ROOT_MODULE, "voice_agent.mcp_servers.pages"]))
     if (music := music_command()) is not None:
         optional.append(stdio_server(music))
     return required, optional + ([pi] if pi is not None else [])
@@ -698,6 +729,32 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                     await deliver_job(result, properties=properties)
 
             params.result_callback = job_callback
+        elif schema.name == "publish_pages":
+            global _pending_publish
+            app = str(args.get("app", "")).strip()
+            pending = _pending_publish
+            yes = (
+                pending is not None
+                and pending[0] == app
+                and time.monotonic() - pending[1] <= PUBLISH_YES_S
+                and CONFIRMED.search(question.current or "") is not None
+            )
+            args["dry_run"] = not yes  # the model's own value never counts
+            deliver_publish = params.result_callback
+
+            async def publish_callback(result: Any, *, properties: Any = None) -> None:
+                global _pending_publish
+                text = str(result)
+                if yes:
+                    _pending_publish = None
+                elif text.startswith(PUBLISH_READY):
+                    _pending_publish = (app, time.monotonic())
+                    text += PUBLISH_ASK
+                else:
+                    _pending_publish = None
+                await deliver_publish(text, properties=NO_SECOND_REQUEST)
+
+            params.result_callback = publish_callback
         elif schema.name in SPOKEN_RESULT_TOOLS:
             deliver = params.result_callback
 

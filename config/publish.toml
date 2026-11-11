@@ -1,0 +1,9 @@
+# Publish an app to GitHub Pages: docs/PUBLISH-PAGES.md. Nothing is offered or published until
+# `repo` is set. No secret belongs in this file; the token is read from `token_file` at publish time.
+repo = ""                              # https://github.com/<owner>/<repo>, a dedicated demo repository
+branch = "main"
+token_file = "~/.secrets/github/pat"   # fine-grained token for that one repository: Contents and Pages read/write
+apps_root = "~/agent_sandbox/workspace/apps"
+max_files = 100
+max_bytes = 5242880                    # 5 MB in all
+max_file_bytes = 1048576               # 1 MB per file
