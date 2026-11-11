@@ -143,3 +143,70 @@ async def test_secret_looking_env_and_unblocked_ssh_are_flagged() -> None:
     assert by["no secret env in sandbox"].status == doctor.MISSING
     assert by["ssh blocked by policy"].status == doctor.MISSING
     assert by["credentials folder github"].status == doctor.OK
+
+
+TEMPLATE = "# Profile\n<!-- note -->\n## Basics\n- Name:\n- City:\n## Work\n-\n-\n"
+FILLED = TEMPLATE.replace("- Name:", "- Name: Ada Lovelace")
+
+
+def test_profile_state_tells_missing_template_and_filled_apart(tmp_path: Path) -> None:
+    assert doctor.profile_state(tmp_path / "none.md") == ("missing", 0)
+    (tmp_path / "t.md").write_text(TEMPLATE)
+    assert doctor.profile_state(tmp_path / "t.md")[0] == "template"
+    (tmp_path / "f.md").write_text(FILLED)
+    assert doctor.profile_state(tmp_path / "f.md") == ("filled", len(FILLED.encode()))
+
+
+def by_name(checks: list[Any]) -> dict[str, Any]:
+    return {c.name: c for c in checks}
+
+
+async def test_a_missing_profile_is_a_warning_and_never_fails_the_doctor() -> None:
+    checks = await doctor.run_checks(probe(dict(GOOD)), offline=False)  # no profile at all
+    mine = by_name(checks)["owner profile"]
+    assert mine.status == doctor.MISSING and not mine.required
+    assert "docs/PROFILE.md" in mine.reason and "profile.example.md" in mine.reason
+    assert doctor.exit_code(checks) == 0
+    assert "profile in sandbox" not in by_name(checks)
+
+
+async def test_an_unfilled_template_is_a_warning() -> None:
+    p = probe(dict(GOOD), profile=lambda: ("template", 99))
+    checks = await doctor.run_checks(p, offline=False)
+    assert "no value filled in" in by_name(checks)["owner profile"].reason
+    assert doctor.exit_code(checks) == 0
+
+
+async def test_a_filled_profile_the_delegate_can_read_is_ok_and_reported() -> None:
+    replies = {**GOOD, "wc -c": result(0, "1693\n")}
+    p = probe(replies, profile=lambda: ("filled", 1693))
+    checks = await doctor.run_checks(p, offline=False)
+    got = by_name(checks)
+    assert got["owner profile"].status == doctor.OK
+    assert "never shown" in got["owner profile"].reason
+    assert got["profile in sandbox"].status == doctor.OK
+    assert "/sandbox/scratch/PROFILE.md" in got["profile in sandbox"].reason
+    assert "build a page about you from your profile" in doctor.format_report(checks)
+
+
+async def test_a_profile_not_yet_installed_says_to_restart_the_agent_server() -> None:
+    p = probe(dict(GOOD), profile=lambda: ("filled", 1693))  # wc finds nothing
+    checks = await doctor.run_checks(p, offline=False)
+    mine = by_name(checks)["profile in sandbox"]
+    assert mine.status == doctor.MISSING and "restart the agent server" in mine.reason
+    assert not mine.required and doctor.exit_code(checks) == 0
+    assert "build a page about you" not in doctor.format_report(checks)
+
+
+async def test_an_out_of_date_sandbox_copy_is_flagged() -> None:
+    replies = {**GOOD, "wc -c": result(0, "1200\n")}
+    p = probe(replies, profile=lambda: ("filled", 1693))
+    mine = by_name(await doctor.run_checks(p, offline=False))["profile in sandbox"]
+    assert mine.status == doctor.MISSING and "out of date (1200 bytes" in mine.reason
+
+
+async def test_a_broken_sandbox_still_reports_the_host_side_profile() -> None:
+    p = probe(dict(GOOD), preflight_problems=["bwrap missing"], profile=lambda: ("filled", 10))
+    got = by_name(await doctor.run_checks(p, offline=False))
+    assert got["owner profile"].status == doctor.OK
+    assert got["profile in sandbox"].status == doctor.BLOCKED

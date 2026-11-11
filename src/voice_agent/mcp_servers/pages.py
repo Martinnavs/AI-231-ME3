@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import re
@@ -118,11 +119,31 @@ def pages_url(repo: str, name: str) -> str | None:
     return f"{root}{project}/{name}/"
 
 
+def _json_strings(node: object) -> list[str]:
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, dict):
+        return [t for v in node.values() for t in _json_strings(v)]
+    if isinstance(node, list):
+        return [t for v in node for t in _json_strings(v)]
+    return []
+
+
+def _looks_secret(token: str) -> bool:
+    """A long single token with a digit or both letter cases: not a word, a path or a JSON key."""
+    if len(token) < MIN_SECRET_CHARS or any(c in token for c in ' \n"{}[]'):
+        return False
+    if token.endswith((":", ",")) or "/" in token and token.count("/") > 3:
+        return False
+    return any(c.isdigit() for c in token) or (token.lower() != token and token.upper() != token)
+
+
 def secret_values(directory: Path | None = None) -> list[str]:
-    """The exact contents of the owner's small one-line secret files: a page holding any of them is
-    refused, whatever shape the secret has."""
+    """The exact secret strings in the owner's small files under ~/.secrets: a page holding any of
+    them is refused, whatever shape the secret has. A JSON file contributes its string values (not
+    its keys); a text file its whole one-line content and each token that looks like a secret."""
     root = (directory or SECRETS_DIR).expanduser()
-    found: list[str] = []
+    found: set[str] = set()
     try:
         for path in sorted(root.rglob("*"))[:200]:
             try:
@@ -131,12 +152,17 @@ def secret_values(directory: Path | None = None) -> list[str]:
                 text = path.read_text(errors="ignore").strip()
             except OSError:
                 continue
-            found += [
-                t for t in {text, *text.split()} if len(t) >= MIN_SECRET_CHARS and "\n" not in t
-            ]
+            try:
+                found.update(t for t in _json_strings(json.loads(text)) if _looks_secret(t))
+                continue
+            except ValueError:
+                pass
+            if "\n" not in text and _looks_secret(text):
+                found.add(text)
+            found.update(t for t in text.split() if _looks_secret(t))
     except OSError:
         pass
-    return found
+    return sorted(found)
 
 
 def stage(apps_root: Path, app: str) -> tuple[Path, _Tally]:

@@ -186,9 +186,25 @@ def test_the_exact_contents_of_a_secrets_file_are_refused_whatever_their_shape(
     assert "notes.txt looks like it contains a secret" in refused(settings, secrets=found)
 
 
-def test_short_secret_file_contents_are_not_scanned_for(tmp_path: Path) -> None:
+def test_short_or_wordlike_secret_file_contents_are_not_scanned_for(tmp_path: Path) -> None:
     (tmp_path / "a").write_text("yes\n")
     (tmp_path / "b").write_text("two words here\nsecond line\n")
+    (tmp_path / "c").write_text("some-long-lowercase-words-only\n")  # no digit, one case: a phrase
+    assert pages.secret_values(tmp_path) == []
+
+
+def test_a_json_secret_file_contributes_its_values_not_its_keys(tmp_path: Path) -> None:
+    (tmp_path / "token.json").write_text(
+        '{"access_token": "ya29.A0ARrdaM-secretvalue99", "expires_at": 1762900000,'
+        ' "refresh_token": "1//0gRefreshValueXYZ123", "token_type": "Bearer"}'
+    )
+    found = pages.secret_values(tmp_path)
+    assert found == ["1//0gRefreshValueXYZ123", "ya29.A0ARrdaM-secretvalue99"]
+    assert not any("access_token" in v or "expires_at" in v for v in found)
+
+
+def test_a_notes_file_does_not_turn_its_code_fragments_into_secrets(tmp_path: Path) -> None:
+    (tmp_path / "Untitled").write_text('apps/some_game/index.html\n"Authorization": "Bearer x"\n')
     assert pages.secret_values(tmp_path) == []
 
 
