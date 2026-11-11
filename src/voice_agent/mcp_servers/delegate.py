@@ -87,12 +87,42 @@ def same_task(a: str, b: str) -> bool:
     return smaller >= SAME_TASK_MIN and len(words_a & words_b) / smaller >= SAME_TASK
 
 
+APP_FOLDER = re.compile(r"\bapps/([A-Za-z0-9_-]+)")
+FOLDER_NOISE = frozenset({"site", "page", "web", "app", "website", "demo", "new"})
+STEM = 5  # letters that make "lighthouse" and "lighthouses" one word
+
+
+def _folder_stems(task: str) -> set[str]:
+    """The stems of the words in the apps/<name> folders a task names."""
+    return {
+        word[:STEM]
+        for name in APP_FOLDER.findall(task)
+        for word in re.split(r"[_-]", name.lower())
+        if len(word) >= STEM and word not in FOLDER_NOISE
+    }
+
+
+def same_deliverable(a: str, b: str) -> bool:
+    """Two tasks that write the same apps/ folder, or folders named alike (the front agent restates
+    "also add X to it" as a whole new page in apps/<name>_site): one page, not two, or two jobs
+    race on the same files (live, 2026-11-11)."""
+    return bool(_folder_stems(a) & _folder_stems(b))
+
+
 FOLLOWUP_MIN_NEW = 2  # new distinctive words that make an overlapping request an addition
 
 
+# Politeness and pronouns: said around a repeat ("can you make me X right now"), never an addition.
+CHATTER = frozenset(
+    {"can", "could", "would", "you", "your", "me", "it", "its", "now", "right", "just", "really"}
+    | {"thanks", "thank", "too", "then", "okay", "ok", "yes", "yeah", "hey", "again", "there", "so"}
+)
+
+
 def added_words(new: str, old: str) -> set[str]:
-    """The distinctive words of `new` that `old` does not have: what a follow-up adds."""
-    return (content_words(new) - GENERIC) - content_words(old)
+    """The distinctive words of `new` that `old` does not have: what a follow-up adds. A repeat
+    wrapped in chatter ("can you make me X right now") adds none."""
+    return (content_words(new) - GENERIC - CHATTER) - content_words(old)
 
 
 def expand(path: str) -> Path:
@@ -272,7 +302,11 @@ class Delegator:
             return {"status": "busy", "message": message}
         for running in self.table.jobs.values():
             worker = self.tasks.get(running.id)
-            if worker is not None and not worker.done() and same_task(task, running.task):
+            if (
+                worker is not None
+                and not worker.done()
+                and (same_task(task, running.task) or same_deliverable(task, running.task))
+            ):
                 if len(added_words(task, running.task)) >= FOLLOWUP_MIN_NEW:
                     queued = self.followups.setdefault(running.id, [])
                     if not any(same_task(task, other) for other in queued):

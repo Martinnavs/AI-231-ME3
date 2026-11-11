@@ -600,3 +600,66 @@ async def test_a_cancelled_or_failed_job_drops_its_queued_additions(tmp_path: Pa
     release.set()
     await asyncio.sleep(0.15)
     assert list(delegator2.table.jobs) == ["job1"] and delegator2.followups == {}
+
+
+@pytest.mark.parametrize(
+    "request_text, addition",
+    [
+        ("Also add a short section about volcanoes to it.", True),
+        ("Also add a section about the red panda diet and habitat", True),
+        ("Also add the sinulog festival and its history", True),
+        ("Make a one-page website about the red panda please", False),  # a repeat
+        ("Can you make me a one-page website about the red panda right now", False),
+        ("Make it blue", False),  # one new word: below the threshold, reported as running
+    ],
+)
+def test_overlapping_request_is_an_addition_only_when_it_brings_new_subject_words(
+    request_text: str, addition: bool
+) -> None:
+    from voice_agent.mcp_servers.delegate import FOLLOWUP_MIN_NEW, added_words
+
+    old = "Make me a one-page website about the red panda."
+    assert (len(added_words(request_text, old)) >= FOLLOWUP_MIN_NEW) is addition
+
+
+def test_same_deliverable_follows_the_apps_folder_even_when_the_wording_differs() -> None:
+    from voice_agent.mcp_servers.delegate import same_deliverable
+
+    page = "Build a one-page website about lighthouses and save it in apps/lighthouses/index.html."
+    assert same_deliverable(page, "Add a timeline. Save it as apps/lighthouse_site/index.html")
+    assert same_deliverable(page, "Rewrite it in the directory 'apps/lighthouses/'.")
+    assert same_deliverable("a at apps/red_panda/x", "b at apps/red_panda_site/index.html")
+    assert not same_deliverable(page, "Build a snake game in apps/snake_game/index.html")
+    assert not same_deliverable(page, "Write a script that sorts numbers")  # names no folder
+    assert not same_deliverable("at apps/my_site/x", "at apps/new_app/x")  # only noise words
+
+
+async def test_a_restated_followup_in_a_new_folder_still_joins_the_running_job(
+    tmp_path: Path,
+) -> None:
+    release = asyncio.Event()
+    tasks: list[str] = []
+
+    async def slow(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        tasks.append(task)
+        if len(tasks) == 1:
+            await release.wait()
+        return RunResult(status="done", summary="Ready.\nFiles: apps/lighthouses/index.html")
+
+    delegator = make(tmp_path, slow)
+    first = "Build a one-page website about lighthouses, saved as apps/lighthouses/index.html."
+    again = (
+        "Create a single-page website about lighthouses with a Timeline section and a dark theme "
+        "toggle, saved as apps/lighthouse_site/index.html."
+    )
+    assert (await delegator.delegate(first, wait_s=0.05))["status"] == "started"
+    out = await delegator.delegate(again, wait_s=0.05)
+    assert out["status"] == "queued" and list(delegator.table.jobs) == ["job1"]  # not a 2nd job now
+    release.set()
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if len(delegator.table.jobs) == 2 and all(
+            j.status == DONE for j in delegator.table.jobs.values()
+        ):
+            break
+    assert "continues job1" in tasks[1] and "Timeline" in tasks[1]

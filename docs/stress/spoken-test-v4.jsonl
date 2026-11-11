@@ -1,0 +1,59 @@
+{"group": "A", "say": "Make it twenty-three degrees in here.", "route": "any", "intents_any": ["TEMPERATURE"], "listen": "setup: the action itself", "id": 1}
+{"group": "A", "say": "Call Marisol.", "route": "any", "tools_forbid": ["CALL", "TEMPERATURE"], "text_re": "phonebook|not in|don't have", "listen": "says Marisol is not in the phonebook; no call, no thermostat change", "id": 2}
+{"group": "A", "say": "Wake me at seven fifteen tomorrow.", "route": "any", "intents_any": ["ALARM"], "listen": "setup: the action itself", "id": 3}
+{"group": "A", "say": "Put a timer on.", "route": "any", "tools_forbid": ["TIMER", "ALARM"], "text_re": "\\?", "listen": "asks how long; no timer and no copy of 7:15", "id": 4}
+{"group": "A", "say": "Dim the lights to twenty percent.", "route": "any", "intents_any": ["BRIGHTNESS"], "listen": "setup: the action itself", "id": 5}
+{"group": "A", "say": "What's the weather like in Dumaguete today?", "route": "any", "tools_any": ["weather"], "tools_forbid": ["BRIGHTNESS"], "listen": "a forecast for Dumaguete, brightness untouched", "id": 6}
+{"group": "A", "say": "Turn the lights off.", "route": "any", "intents_any": ["LIGHT_OFF"], "listen": "setup: the action itself", "id": 7}
+{"group": "A", "say": "What is seventy-two divided by six?", "route": "any", "tools_forbid": ["TIMER", "ALARM", "LIGHT_OFF"], "text_re": "12", "listen": "a spoken sum, 12", "id": 8}
+{"group": "A", "say": "Change the light colour to orange.", "route": "any", "intents_any": ["COLOR"], "listen": "setup: the action itself", "id": 9}
+{"group": "A", "say": "Message Teodoro that I'm running late.", "route": "any", "tools_forbid": ["MESSAGE", "COLOR"], "text_re": "phonebook|not in|don't have", "listen": "says Teodoro is not in the phonebook; no message", "id": 10}
+{"group": "A", "say": "Set a timer for five minutes.", "route": "any", "intents_any": ["TIMER"], "listen": "setup: the action itself", "id": 11}
+{"group": "A", "say": "Set an alarm.", "route": "any", "tools_forbid": ["ALARM"], "text_re": "\\?", "listen": "asks for a time; does not invent one from the timer", "id": 12}
+{"group": "A", "say": "Warm it up to twenty-six degrees.", "route": "any", "intents_any": ["TEMPERATURE"], "listen": "setup: the action itself", "id": 13}
+{"group": "A", "say": "Will it be windy in Tagaytay tomorrow?", "route": "any", "tools_any": ["weather"], "tools_forbid": ["TEMPERATURE"], "listen": "a forecast for Tagaytay, thermostat untouched", "id": 14}
+{"group": "A", "say": "Play some music.", "route": "any", "intents_any": ["PLAY_MUSIC"], "listen": "setup: the action itself", "id": 15}
+{"group": "A", "say": "What's nine times eleven?", "route": "any", "tools_forbid": ["TIMER", "ALARM", "PLAY_MUSIC"], "text_re": "99", "listen": "a spoken sum, 99; music not restarted", "id": 16}
+{"group": "A", "say": "Lights on please.", "route": "any", "intents_any": ["LIGHT_ON"], "listen": "setup: the action itself", "id": 17}
+{"group": "A", "say": "Call Carlo.", "route": "any", "intents_any": ["CALL"], "tools_forbid": ["LIGHT_ON"], "listen": "calls Carlo (he is in the phonebook)", "id": 18}
+{"group": "A", "say": "Remind me to buy rice.", "route": "any", "intents_any": ["CREATE_REMINDER"], "listen": "setup: the action itself", "id": 19}
+{"group": "A", "say": "Start a countdown.", "route": "any", "tools_forbid": ["TIMER", "CREATE_REMINDER"], "text_re": "\\?", "listen": "asks how long; no second reminder", "id": 20}
+{"group": "A", "say": "Set brightness to sixty percent.", "route": "any", "intents_any": ["BRIGHTNESS"], "listen": "setup: the action itself", "id": 21}
+{"group": "A", "say": "Is it hot in Zamboanga right now?", "route": "any", "tools_any": ["weather"], "tools_forbid": ["BRIGHTNESS"], "listen": "the weather in Zamboanga, brightness untouched", "id": 22}
+{"group": "A", "say": "Pause the music.", "route": "any", "intents_any": ["PAUSE"], "listen": "setup: the action itself", "id": 23}
+{"group": "A", "say": "How much is two hundred and fifty plus one hundred and thirty?", "route": "any", "tools_forbid": ["TIMER", "ALARM", "PAUSE"], "text_re": "380", "listen": "a spoken sum, 380", "id": 24}
+{"group": "E", "say": "Who won the Nobel Prize in literature in 2016?", "route": "any", "tools_any": ["web_answer"], "race_winner": "web", "text_re": "Dylan", "listen": "web answer: Bob Dylan", "id": 25}
+{"group": "D", "say": "Huh, I didn't expect that.", "route": "any", "tools_forbid": ["web_answer", "CALL", "TIMER", "ALARM"], "max_words": 8, "listen": "a statement: a short acknowledgement, no new lookup", "id": 26}
+{"group": "E", "say": "And who won the Peace Prize in that year?", "route": "any", "tools_any": ["web_answer"], "race_winner": "web", "text_re": "Santos", "listen": "follow-up: the year 2016 must carry into the query", "id": 27}
+{"group": "D", "say": "That makes sense.", "route": "any", "tools_forbid": ["web_answer", "CALL", "TIMER", "ALARM"], "max_words": 8, "listen": "a statement", "id": 28}
+{"group": "E", "say": "What's the tallest building in the world right now?", "route": "any", "tools_any": ["web_answer"], "race_winner": "web", "text_re": "Burj", "listen": "web answer: Burj Khalifa", "id": 29}
+{"group": "D", "say": "Wow, that's tall.", "route": "any", "tools_forbid": ["web_answer", "CALL", "TIMER", "ALARM"], "max_words": 8, "listen": "a statement", "id": 30}
+{"group": "E", "say": "How many people live in Cebu City?", "route": "any", "tools_any": ["web_answer"], "text_re": "\\d", "listen": "web answer with a number", "id": 31}
+{"group": "D", "say": "That's more than I thought.", "route": "any", "tools_forbid": ["web_answer", "CALL", "TIMER", "ALARM"], "max_words": 8, "listen": "a statement", "id": 32}
+{"group": "E", "say": "Who is John Grady Cole?", "route": "any", "race_winner": "docs", "listen": "from the documents (All the Pretty Horses)", "id": 33}
+{"group": "D", "say": "Interesting, I should read that one.", "route": "any", "tools_forbid": ["web_answer", "CALL", "TIMER", "ALARM"], "max_words": 8, "listen": "a statement", "id": 34}
+{"group": "E", "say": "What happens at the end of The Road?", "route": "any", "race_winner": "docs", "min_words": 15, "listen": "from the documents; a real summary", "id": 35}
+{"group": "D", "say": "That's a sad ending.", "route": "any", "tools_forbid": ["web_answer", "CALL", "TIMER", "ALARM"], "max_words": 8, "listen": "a statement", "id": 36}
+{"group": "E", "say": "What is the price of one bitcoin today?", "route": "any", "tools_any": ["web_answer"], "race_winner": "web", "text_re": "\\d", "listen": "a number with units", "id": 37}
+{"group": "E", "say": "And what is that in Philippine pesos?", "route": "any", "tools_any": ["web_answer"], "text_re": "\\d", "listen": "follow-up: 'that' is the bitcoin price; a converted figure", "id": 38}
+{"group": "F", "say": "Tell me about how volcanoes erupt.", "route": "any", "interrupt": {"after_s": 3.0, "say": "Actually, set a timer for ten minutes.", "kind": "barge"}, "followup_intents": ["TIMER"], "listen": "stops within ~1 ms, then TIMER", "id": 39}
+{"group": "F", "say": "Describe how a refrigerator works.", "route": "any", "interrupt": {"after_s": 2.0, "say": "Stop.", "kind": "stop"}, "listen": "stop word silences it; nothing new is said", "id": 40}
+{"group": "F", "say": "Who won the most recent Wimbledon men's final?", "route": "any", "interrupt": {"after_s": 2.5, "say": "Never mind, turn off the lights.", "kind": "barge"}, "followup_intents": ["LIGHT_OFF"], "listen": "cut a web answer (or the 'looking it up' line); the new request is the lights", "id": 41}
+{"group": "G", "say": "Tell me about the history of the Philippines.", "route": "any", "silent": true, "min_words": 40, "listen": "STAY COMPLETELY SILENT for the whole reply: it must not be interrupted by its own echo (echo gate, min bar 0.06)", "id": 42}
+{"group": "G", "say": "Explain how the internet works.", "route": "any", "silent": true, "min_words": 40, "listen": "again silent: second false-trigger check on a different reply", "id": 43}
+{"group": "C", "say": "Run a directory listing in the sandbox and tell me what's in it.", "route": "any", "tools_any": ["delegate"], "listen": "a delegated sandbox command; a short 'started' reply", "id": 44}
+{"group": "C", "say": "Build me a small script that prints the first twenty primes.", "route": "any", "tools_any": ["delegate"], "listen": "a delegated build", "id": 45}
+{"group": "C", "say": "Is it done yet?", "route": "any", "tools_any": ["delegate_status"], "listen": "status of the latest job, no job named", "id": 46}
+{"group": "C", "say": "What's the status of the primes script?", "route": "any", "tools_any": ["delegate_status"], "text_not_re": "(?i)no delegated|no task", "listen": "status by description, not a job id; must find the job", "id": 47}
+{"group": "C", "say": "Start a background job that counts the lines in every file in the sandbox.", "route": "any", "tools_any": ["delegate"], "listen": "a second delegated job", "id": 48}
+{"group": "C", "say": "Cancel that job.", "route": "any", "tools_any": ["delegate_cancel"], "listen": "cancels the line-count job just started", "id": 49}
+{"group": "B", "say": "What volume is the speaker at right now?", "route": "any", "tools_any": ["get_volume"], "max_ms": 3500, "listen": "reads the Pi speaker's level: WRITE IT DOWN, the restore line at the end needs it", "id": 50}
+{"group": "B", "say": "Is the speaker plugged in?", "route": "any", "tools_any": ["device_status"], "max_ms": 3500, "listen": "yes/no from device_status", "id": 51}
+{"group": "B", "say": "Put the speaker at forty percent.", "route": "any", "tools_any": ["set_volume"], "tools_forbid": ["device_status"], "max_ms": 3500, "listen": "right after a status question: must SET the volume, not read the status", "id": 52}
+{"group": "B", "say": "How warm is the Pi running?", "route": "any", "tools_any": ["device_status"], "tools_forbid": ["web_answer"], "max_ms": 3500, "listen": "Pi temperature from device_status, not a web answer", "id": 53}
+{"group": "B", "say": "Change the speaker volume to fifty percent.", "route": "any", "tools_any": ["set_volume"], "tools_forbid": ["device_status"], "max_ms": 3500, "listen": "right after a status question: must SET the volume", "id": 54}
+{"group": "B", "say": "Ping google dot com and tell me the latency.", "route": "gemini", "tools_forbid": ["device_status", "get_volume", "set_volume"], "listen": "no router tool for this: Gemini takes it (a network check), not device_status", "id": 55}
+{"group": "B", "say": "How much memory is free on the Pi?", "route": "any", "tools_any": ["device_status"], "max_ms": 3500, "listen": "memory from device_status", "id": 56}
+{"group": "B", "say": "Set the Pi's volume to sixty percent.", "route": "any", "tools_any": ["set_volume"], "max_ms": 3500, "listen": "sets the volume (replies audibly quieter or louder)", "id": 57}
+{"group": "B", "say": "Set the speaker volume to [your level] percent.", "route": "any", "tools_any": ["set_volume"], "max_ms": 3500, "listen": "RESTORE: say the level you wrote down; replies back to normal", "id": 58}
+{"group": "B", "say": "Thanks, that's all for now.", "route": "router", "max_ms": 1800, "listen": "short closing", "id": 59}

@@ -183,6 +183,14 @@ TASK_GENERIC = frozenset(
     | {"named", "user", "information", "include", "show", "shows", "display", "details", "sources"}
     | {"facts", "notes", "conversation", "unchecked", "apps", "project", "sandbox", "scratch"}
     | {"profile", "markdown", "version", "script", "code", "also", "only", "should", "would"}
+    # question and function words, and the labels the notes file puts around every entry: the
+    # question "what is the tallest mountain" must not make a build "what sourdough bread is"
+    # look related (live, 2026-11-11)
+    | {"what", "which", "when", "where", "whom", "does", "have", "has", "them", "their", "there"}
+    | {"into", "your", "will", "than", "then", "each", "some", "more", "most", "just", "like"}
+    | {"very", "many", "much", "well", "been", "were", "they", "these", "those", "over", "such"}
+    | {"text", "data", "never", "instructions", "untrusted", "treat", "answer", "research"}
+    | {"query", "recent", "wiki", "summary", "today", "fact", "short", "basic", "overview"}
 )
 
 
