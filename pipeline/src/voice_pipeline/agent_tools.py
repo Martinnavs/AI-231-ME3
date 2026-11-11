@@ -123,6 +123,7 @@ PI_URL = pi_url_from_env()
 SPOKEN_RESULT_TOOLS = {
     "weather",
     "nearby",
+    "nearest",
     "wiki_summary",
     "web_answer",
     "get_volume",
