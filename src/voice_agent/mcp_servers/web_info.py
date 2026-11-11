@@ -48,6 +48,12 @@ GOOGLE_KEY_FILE = Path(
 HOME_COORDS = os.environ.get("VOICE_AGENT_HOME_COORDS", "")
 NEARBY_RADIUS_M = 1500
 NEARBY_COUNT = 3
+# Google only where a rating helps; a pharmacy, ATM or hospital comes from OpenStreetMap (free, and
+# Google's popularity list for those is noisy: a vet, a housing brand). Nearest-first on Google
+# returns user-added pins 4 m away with no rating, so it asks for the popular places instead.
+RATED_KINDS = frozenset({"restaurant", "cafe", "bar", "fast food", "hotel"})
+GOOGLE_CANDIDATES = 10
+MIN_RATINGS = 10  # a rating from fewer people is not worth saying
 NEARBY_TTL_S = 3600.0  # places hardly change; the venue's common kinds are fetched at boot
 WARM_KINDS = ("restaurant", "cafe", "pharmacy", "atm")
 NEARBY_TIMEOUT_S = 8.0
@@ -270,7 +276,7 @@ def build_server(
     ) -> list[tuple[str, float, str]] | None:
         """Nearest places with their ratings from Google, or None (no key, or it did not work).
         A key Google refuses (401/403: the API is not enabled for it) is not tried again."""
-        if google_refused:
+        if google_refused or kind not in RATED_KINDS:
             return None
         try:
             key = GOOGLE_KEY_FILE.read_text().strip()
@@ -280,8 +286,8 @@ def build_server(
             return None
         body = {
             "includedTypes": [NEARBY_KINDS[kind][1]],
-            "maxResultCount": NEARBY_COUNT,
-            "rankPreference": "DISTANCE",
+            "maxResultCount": GOOGLE_CANDIDATES,
+            "rankPreference": "POPULARITY",
             "locationRestriction": {
                 "circle": {
                     "center": {"latitude": lat, "longitude": lon},
@@ -291,7 +297,9 @@ def build_server(
         }
         headers = {
             "X-Goog-Api-Key": key,
-            "X-Goog-FieldMask": "places.displayName,places.rating,places.location",
+            "X-Goog-FieldMask": (
+                "places.displayName,places.rating,places.userRatingCount,places.location"
+            ),
         }
         try:
             r = await client().post(
@@ -300,16 +308,20 @@ def build_server(
             r.raise_for_status()
             rows = r.json().get("places") or []
             out = []
-            for row in rows[:NEARBY_COUNT]:
-                where = row["location"]
+            for row in rows:
                 rating = row.get("rating")
+                if not rating or int(row.get("userRatingCount") or 0) < MIN_RATINGS:
+                    continue
+                where = row["location"]
                 out.append(
                     (
                         row["displayName"]["text"],
                         metres_between(lat, lon, where["latitude"], where["longitude"]),
-                        f"rated {rating}" if rating else "",
+                        f"rated {rating}",
                     )
                 )
+            out.sort(key=lambda item: item[1])
+            out = out[:NEARBY_COUNT]
             return out
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in (401, 403):
