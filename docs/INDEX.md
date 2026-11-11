@@ -39,6 +39,8 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `PROGRESS-2026-11-08.md` | the addressee gate, the delegate git/HF doctor, research-then-build chains (web_research, chain state, scratchpad, sub-agent source checks) and `scripts/chain_eval.py`: what was built, how to run it (`make` recipes), results, decisions waiting for the owner, next steps |
 | `EVALUATOR-PROMPT.md` | prompt to paste to an agent that reviews other agents' work critique-first: claims against raw artifacts, predicate validity, coverage, report format |
 | `PROGRESS-2026-11-09.md` | multi-step chain performance fixes (parallel lookup deduplication, delegate facts/URL bridge, subagent deliverable disambiguation) and 8/8 live chain-eval pass ($0.082) |
+| `PROGRESS-2026-11-10.md` | single-turn build resilience, the stall watchdog, the P2 prompt split, the 15/20 live multi-trial pass, the Pi audio path |
+| `PROGRESS-2026-11-11.md` | **latest:** the harness review and fixes, owner profile file, Cebu venue and barangay, nearby/nearest places (Photon, Google), endpoint silence 0.7, GitHub Pages publish (ticket 04); evidence, how to run, open items in order |
 | `CHAIN-SIMPLIFICATION-AUDIT.md` | architecture audit: 65% core vs 35% overengineering debt, OnIt/baby-onit parity assessment, and 5-phase lean roadmap |
 | `../finetune/README.md` | start here on the cluster: the router fine-tuning project (contract, evaluation sets, baselines, tasks, rules); code in `finetune/` |
 
