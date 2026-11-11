@@ -575,3 +575,23 @@ async def test_check_sources_rejects_bare_domains_and_unused_sources() -> None:
 
     valid = json.dumps([{"url": "https://example.com/page", "fact": "used fact"}])
     assert await check_sources(SourceFileTools(valid)) is None
+
+
+def test_the_profile_sentence_allows_research_when_the_task_asks_for_public_information() -> None:
+    from voice_agent.agent.subagent import SYSTEM
+
+    assert "publicly available information about that person" in SYSTEM
+    assert (
+        "skip namesakes" in SYSTEM and "write /sandbox/SOURCES.json for those facts only" in SYSTEM
+    )
+
+
+def test_a_number_that_only_appears_in_a_given_url_is_not_flagged_as_invented() -> None:
+    from voice_agent.agent.subagent import lint_html
+
+    profile = "- Academic Article: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1234567"
+    page = '<a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1234567">SSRN 1234567</a>'
+    assert lint_html(page, [profile], "Build from PROFILE.md") == []
+    assert lint_html("<p>SSRN 7654321</p>", [profile], "Build from PROFILE.md") == [
+        "unsourced figure 7654321"
+    ]

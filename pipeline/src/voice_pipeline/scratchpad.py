@@ -24,11 +24,16 @@ NOTES_SENTENCE = (
 )
 PROFILE_FILE = "PROFILE.md"
 PROFILE_RULE = (
-    "Profile: the user wrote down who they are in /sandbox/scratch/PROFILE.md. This replaces the "
-    'rule above for "me", "about me" and "my ..." builds: no name question, no web_research and '
-    "no readback. Say in one short sentence that you will build it from their profile, then call "
-    "delegate with a task that names /sandbox/scratch/PROFILE.md and says to use only what it "
-    "says. Other kinds of tasks are unchanged."
+    "Profile: the user wrote down who they are in /sandbox/scratch/PROFILE.md. For a page or "
+    'website about them ("me", "about me", "my ..."): no name question, no web_research and no '
+    "readback of your own. Say in one short sentence that you will build it from their profile, "
+    "then call delegate with a task that names /sandbox/scratch/PROFILE.md and says to use it as "
+    "the source. If they also ask for publicly available or online information about themselves, "
+    "still do not search or ask for their name: put it in the task (also research publicly "
+    "available professional information about the person in the profile, using the name and "
+    "affiliation written there; keep only facts that clearly match the profile's links or "
+    "affiliation; list each source in /sandbox/SOURCES.json). A question about them is not a "
+    "build. Other tasks are unchanged."
 )
 _URL = re.compile(r"https?://[^\s\"'<>)\]|]+")
 _STAMP = re.compile(r"<!-- t=(\d+) -->")

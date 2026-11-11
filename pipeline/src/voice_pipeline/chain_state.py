@@ -56,6 +56,12 @@ def wants_cancel(text: str) -> bool:
     return CANCEL.search(text) is not None
 
 
+def is_answer(text: str) -> bool:
+    """A bare yes, no or okay: it answers the chain's question, it is not another topic."""
+    words = re.findall(r"[a-z']+", text.lower())
+    return bool(words) and all(w in _ANSWER_WORDS for w in words)
+
+
 def is_followup(text: str) -> bool:
     """A yes/no answer, a very short turn, or one that points back at what was just made."""
     words = re.findall(r"[a-z']+", text.lower())

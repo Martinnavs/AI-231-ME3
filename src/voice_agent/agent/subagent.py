@@ -66,7 +66,11 @@ SYSTEM = (
     "made and which sources it used, never file housekeeping, moves, retries or folders; only "
     "write the files the task asks for. If /sandbox/scratch/NOTES.md exists, read it first and "
     "reuse its URLs. If the task names /sandbox/scratch/PROFILE.md it is the user's own profile: "
-    "build only from it, add nothing it does not say, and write no SOURCES.json. "
+    "build from it and add nothing it does not say. If the task also asks for publicly available "
+    "information about that person, search with web_research using the name and affiliation in the "
+    "profile, keep only facts that clearly match the profile's links or affiliation (skip "
+    "namesakes), and write /sandbox/SOURCES.json for those facts only; the profile's own facts "
+    "need no source. "
     "If there are no confirmed items, write a plain note and stop. When news "
     "or facts are partial, assemble the deliverable with confirmed items, date them honestly, "
     "and link each story to its source URL with clickable badges. Never abort or leave empty "
@@ -228,7 +232,9 @@ def lint_html(html: str, facts: Sequence[str], task: str = "") -> list[str]:
         best = max((len(words & t) / len(words) for t in fact_tokens), default=0.0)
         if best < QUOTE_OVERLAP:
             flags.append(" ".join(quote.split())[:60])
-    known = set(_figures(" ".join([task, *facts])))
+    given = " ".join([task, *facts])
+    # a number inside a URL the task or a source gives (an SSRN id, an article id) is not invented
+    known = set(_figures(given)) | set(re.findall(r"\d{3,}", given))
     shown = dict.fromkeys(f for f in _figures(text) if f not in known)
     flags += [f"unsourced figure {f}" for f in list(shown)[:MAX_FIGURES]]
     return flags

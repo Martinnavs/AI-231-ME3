@@ -263,6 +263,7 @@
 + pipeline/src/voice_pipeline/question.py
 + pipeline/src/voice_pipeline/router.py
 + pipeline/src/voice_pipeline/scratchpad.py
++ pipeline/src/voice_pipeline/selfinfo.py
 + pipeline/src/voice_pipeline/search_count.py
 + pipeline/src/voice_pipeline/venue.py
 + pipeline/uv.lock

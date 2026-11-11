@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from voice_pipeline import venue
+from voice_pipeline import selfinfo, venue
 
 TIMEZONE = "Asia/Manila"  # the demo's time zone (the time server is told the same)
 UNITS = {"second": "seconds", "minute": "minutes", "hour": "hours"}
@@ -167,6 +167,38 @@ LOCAL: dict[str, str] = {
         "place",
     ),
     **dict.fromkeys(
+        ["what is my name", "what s my name", "whats my name", "do you know my name",
+         "tell me my name", "can you tell me my name", "do you remember my name"],
+        "self:name",
+    ),
+    **dict.fromkeys(
+        ["where do i work", "what do i do", "what do i do for work", "what is my job",
+         "what s my job", "what is my occupation", "what s my occupation", "who is my employer",
+         "what is my role", "what s my role"],
+        "self:work",
+    ),
+    **dict.fromkeys(
+        ["where do i study", "what do i study", "what am i studying", "what school do i go to",
+         "where do i go to school", "what is my school", "what s my school", "what is my degree",
+         "what s my degree", "what is my degree program"],
+        "self:study",
+    ),
+    **dict.fromkeys(
+        ["where do i live", "what city do i live in", "what is my city", "what s my city"],
+        "self:city",
+    ),
+    **dict.fromkeys(
+        ["what course am i taking", "what class am i taking", "what is my course",
+         "what s my course", "who is my instructor", "who is my professor",
+         "who s my professor", "who is my teacher", "what is my current course"],
+        "self:course",
+    ),
+    **dict.fromkeys(
+        ["tell me about myself", "tell me about me", "who am i", "what do you know about me",
+         "what do you know about myself", "describe me"],
+        "self:about",
+    ),
+    **dict.fromkeys(
         [
             "what barangay is this",
             "what barangay are we in",
@@ -206,7 +238,10 @@ def match(text: str) -> Match | None:
     """The fast-path action for an utterance, or None (then the LLM handles it)."""
     said = normalize(text)
     if said in LOCAL:
-        return Match("clock", {"what": LOCAL[said]}, None)
+        what = LOCAL[said]
+        if what.startswith("self:") and selfinfo.answer(what[5:]) is None:
+            return None  # the profile does not say: the model answers as before
+        return Match("clock", {"what": what}, None)
     if said in FIXED:
         intent, confirm = FIXED[said]
         return Match("smart_home", {"intent": intent}, confirm)
@@ -246,6 +281,8 @@ def clock_question(text: str) -> str:
 def local_answer(found: Match, now: datetime) -> str:
     """The reply to a `clock` match, given the current time in the demo's time zone."""
     what = found.args["what"]
+    if what.startswith("self:"):
+        return selfinfo.answer(what[5:]) or ""
     if what in ("place", "barangay"):
         return venue.spoken(asked_barangay=what == "barangay")
     clock_text = f"It's {now.hour % 12 or 12}:{now.minute:02d} {'AM' if now.hour < 12 else 'PM'}."

@@ -520,3 +520,83 @@ def test_the_same_task_rule_needs_shared_subject_words() -> None:
     )
     assert not same_task("Create a game", "Create a game")  # no distinctive words: not provable
     assert not same_task("Flappy Bird", "Angry Birds")
+
+
+SITE = "Create a simple website about the user at apps/about_me/index.html from the profile."
+ADDITION = "Also add publicly available professional information and publications to the website."
+
+
+async def test_an_addition_to_a_running_job_is_queued_and_updates_its_files(tmp_path: Path) -> None:
+    release = asyncio.Event()
+    tasks: list[str] = []
+
+    async def slow(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        tasks.append(task)
+        if len(tasks) == 1:
+            await release.wait()
+        return RunResult(status="done", summary="Ready.\nFiles: apps/about_me/index.html")
+
+    delegator = make(tmp_path, slow)
+    assert (await delegator.delegate(SITE, wait_s=0.05))["status"] == "started"
+    out = await delegator.delegate(SITE + " " + ADDITION, wait_s=0.05)
+    assert out["status"] == "queued" and out["job"] == "job1"
+    assert "queued" in out["message"] and list(delegator.table.jobs) == ["job1"]
+    release.set()
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if len(delegator.table.jobs) == 2 and all(
+            j.status == DONE for j in delegator.table.jobs.values()
+        ):
+            break
+    assert list(delegator.table.jobs) == ["job1", "job2"]
+    follow = tasks[1]
+    assert "continues job1" in follow and "apps/about_me/index.html" in follow
+    assert "update those files in place" in follow and "publicly available" in follow
+    assert len(notices(delegator)) == 2  # both jobs are announced
+
+
+async def test_a_pure_repeat_is_still_dropped_and_a_queued_addition_is_not_queued_twice(
+    tmp_path: Path,
+) -> None:
+    release = asyncio.Event()
+
+    async def slow(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        await release.wait()
+        return RunResult(status="done", summary="Ready.")
+
+    delegator = make(tmp_path, slow)
+    await delegator.delegate(SITE, wait_s=0.05)
+    again = await delegator.delegate(
+        "Create a simple website about the user at apps/about_me.", 0.05
+    )
+    assert again["status"] == "already_running"
+    first = await delegator.delegate(SITE + " " + ADDITION, wait_s=0.05)
+    second = await delegator.delegate(SITE + " " + ADDITION + " Thanks.", wait_s=0.05)
+    assert first["status"] == second["status"] == "queued"
+    assert len(delegator.followups["job1"]) == 1
+    release.set()
+    await asyncio.sleep(0.1)
+
+
+async def test_a_cancelled_or_failed_job_drops_its_queued_additions(tmp_path: Path) -> None:
+    release = asyncio.Event()
+
+    async def slow(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        await release.wait()
+        return RunResult(status="failed", summary="It did not work.")
+
+    delegator = make(tmp_path, slow)
+    await delegator.delegate(SITE, wait_s=0.05)
+    await delegator.delegate(SITE + " " + ADDITION, wait_s=0.05)
+    delegator.cancel("job1")
+    assert delegator.followups == {}
+    await asyncio.sleep(0.05)
+    assert list(delegator.table.jobs) == ["job1"]
+    # a job that finishes without success starts no follow-up either
+    (tmp_path / "b").mkdir()
+    delegator2 = make(tmp_path / "b", slow)
+    await delegator2.delegate(SITE, wait_s=0.05)
+    await delegator2.delegate(SITE + " " + ADDITION, wait_s=0.05)
+    release.set()
+    await asyncio.sleep(0.15)
+    assert list(delegator2.table.jobs) == ["job1"] and delegator2.followups == {}

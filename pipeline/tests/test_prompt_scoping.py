@@ -288,3 +288,25 @@ async def test_where_are_we_during_a_task_goes_to_the_model_with_its_state(tmp_p
     await _frames(url, "Where are we right now?")
     ws_server.close()
     assert agent.asked and "[ACTIVE TASK" in agent.asked[0][-1]["content"]
+
+
+async def test_a_question_about_the_owner_is_answered_locally_and_never_reaches_the_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_pipeline import selfinfo
+
+    monkeypatch.setattr(selfinfo, "FIELDS", {"name": "Ada Lovelace", "city": "London"})
+    agent = FakeAgent()
+    server = AgentServer(agent, [], tmp_path / "log.jsonl", chain=ChainState(tmp_path / "state"))
+    ws_server, url = await _serve(server)
+    frames = await _frames(url, "What's my name?")
+    ws_server.close()
+    assert "Your name is Ada Lovelace." in frames and agent.asked == []
+
+
+def test_the_profile_rule_lets_the_delegate_research_public_information() -> None:
+    from voice_pipeline.scratchpad import PROFILE_RULE
+
+    assert "publicly available" in PROFILE_RULE and "/sandbox/SOURCES.json" in PROFILE_RULE
+    assert "do not search or ask for their name" in PROFILE_RULE.replace("still ", "")
+    assert "A question about them is not a build" in PROFILE_RULE

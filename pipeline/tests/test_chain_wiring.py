@@ -432,9 +432,14 @@ async def test_delegate_task_receives_facts_and_source_urls(
 
     monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
     agent_tools.CHAIN = chain = ChainState(tmp_path / "state")
-    chain.update("awaiting_fact_approval", facts=["Fact 1", "Fact 2"])
+    chain.update("awaiting_fact_approval", subject="Oxford graduation", facts=["Fact 1", "Fact 2"])
     pad = Scratchpad(tmp_path / "NOTES.md")
-    pad.add("web_research", "query", "snippet", urls=["https://example.org/source1"])
+    pad.add(
+        "web_research",
+        "Oxford graduation",
+        "The Oxford graduation is in June.",
+        urls=["https://example.org/source1"],
+    )
     agent_tools.SCRATCHPAD = pad
     record: list[dict[str, Any]] = []
 
@@ -451,13 +456,13 @@ async def test_delegate_task_receives_facts_and_source_urls(
     await wrapped(
         SimpleNamespace(
             function_name="delegate",
-            arguments={"task": "Build the poster."},
+            arguments={"task": "Build the poster for the Oxford graduation."},
             result_callback=sink,
             tool_call_id="d1",
         )
     )
     task = record[-1]["args"]["task"]
-    assert record[-1]["raw_task"] == "Build the poster."
+    assert record[-1]["raw_task"] == "Build the poster for the Oxford graduation."
     assert "Notes from the conversation (unchecked): Fact 1 | Fact 2." in task
     assert "Primary source URLs: https://example.org/source1." in task
     assert "Notes and sources from the conversation are in /sandbox/scratch/NOTES.md" in task
@@ -498,3 +503,71 @@ def test_ambiguous_stop_words_do_not_drop_the_chain(phrase: str) -> None:
     from voice_pipeline.chain_state import wants_cancel
 
     assert not wants_cancel(phrase)
+
+
+async def test_a_build_about_something_else_ends_the_research_chain_and_carries_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from voice_pipeline.scratchpad import Scratchpad
+
+    monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
+    agent_tools.CHAIN = chain = ChainState(tmp_path / "state")
+    chain.update(
+        "researching",
+        subject="top restaurants in Quezon City",
+        facts=["The 2026 Tatler list names several Quezon City restaurants."],
+    )
+    pad = Scratchpad(tmp_path / "NOTES.md")
+    pad.add(
+        "web_research", "top restaurants in Quezon City", "Tatler.", urls=["https://x.example/a"]
+    )
+    agent_tools.SCRATCHPAD = pad
+    chain.on_change = lambda event: pad.reset() if event == "end" else None
+    record: list[dict[str, Any]] = []
+
+    async def dummy_handler(params: Any) -> None:
+        await params.result_callback("ok")
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        pass
+
+    schema = FunctionSchema(
+        name="delegate", description="d", properties={}, required=[], handler=dummy_handler
+    )
+    task = "Create a website all about the user using /sandbox/scratch/PROFILE.md."
+    await _recorded(schema, record).handler(
+        SimpleNamespace(
+            function_name="delegate",
+            arguments={"task": task},
+            result_callback=sink,
+            tool_call_id="d",
+        )
+    )
+    assert record[-1]["args"]["task"] == task  # no notes, no URLs
+    assert "Tatler" not in record[-1]["args"]["task"]
+    assert chain.data["facts"] == [] and not pad.has_entries()
+
+
+def test_related_needs_a_distinctive_shared_word() -> None:
+    assert agent_tools.related("Build a page for the Oxford graduation", "Oxford graduation date")
+    assert not agent_tools.related("Create a website about the user", "top restaurants Quezon City")
+    assert agent_tools.related("A cheat sheet for Node.js 26", "Node.js 26.13.0 released")
+    assert not agent_tools.related("Create a simple website", "Create a simple website")
+
+
+def test_is_answer_is_only_a_bare_yes_or_no() -> None:
+    from voice_pipeline.chain_state import is_answer
+
+    assert is_answer("Yes, please.") and is_answer("no") and not is_answer("turn the lights off")
+    assert not is_answer("")
+
+
+def test_an_app_named_with_common_words_is_not_named_by_every_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from voice_pipeline import call_policy
+
+    monkeypatch.setattr(call_policy, "known_apps", lambda: ["about_me", "angry_birds"])
+    assert not call_policy.names_an_app("Tell me about Peru")
+    assert not call_policy.names_an_app("What is this about, me?")
+    assert call_policy.names_an_app("play angry birds")

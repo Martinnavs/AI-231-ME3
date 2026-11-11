@@ -164,6 +164,38 @@ DELEGATE_GRACE_S = 1.5
 _pending_destructive: str | None = None
 
 
+# Words a build request is made of whatever it is about: they do not show that a task continues
+# the research in a chain's notes.
+TASK_GENERIC = frozenset(
+    {
+        "create",
+        "build",
+        "make",
+        "simple",
+        "website",
+        "webpage",
+        "page",
+        "pages",
+        "self",
+        "contained",
+    }
+    | {"file", "files", "html", "index", "using", "about", "with", "from", "that", "this", "folder"}
+    | {"named", "user", "information", "include", "show", "shows", "display", "details", "sources"}
+    | {"facts", "notes", "conversation", "unchecked", "apps", "project", "sandbox", "scratch"}
+    | {"profile", "markdown", "version", "script", "code", "also", "only", "should", "would"}
+)
+
+
+def _distinct(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]{4,}", text.lower())) - TASK_GENERIC
+
+
+def related(task: str, *texts: str) -> bool:
+    """Whether `task` shares a distinctive word with `texts` (a chain's subject and facts, or the
+    scratch notes): a build about something else must not carry them."""
+    return bool(_distinct(task) & _distinct(" ".join(texts)))
+
+
 def _job_row(result: Any) -> dict[str, Any] | None:
     if isinstance(result, str):
         try:
@@ -690,11 +722,22 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             deliver_job = params.result_callback
             task = str(args.get("task", ""))
             injected_parts: list[str] = []
+            if (
+                CHAIN is not None
+                and CHAIN.active()
+                and (CHAIN.data.get("facts") or CHAIN.data.get("subject"))
+                and not related(task, str(CHAIN.data.get("subject", "")), *CHAIN.data["facts"])
+            ):
+                CHAIN.update("idle")  # a build about something else: the research chain is over
             if CHAIN is not None and CHAIN.data.get("facts"):
                 facts_str = " | ".join(CHAIN.data["facts"])
                 if facts_str not in task:
                     injected_parts.append(f"Notes from the conversation (unchecked): {facts_str}.")
-            if SCRATCHPAD is not None and SCRATCHPAD.has_entries():
+            if (
+                SCRATCHPAD is not None
+                and SCRATCHPAD.has_entries()
+                and related(task, SCRATCHPAD.render())
+            ):
                 urls = sorted(SCRATCHPAD.urls())
                 if urls and not any(u in task for u in urls):
                     injected_parts.append(f"Primary source URLs: {', '.join(urls[:5])}.")
