@@ -13,7 +13,6 @@
 - resources/**
 - finetune/**
 - .claude/**
-- corpus/harry-potter/**
 - docs/fdbench-results/**
 - docs/pi-results/**
 - docs/stress/**
@@ -177,7 +176,7 @@
 # --- whole folders: every tracked file in them is production
 + assets/**
 + config/eval/**
-+ corpus/cormac-mccarthy/**
++ corpus/baby-onit/**
 + deploy/**
 + finetune/spec/**
 + pipeline/src/voice_pipeline/tools/**
@@ -199,8 +198,7 @@
 + uv.lock
 # config
 + config/delegate.toml
-+ config/entities-docs.json
-+ config/entities-mccarthy.json
++ config/entities-baby-onit.json
 + config/entities.json
 + config/fast_phrases.json
 + config/fillers.json
@@ -215,7 +213,7 @@
 + docs/ARCHITECTURE.md
 + docs/AUDIO-ENGINE.md
 + docs/BARGE-IN.md
-+ docs/CORPUS-MCCARTHY.md
++ docs/CORPUS-BABY-ONIT.md
 + docs/DOC-CHAT.md
 + docs/EVENT-LOG.md
 + docs/HANDOFF.md

@@ -1,6 +1,6 @@
 """The agent's tools: smart_home, plus the tools of its MCP servers, each call recorded.
 
-MCP servers: docs (a sample: BM25 over the McCarthy corpus), the official time server, web_info
+MCP servers: docs (BM25 over the baby-onit corpus), the official time server, web_info
 (weather and Wikipedia, in the root project) and the Pi's device server over the network. The
 Pi's is optional: without a token, or when the Pi is unreachable, the agent starts without it.
 """

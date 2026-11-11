@@ -38,21 +38,21 @@
 {"id": "a02", "kind": "ambiguous", "turns": ["Set an alarm."], "expect": [[]]}
 {"id": "n01", "kind": "negative", "turns": ["Hi, how are you today?"], "expect": [[]]}
 {"id": "n02", "kind": "negative", "turns": ["Tell me a fun fact about owls."], "expect": [[]]}
-{"id": "n03", "kind": "docs", "turns": ["When did Cormac McCarthy win the Pulitzer Prize?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "n03", "kind": "docs", "turns": ["Which tools does baby-onit ship?"], "expect": [[{"tool": "search_docs"}]]}
 {"id": "n04", "kind": "negative", "turns": ["Thanks, that's all."], "expect": [[]]}
 {"id": "m01", "kind": "multi-intent", "turns": ["Turn off the lights and play some music."], "expect": [[{"intent": "LIGHT_OFF", "slot": null}, {"intent": "PLAY_MUSIC", "slot": null}]]}
 {"id": "m02", "kind": "multi-intent", "turns": ["Set the temperature to 18 degrees and start a 10 second timer."], "expect": [[{"intent": "TEMPERATURE", "slot": "18 degrees"}, {"intent": "TIMER", "slot": "10 seconds"}]]}
 {"id": "t01", "kind": "multi-turn", "turns": ["Turn on the lights.", "Now make them red."], "expect": [[{"intent": "LIGHT_ON", "slot": null}], [{"intent": "COLOR", "slot": "red"}]]}
 {"id": "t02", "kind": "multi-turn", "turns": ["Play some music.", "Actually, stop it."], "expect": [[{"intent": "PLAY_MUSIC", "slot": null}], [{"intent": "STOP", "slot": null}]]}
 {"id": "t03", "kind": "multi-turn", "turns": ["Set an alarm.", "Eight in the morning."], "expect": [[], [{"intent": "ALARM", "slot": "8:00 AM"}]]}
-{"id": "d01", "kind": "docs", "turns": ["Who was Cormac McCarthy?"], "expect": [[{"tool": "search_docs"}]]}
-{"id": "d02", "kind": "docs", "turns": ["What is Blood Meridian about?"], "expect": [[{"tool": "search_docs"}]]}
-{"id": "d03", "kind": "docs", "turns": ["Which McCarthy novel did the Coen brothers adapt?"], "expect": [[{"tool": "search_docs"}]]}
-{"id": "d04", "kind": "docs", "turns": ["When did Cormac McCarthy die?"], "expect": [[{"tool": "search_docs"}]]}
-{"id": "d05", "kind": "docs", "turns": ["Who is Judge Holden?"], "expect": [[{"tool": "search_docs"}]]}
-{"id": "d06", "kind": "docs", "turns": ["What is the Border Trilogy?"], "expect": [[{"tool": "search_docs"}]]}
-{"id": "d07", "kind": "docs", "turns": ["Where did Cormac McCarthy grow up?"], "expect": [[{"tool": "search_docs"}]]}
-{"id": "d08", "kind": "docs", "turns": ["What was McCarthy's last novel?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "d01", "kind": "docs", "turns": ["What is baby-onit?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "d02", "kind": "docs", "turns": ["Where do baby-onit's API keys live?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "d03", "kind": "docs", "turns": ["How is baby-onit different from onit?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "d04", "kind": "docs", "turns": ["What does the baby-onit agent loop do?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "d05", "kind": "docs", "turns": ["What is the NEVER_ASK_COMMANDS list in baby-onit?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "d06", "kind": "docs", "turns": ["How does baby-onit remember earlier turns in a session?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "d07", "kind": "docs", "turns": ["What does baby-onit's doctor command check?"], "expect": [[{"tool": "search_docs"}]]}
+{"id": "d08", "kind": "docs", "turns": ["What does the baby-onit setup wizard do?"], "expect": [[{"tool": "search_docs"}]]}
 {"id": "f01", "kind": "free-value", "turns": ["Set a timer for 45 minutes."], "expect": [[{"intent": "TIMER", "slot": "45 minutes"}]]}
 {"id": "f02", "kind": "free-value", "turns": ["Wake me up at six thirty tomorrow morning."], "expect": [[{"intent": "ALARM", "slot": "6:30 AM"}]]}
 {"id": "f03", "kind": "free-value", "turns": ["Dim the lights to 35 percent."], "expect": [[{"intent": "BRIGHTNESS", "slot": "35 percent"}]]}

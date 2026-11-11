@@ -1,8 +1,12 @@
 """Write the names in a folder of documents as a speech-server names file.
 
-    uv run python scripts/make_entities.py corpus/harry-potter -o config/entities-docs.json
+    uv run python scripts/make_entities.py corpus/baby-onit --merge config/entities.json \
+        -o config/entities-baby-onit.json
     uv run --group laptop python -m lan_speech --stt-model parakeet \
-        --entities config/entities-docs.json
+        --entities config/entities-baby-onit.json
+
+The extractor finds capitalised names only: the shipped config/entities-baby-onit.json was curated
+by hand afterwards (it missed baby-onit, onit, vLLM, SGLang, OpenRouter, in spoken form).
 
 Each name gets the category "doc"; doc-chat sends the optional slot "doc?" (in agent mode too)
 so names are repaired when heard and questions without one are left alone.

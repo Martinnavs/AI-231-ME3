@@ -147,7 +147,7 @@ sys.exit(
             "--server",
             "ws://127.0.0.1:8767",
             "--docs",
-            "corpus/harry-potter",
+            "corpus/baby-onit",
             "--llm",
             "gemini",
             "--stream",

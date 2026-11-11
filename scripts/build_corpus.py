@@ -1,7 +1,7 @@
 """Split agy research reports into a doc_chat corpus folder.
 
-    uv run python scripts/build_corpus.py corpus/cormac-mccarthy \
-        .scratch/speech-hosting/AGY-MCCARTHY-*.md
+    uv run python scripts/build_corpus.py corpus/baby-onit \
+        .scratch/speech-hosting/AGY-BABY-ONIT-*.md
 
 Each report holds ``=== FILE: NN-name.md ===`` blocks, then ``=== SOURCES ===`` and
 ``=== UNVERIFIED ===`` blocks. Only the file blocks go into the corpus folder (every *.md and *.txt

@@ -359,7 +359,7 @@ Line names include 17 home-control intents (for example `LIGHT_ON`, `TIMER`, `AL
 
 | Server | Tools | Notes |
 |---|---|---|
-| Documents (required) | search | BM25 keyword search over a sample corpus of Cormac McCarthy texts. |
+| Documents (required) | search | BM25 keyword search over a document corpus (the baby-onit teaching document in the current build). |
 | Time (required) | current time, time conversion | Local zone Asia/Manila. |
 | Weather and Wikipedia (required) | weather, Wikipedia summary | **Open-Meteo** geocoding and forecast, and Wikipedia; no API key needed. |
 | Web answer (required) | web answer | Section 5.5. |
@@ -610,7 +610,7 @@ Approximate running cost on a heavy development day: under USD 0.05. A per-turn 
 3. The list of names for hotwords (1,444 in the reference), covering the places, brands, contacts and music the household uses.
 4. The pre-recorded filler lines and the fixed fast-path confirmations (synthesised at start).
 5. A phone book of contacts for the message tool (5 in the reference).
-6. A document set if document questions are wanted (the reference uses a sample of Cormac McCarthy texts).
+6. A document set if document questions are wanted (the current build uses the baby-onit teaching document).
 7. A job workspace folder and a read-only library folder for the sandbox.
 8. The Pi's speaker device name, its sample rate (48 kHz), and its SSH access.
 9. Time zone (the reference uses Asia/Manila).
