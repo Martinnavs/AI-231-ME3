@@ -62,7 +62,6 @@ async def test_smart_home_then_every_server_s_tools() -> None:
     assert _names(tools) == [
         "smart_home",
         "open_app",
-        "read_file",
         "weather",
         "wiki_summary",
         "get_volume",
@@ -75,7 +74,7 @@ async def test_an_unreachable_optional_server_is_left_out(
     tools = await build_tools(
         [], servers=[FakeServer(["weather"])], optional=[FakeServer(["get_volume"], fail=True)]
     )
-    assert _names(tools) == ["smart_home", "open_app", "read_file", "weather"]
+    assert _names(tools) == ["smart_home", "open_app", "weather"]
     assert "MCP server left out (ConnectError" in capsys.readouterr().err
 
 

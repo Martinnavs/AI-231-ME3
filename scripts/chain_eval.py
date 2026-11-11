@@ -353,7 +353,7 @@ def read_without_delegate(trace: Trace) -> bool | None:
     if len(trace["turns"]) < 2:
         return None
     tools = [c["tool"] for c in trace["turns"][-1]["calls"]]
-    return "read_file" in tools and "delegate" not in tools
+    return "open_app" in tools and "delegate" not in tools  # open_app on a file name reads it
 
 
 def job_count(trace: Trace, wanted: int) -> bool | None:
@@ -522,7 +522,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             trace["web_urls"].append(url)
             phase = "researching"
         if scenario.kind == "readback" and last:
-            calls.append({"tool": "read_file", "args": {"name": "note.md"}})
+            calls.append({"tool": "open_app", "args": {"name": "note.md"}})
         elif scenario.kind == "readback":
             task = "Write note.md."
             calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})

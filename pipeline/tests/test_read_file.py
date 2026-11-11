@@ -3,6 +3,8 @@ on a markdown file was refused with a rule about app names)."""
 
 from pathlib import Path
 
+import pytest
+
 from voice_pipeline.agent_tools import READ_CHARS, open_app, read_deliverable, readable_files
 
 
@@ -49,3 +51,27 @@ def test_a_long_file_comes_in_parts_with_the_next_offset(tmp_path: Path) -> None
 def test_open_app_on_a_file_name_says_it_is_a_file_and_offers_to_read(tmp_path: Path) -> None:
     said, url = open_app("email_to_upd_professor.md", "open it", root=tmp_path)
     assert url is None and "file" in said and "read" in said and "App names" not in said
+
+
+async def test_the_model_reads_a_text_file_through_open_app_not_a_second_tool(
+    tmp_path: Path, monkeypatch: "pytest.MonkeyPatch"
+) -> None:
+    from typing import Any
+
+    from voice_pipeline import agent_tools
+
+    root = _workspace(tmp_path)
+    monkeypatch.setattr(agent_tools, "delegate_workspace", lambda: root)
+    tools = await agent_tools.build_tools([])
+    names = [t.name for t in tools.standard_tools]
+    assert "read_file" not in names and "open_app" in names
+    schema = next(t for t in tools.standard_tools if t.name == "open_app")
+    got: list[Any] = []
+
+    async def result_callback(result: Any, *, properties: Any = None) -> None:
+        got.append(result)
+
+    params = type("P", (), {"arguments": {"name": "email_to_upd_professor.md"}})()
+    params.result_callback = result_callback  # type: ignore[attr-defined]
+    await schema.handler(params)
+    assert "Dear Dr. Jalao" in got[0]
