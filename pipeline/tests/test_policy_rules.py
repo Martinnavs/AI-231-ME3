@@ -179,3 +179,33 @@ def test_a_lookup_about_the_agents_own_work_goes_to_gemini(user: str) -> None:
 def test_a_real_document_question_still_gets_its_lookup() -> None:
     assert reason("web_answer|who is mccarthy", "Who is McCarthy?") is None
     assert reason("web_answer|the road", "What happens to the boy in The Road?") is None
+
+
+# ---- documents: a lookup about the loaded documents' subject is not a web search
+
+WITH_DOCS = AVAILABLE | {"search_docs", "wiki_summary"}
+DOCUMENT_TURNS = [
+    "How many tools does baby-onit ship?",
+    "What is baby onit?",
+    "Explain baby_onit's agent loop.",
+    "What is onit?",
+    "How is Baby-Onit different from onit?",
+]
+
+
+@pytest.mark.parametrize("user", DOCUMENT_TURNS)
+@pytest.mark.parametrize("line", ["web_answer|baby onit tools", "wiki_summary|baby onit"])
+def test_a_web_lookup_about_the_document_topic_goes_to_gemini(line: str, user: str) -> None:
+    decision = call_policy.decide(spec.parse_output(line), user, WITH_DOCS)
+    assert decision.reason == "about the loaded documents"
+
+
+def test_the_document_topic_rule_needs_the_documents_and_the_name() -> None:
+    web = spec.parse_output("web_answer|who painted the mona lisa")
+    assert call_policy.decide(web, "Who painted the Mona Lisa?", WITH_DOCS).reason is None
+    # not loaded: the router's lookup is better than nothing
+    own = spec.parse_output("web_answer|baby onit tools")
+    assert call_policy.decide(own, "How many tools does baby-onit ship?", AVAILABLE).reason is None
+    # words that merely contain it
+    for user in ("Is the shop online?", "Turn it on.", "Who is Brandon it?"):
+        assert not call_policy.about_document_topic(user)
