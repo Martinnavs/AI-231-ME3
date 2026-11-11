@@ -1,5 +1,8 @@
 # Echo cancellation across two devices (laptop mic, Pi speaker): measured, offline
 
+> [!NOTE]
+> For the full end-to-end audio architecture, component ownership, and dataflow (confirming that **AEC runs entirely on the Laptop** and the Pi runs no AEC/mic), see **[`docs/AUDIO-IO-AND-AEC.md`](file:///mnt/School/PhD/AI231/AI-231-ME3-agy/docs/AUDIO-IO-AND-AEC.md)**.
+
 **Bottom line (2026-10-23).** The laptop knows exactly what it sends to the Pi speaker, so WebRTC's echo canceller can use that stream as its reference even though the speaker is on another machine. Offline, on recordings from the production setup (Pi speaker at 80%), it removes most of the echo the speech recogniser hears and keeps the user's speech: the recogniser heard the whole echoed reply in 6 of 6 echo-only clips on the raw microphone and a 0-7 word fragment after cancelling. One session, one speaker, one room; not yet in the live loop.
 
 The reason my first offline attempt looked poor (about 5 dB) was not the canceller: the two sound cards run on different clocks, and the echo drifts by about 137 ppm (8 ms per minute) against the reference. A fixed-delay reference then has almost no coherence with the microphone; WebRTC's canceller tracks the drift by itself, and a drift-corrected reference confirms it is a clean linear path.

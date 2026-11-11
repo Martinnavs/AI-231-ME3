@@ -1,5 +1,8 @@
 # Laptop microphone, Pi speaker: the echo guard
 
+> [!NOTE]
+> For the comprehensive breakdown of audio input, output, and echo cancellation, see **[`docs/AUDIO-IO-AND-AEC.md`](file:///mnt/School/PhD/AI231/AI-231-ME3-agy/docs/AUDIO-IO-AND-AEC.md)**. The Pi runs **no AEC** and **no mic**; all echo cancellation runs on the laptop via WebRTC AEC3 (`src/doc_chat/aec.py`).
+
 The production setup being tested: the **laptop** owns the microphone, speech recognition and speech synthesis (`doc_chat` + `lan_speech`); the **Pi is only the loudspeaker**, receiving audio over the LAN. The Pi's own USB microphone is not used (it gave speech only 5-15 dB above its noise, see `docs/PI-RESULTS.md`; its end-of-turn behaviour is in `docs/PI-BRIDGE.md`).
 
 This moves the echo problem, it does not remove it: the laptop microphone hears the Pi speaker across the room. Measured 2026-10-23, one speaker, one room.

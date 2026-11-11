@@ -58,6 +58,7 @@ Start with **`HANDOFF.md`**. Everything else is linked from there; this is the f
 | `SMART-TURN.md` | experiments: Smart Turn v3 (audio), Turnsense (text), the confirm-and-stitch simulation; why none is adopted |
 | `BARGE-IN.md` | the original barge-in design and the measurements on the laptop (echo with and without cancellation) |
 | `INTERRUPTS.md` | the model-free interruption bench, the detector ablation, what it shows |
+| `AUDIO-IO-AND-AEC.md` | **current audio architecture**: end-to-end audio input and output paths, component ownership (laptop owns mic, WebRTC AEC3, VAD, pause detection; Pi is strictly a remote output sink with no mic/AEC), dataflow diagram, clock drift handling, and historical context |
 
 ## Project 2 design (from `main`)
 
