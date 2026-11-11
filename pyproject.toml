@@ -50,7 +50,11 @@ packages = ["src/voice_agent", "src/audio_engine", "src/bench", "src/lan_speech"
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
-extend-exclude = [".scratch", "src/doc_chat/fdbench_marks.py"]  # vendored unchanged from fd-benchmark/adapters
+extend-exclude = [
+    ".scratch",
+    "src/doc_chat/fdbench_marks.py",  # vendored unchanged from fd-benchmark/adapters
+    "finetune",  # its own project and lint config; the router loads two of its files by path
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
