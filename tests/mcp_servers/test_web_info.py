@@ -52,10 +52,10 @@ async def _call(transport: httpx.MockTransport, tool: str, args: dict[str, objec
     return str(result.structured_content["result"])
 
 
-async def test_lists_the_three_tools() -> None:
+async def test_lists_the_four_tools() -> None:
     async with Client(build_server("Quezon City", _transport({}), ping_every_s=None)) as client:
         names = sorted(t.name for t in await client.list_tools())
-    assert names == ["nearby", "weather", "wiki_summary"]
+    assert names == ["nearby", "nearest", "weather", "wiki_summary"]
 
 
 async def test_weather_today_at_home_is_one_sayable_sentence() -> None:
@@ -329,3 +329,60 @@ async def test_a_key_google_refuses_is_tried_once(
         await c.call_tool("nearby", {"kind": "cafe"})
     assert sum(r.url.host == "places.googleapis.com" for r in seen) == 1
     assert sum(r.url.host == "photon.komoot.io" for r in seen) == 2  # both still answered
+
+
+GOOGLE_TEXT = {
+    "places": [
+        _google("Jollibee Far", 10.3500, 4.2),
+        _google("Jollibee Lahug", 10.3320, 4.1),
+        _google("Chowking Lahug", 10.3311, 4.0),  # near, but another name: not a match
+    ]
+}
+
+
+async def test_nearest_picks_the_closest_place_with_the_name_from_google(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = tmp_path / "key.txt"
+    key.write_text("test-key")
+    monkeypatch.setattr(web_info, "GOOGLE_KEY_FILE", key)
+    seen: list[httpx.Request] = []
+    routes = {"https://geocoding-api": CEBU, "https://places.googleapis.com/": GOOGLE_TEXT}
+    text = await _call_home(_transport(routes, seen), "nearest", {"name": "Jollibee"})
+    assert text == "The nearest Jollibee is Jollibee Lahug, 1.8 kilometers away, rated 4.1."
+    assert b'"textQuery":"Jollibee"' in seen[-1].content.replace(b" ", b"")
+
+
+async def test_nearest_falls_back_to_photon_without_a_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(web_info, "GOOGLE_KEY_FILE", tmp_path / "missing.txt")
+    photon = {
+        "features": [
+            _place("Jollibee Far", 123.8854, 10.3500),
+            _place("Jollibee Guadalupe", 123.8854, 10.3170, "Vicente Rama Avenue"),
+            _place("Mang Inasal", 123.8854, 10.3158),
+        ]
+    }
+    routes = {"https://geocoding-api": CEBU, "https://photon.komoot.io/api/": photon}
+    text = await _call_home(_transport(routes), "nearest", {"name": "jollibee"})
+    assert (
+        text
+        == "The nearest jollibee is Jollibee Guadalupe, 150 meters away, on Vicente Rama Avenue."
+    )
+
+
+async def test_nearest_says_when_nothing_by_that_name_is_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(web_info, "GOOGLE_KEY_FILE", tmp_path / "missing.txt")
+    routes = {"https://geocoding-api": CEBU, "https://photon.komoot.io/api/": {"features": []}}
+    text = await _call_home(_transport(routes), "nearest", {"name": "Nowhere Burger"})
+    assert text == "I couldn't find a Nowhere Burger near Cebu City."
+
+
+def test_name_matches_needs_every_word() -> None:
+    assert web_info.name_matches("jollibee", "Jollibee Lahug")
+    assert web_info.name_matches("mercury drug", "Mercury Drug - Osmeña")
+    assert not web_info.name_matches("jollibee", "Chowking")
+    assert not web_info.name_matches("", "Anything")

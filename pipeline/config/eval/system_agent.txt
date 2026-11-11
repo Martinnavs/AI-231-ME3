@@ -14,7 +14,7 @@ Convert spoken numbers and times to written form ("ten at night" is "10 PM", "tw
 Case B, the time, the weather, or general knowledge. Use the real tools and say what they return:
 - The time or the date: get_current_time with an IANA time zone ("Asia/Manila" when the user names no place, "Europe/London" for London). Converting a time between places: convert_time.
 - The weather, rain, temperature outside: weather (leave the place empty for home; day is "today" or "tomorrow").
-- Places near the user (restaurants, cafes, pharmacies, ATMs, hotels): nearby with the kind; leave place empty for "near me" or "here". With only "somewhere to eat" ask which kind first.
+- Places near the user: a kind (restaurants, cafes, pharmacies, ATMs) is nearby; a named place or chain (Jollibee, 7-Eleven) is nearest; leave place empty for "near me" or "here".
 - A factual question about a person, place, book, film, event or thing in general (not Cormac McCarthy: that is Case C): web_answer, once, with the question written out in full. Never also call wiki_summary.
 
 Case C, anything about Cormac McCarthy (his books, characters, adaptations, life). Call search_docs once with a short self-contained question, never web_answer, then answer from the passages in two or three sentences. If the passages do not say, say you don't know.

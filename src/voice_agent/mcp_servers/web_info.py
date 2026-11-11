@@ -40,6 +40,8 @@ KNOWN_PLACES = {"cebu city": {"name": "Cebu City", "latitude": 10.3157, "longitu
 # timed out from Cebu on 2026-11-11; this answers in about 1.3 s)
 PHOTON_URL = "https://photon.komoot.io/reverse"
 GOOGLE_PLACES_URL = "https://places.googleapis.com/v1/places:searchNearby"
+GOOGLE_TEXT_URL = "https://places.googleapis.com/v1/places:searchText"
+PHOTON_SEARCH_URL = "https://photon.komoot.io/api/"
 # never read by an assistant; the server reads it when a nearby search runs (a Maps demo key)
 GOOGLE_KEY_FILE = Path(
     os.environ.get("GOOGLE_MAPS_KEY_FILE", "~/.secrets/google-maps/api-key.txt")
@@ -127,6 +129,13 @@ def split_kind(text: str) -> tuple[str, str] | None:
         if kind:
             return kind, " ".join(words[:-size])
     return None
+
+
+def name_matches(wanted: str, found: str) -> bool:
+    """Every word of the wanted name is in the found one ("jollibee" in "Jollibee Lahug")."""
+    words = re.findall(r"[a-z0-9]+", wanted.lower())
+    have = found.lower()
+    return bool(words) and all(w in have for w in words)
 
 
 def metres_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -330,6 +339,76 @@ def build_server(
         except (httpx.HTTPError, KeyError, ValueError, TypeError):
             return None
 
+    async def google_find(name: str, lat: float, lon: float) -> tuple[str, float, str] | None:
+        """The nearest place called `name` from Google's text search, or None."""
+        if google_refused:
+            return None
+        try:
+            key = GOOGLE_KEY_FILE.read_text().strip()
+        except OSError:
+            return None
+        if not key:
+            return None
+        body = {
+            "textQuery": name,
+            "maxResultCount": GOOGLE_CANDIDATES,
+            "locationBias": {
+                "circle": {"center": {"latitude": lat, "longitude": lon}, "radius": 5000.0}
+            },
+        }
+        headers = {
+            "X-Goog-Api-Key": key,
+            "X-Goog-FieldMask": (
+                "places.displayName,places.rating,places.userRatingCount,places.location"
+            ),
+        }
+        try:
+            r = await client().post(
+                GOOGLE_TEXT_URL, json=body, headers=headers, timeout=NEARBY_TIMEOUT_S
+            )
+            r.raise_for_status()
+            found: list[tuple[str, float, str]] = []
+            for row in r.json().get("places") or []:
+                title = row["displayName"]["text"]
+                if not name_matches(name, title):
+                    continue
+                where = row["location"]
+                rating = row.get("rating")
+                found.append(
+                    (
+                        title,
+                        metres_between(lat, lon, where["latitude"], where["longitude"]),
+                        f"rated {rating}" if rating and row.get("userRatingCount") else "",
+                    )
+                )
+            return min(found, key=lambda item: item[1]) if found else None
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 403):
+                google_refused.append(True)
+            return None
+        except (httpx.HTTPError, KeyError, ValueError, TypeError):
+            return None
+
+    async def photon_find(name: str, lat: float, lon: float) -> tuple[str, float, str] | None:
+        r = await client().get(
+            PHOTON_SEARCH_URL,
+            params={"q": name, "lat": lat, "lon": lon, "limit": 20},
+            timeout=NEARBY_TIMEOUT_S,
+        )
+        r.raise_for_status()
+        found: list[tuple[str, float, str]] = []
+        for feature in r.json()["features"]:
+            props = feature.get("properties") or {}
+            title = str(props.get("name") or "").strip()
+            if not name_matches(name, title):
+                continue
+            there, here = feature["geometry"]["coordinates"]
+            street = str(props.get("street") or "").strip()
+            found.append(
+                (title, metres_between(lat, lon, here, there), f"on {street}" if street else "")
+            )
+        return min(found, key=lambda item: item[1]) if found else None
+
     async def photon_nearby(kind: str, lat: float, lon: float) -> list[tuple[str, float, str]]:
         r = await client().get(
             PHOTON_URL,
@@ -456,6 +535,41 @@ def build_server(
         if qualifier:  # the data has no cuisine filter: say so instead of passing it off
             return f"I can't search for {qualifier} ones, but {said[0].lower()}{said[1:]}"
         return said
+
+    @server.tool(
+        description=(
+            "The nearest place with a given NAME, a chain or a business: Jollibee, 7-Eleven, "
+            "Mercury Drug, a named cafe. For a kind of place (restaurants, pharmacies) use "
+            f"nearby. Leave `place` empty for 'from here' (the user is in {home}). Say the "
+            "answer as it is."
+        )
+    )
+    async def nearest(name: str, place: str | None = None) -> str:
+        last_use[0] = clock()
+        wanted = " ".join(name.split())
+        if not wanted:
+            return "Which place should I look for?"
+        label = (place or home).strip()
+        where = await locate(label)
+        if where is None:
+            return f"I couldn't find a place called {label}."
+        lat, lon = float(where["latitude"]), float(where["longitude"])
+        key = (f"name:{wanted.lower()}", round(lat, 3), round(lon, 3))
+        cached = nearby_cache.get(key)
+        if cached is not None and clock() - cached[0] < NEARBY_TTL_S:
+            items = cached[1]
+        else:
+            try:
+                best = await google_find(wanted, lat, lon) or await photon_find(wanted, lat, lon)
+            except (httpx.HTTPError, KeyError, ValueError):
+                return "The places service did not answer, so I can't look that up right now."
+            items = [best] if best else []
+            nearby_cache[key] = (clock(), items)
+        if not items:
+            return f"I couldn't find a {wanted} near {where['name']}."
+        title, metres, extra = items[0]
+        detail = f", {extra}" if extra else ""
+        return f"The nearest {wanted} is {title}, {spoken_distance(metres)} away{detail}."
 
     @server.tool(
         description=(
