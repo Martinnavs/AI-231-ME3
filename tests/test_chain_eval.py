@@ -346,3 +346,32 @@ def test_main_seeds_multiply_the_estimate(
 ) -> None:
     ce.main(["--list", "--only", "snake_game", "--seeds", "3", "--out", str(tmp_path)])
     assert "estimate: about $0.06" in capsys.readouterr().out
+
+
+def test_followup_merged_needs_exactly_two_jobs_and_the_second_continuing_the_first() -> None:
+    merged = [{"task": "Build a site."}, {"task": "This continues job1: update those files."}]
+    assert ce.followup_merged({"jobs": merged}) is True
+    assert ce.followup_merged({"jobs": merged[:1]}) is False  # the follow-up was dropped
+    assert ce.followup_merged({"jobs": [merged[0], {"task": "Build a second page."}]}) is False
+    assert ce.followup_merged({"jobs": [*merged, merged[1]]}) is False
+    assert ce.followup_merged({"jobs": None}) is None
+
+
+def test_deliverable_has_marker_reads_what_the_followup_asked_for() -> None:
+    base = {"params": {"marker": "Origami"}, "job": {}}
+    assert ce.deliverable_has_marker({**base, "files": {"text": "<h2>Origami facts</h2>"}}) is True
+    assert ce.deliverable_has_marker({**base, "files": {"text": "<h2>Panda</h2>"}}) is False
+    assert ce.deliverable_has_marker({**base, "job": None, "files": {"text": ""}}) is None
+
+
+def test_no_stale_context_fails_on_the_notes_sentence_or_the_old_topic() -> None:
+    def trace(task: str) -> Any:
+        return {
+            "params": {"topic": "Peru"},
+            "turns": [turn("Build.", ("delegate", {"task": task}))],
+        }
+
+    assert ce.no_stale_context(trace("Build a sourdough page.")) is True
+    assert ce.no_stale_context(trace("Build it. Notes: /sandbox/scratch/NOTES.md")) is False
+    assert ce.no_stale_context(trace("Build a page about peru mountains.")) is False
+    assert ce.no_stale_context({"params": {}, "turns": [turn("hi")]}) is None

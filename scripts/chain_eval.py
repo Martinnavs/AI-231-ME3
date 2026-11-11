@@ -60,6 +60,7 @@ class Scenario:
     turns: list[str]
     params: dict[str, list[str]]
     expect: dict[str, Any]
+    overlap: bool = False  # the next turn is spoken while the build job still runs
 
 
 def load_scenarios(path: Path = SCENARIOS) -> list[Scenario]:
@@ -73,6 +74,7 @@ def load_scenarios(path: Path = SCENARIOS) -> list[Scenario]:
             r["turns"],
             r.get("params", {}),
             r.get("expect", {}),
+            bool(r.get("overlap")),
         )
         for r in rows
     ]
@@ -336,6 +338,34 @@ def delegate_reads_notes(trace: Trace) -> bool | None:
     return "/sandbox/scratch/NOTES.md" in task
 
 
+def followup_merged(trace: Trace) -> bool | None:
+    """A request added while a job runs is queued, then runs as ONE more job that continues the
+    first (not dropped as a repeat, not a second page): exactly two jobs, the second says so."""
+    jobs = trace.get("jobs")
+    if jobs is None:
+        return None
+    return len(jobs) == 2 and "continues" in str(jobs[1].get("task", "")).lower()
+
+
+def deliverable_has_marker(trace: Trace) -> bool | None:
+    """What the follow-up asked to add (params["marker"]) is in a deliverable, so it was applied."""
+    marker = str(trace["params"].get("marker", "")).lower()[:5]
+    if not marker or trace.get("job") is None:
+        return None
+    return marker in str(trace["files"].get("text", "")).lower()
+
+
+def no_stale_context(trace: Trace) -> bool | None:
+    """A build about something else must not carry the earlier research: neither the notes
+    sentence nor that topic's words reach the delegate task."""
+    turn = _build_turn(trace)
+    if turn is None:
+        return None
+    task = next(c["args"].get("task", "") for c in turn["calls"] if c["tool"] == "delegate")
+    old = str(trace["params"].get("topic", "")).lower()
+    return "/sandbox/scratch/NOTES.md" not in task and (not old or old not in task.lower())
+
+
 def no_stray_apps(trace: Trace) -> bool:
     """Non-playable deliverables must not write stray files into apps/."""
     apps_files = trace["files"].get("apps", [])
@@ -362,6 +392,9 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "scratchpad_has_findings": scratchpad_has_findings,
     "delegate_reads_notes": delegate_reads_notes,
     "no_stray_apps": no_stray_apps,
+    "followup_merged": followup_merged,
+    "deliverable_has_marker": deliverable_has_marker,
+    "no_stale_context": no_stale_context,
     "asked_or_flagged": asked_or_flagged,
 }
 REPORT_ONLY = frozenset({"asked_or_flagged"})  # shown, never scored
@@ -420,6 +453,7 @@ def _trace(scenario: Scenario, params: dict[str, str], trial: int) -> Trace:
         "files": {"SOURCES.json": None, "text_deliverables": [], "apps": []},
         "web_urls": [],
         "job": None,
+        "jobs": None,
         "scratch": {"exists": False, "text": ""},
         "lint_flags": 0,
         "spend": 0.0,
@@ -433,21 +467,30 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
     url = "https://example.org/source"
     phase = "idle"
     notes: list[str] = []
-    builds = scenario.kind in ("research_build", "code_only", "plain")
+    builds = scenario.kind in (
+        "research_build",
+        "code_only",
+        "plain",
+        "unrelated_build",
+        "overlap_build",
+    )
     for index, template in enumerate(scenario.turns):
         user = fill(template, params)
         last = index == len(scenario.turns) - 1
         turn_phase = phase
         calls: list[dict[str, Any]] = []
-        if scenario.kind == "research_build" and not notes:
+        if scenario.kind in ("research_build", "unrelated_build") and not notes:
             recent = RECENCY_WORDS.search(user) is not None
             calls.append({"tool": "web_research", "args": {"query": user, "recent": recent}})
             notes.append(f"## 00:00 web_research: {user}\n{url}")
             trace["web_urls"].append(url)
             phase = "researching"
-        if builds and last:
+        if scenario.kind == "overlap_build" and not last:
+            task = f"Build a one-page site. Source {url}"
+            calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
+        elif builds and last:
             task = f"Build the deliverable from these verified facts: x. Source {url}"
-            if notes:
+            if notes and scenario.kind != "unrelated_build":
                 task += " Notes and sources from the conversation are in /sandbox/scratch/NOTES.md."
             calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
         elif (scenario.kind in ("research_build", "code_only") and not calls) or (
@@ -467,7 +510,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
                 "scratch_entries": len(notes),
             }
         )
-        if scenario.kind == "research_build":
+        if scenario.kind in ("research_build", "unrelated_build"):
             phase = "researching"
     trace["scratch"] = {"exists": bool(notes), "text": "\n".join(notes)}
     if builds:
@@ -483,7 +526,13 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             "SOURCES.json": json.dumps([{"url": url, "fact": "x"}]) if text else None,
             "text_deliverables": [f"out.{scenario.deliverable}"] if text else [],
             "apps": ["snake_game/index.html"] if game else [],
+            "text": str(params.get("marker", "")) if text else "",
         }
+        if scenario.overlap:
+            trace["jobs"] = [
+                {"id": "job1", "task": "Build a one-page site."},
+                {"id": "job2", "task": "This continues job1 ... update those files in place."},
+            ]
     return trace
 
 
@@ -584,17 +633,30 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
                     {"role": "user", "content": user},
                     {"role": "assistant", "content": result.get("text", "")},
                 ]
+                if (
+                    scenario.overlap
+                    and turn != scenario.turns[-1]
+                    and any(c["tool"] == "delegate" for c in calls)
+                ):
+                    continue  # the follow-up is spoken while this job still runs
                 if any(c["tool"] == "delegate" for c in calls) and chain.data["job_id"]:
                     job = await _wait_job(state, chain.data["job_id"])
                     trace["job"] = job
                     server.note_chain_job(chain.data["job_id"])
                     history.append({"role": "assistant", "content": str(job.get("summary", ""))})
+            if scenario.overlap:
+                trace["job"] = await _wait_all(state)
         finally:
             await agent.stop()
         _collect_files(trace, workspace)
+        rows = _job_rows(state)
+        if scenario.overlap or rows:
+            trace["jobs"] = rows
         trace["scratch"] = {"exists": pad.path.exists(), "text": pad.render()}
         usage = {k: agent.tap.usage[k] - spent0.get(k, 0) for k in agent.tap.usage}
-        job_usd = float((trace["job"] or {}).get("usd", 0.0))
+        job_usd = sum(float(r.get("usd", 0.0)) for r in rows) or float(
+            (trace["job"] or {}).get("usd", 0.0)
+        )
         trace["spend"] = (usage["prompt"] * 0.25 + usage["completion"] * 1.5) / 1e6 + job_usd
         trace["lint_flags"] = (
             0 if not str((trace["job"] or {}).get("summary", "")).startswith(PREFIXES) else 1
@@ -618,6 +680,27 @@ def _capture_urls(
         await inner(params)
 
     return handler
+
+
+def _job_rows(state: Path) -> list[dict[str, Any]]:
+    try:
+        return [dict(r) for r in json.loads((state / "jobs.json").read_text())["jobs"]]
+    except (OSError, ValueError, KeyError):
+        return []
+
+
+async def _wait_all(state: Path) -> dict[str, Any]:
+    """Until no job runs (a queued follow-up starts as its parent ends, so look twice); the last
+    job's row, which is the one that carries the finished deliverable."""
+    deadline = time.monotonic() + JOB_WAIT_S
+    quiet = 0
+    while time.monotonic() < deadline:
+        rows = _job_rows(state)
+        quiet = quiet + 1 if rows and all(r["status"] != "running" for r in rows) else 0
+        if quiet >= 2:
+            return rows[-1]
+        await asyncio.sleep(3.0)
+    return {"status": "timeout", "summary": "", "usd": 0.0}
 
 
 async def _wait_job(state: Path, job_id: str) -> dict[str, Any]:
@@ -647,6 +730,10 @@ def _collect_files(trace: Trace, workspace: Path) -> None:
         and not p.is_relative_to(scratch_dir)
     )
     apps_dir = workspace / "apps"
+    trace["files"]["text"] = " ".join(
+        (workspace / name).read_text(errors="ignore")
+        for name in trace["files"]["text_deliverables"]
+    )
     trace["files"]["apps"] = (
         sorted(str(p.relative_to(apps_dir)) for p in apps_dir.rglob("*") if p.is_file())
         if apps_dir.exists()
