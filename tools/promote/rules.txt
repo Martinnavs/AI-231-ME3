@@ -271,6 +271,7 @@
 # scripts
 + scripts/addressee_replay.py
 + scripts/voice_gate_replay.py
++ scripts/live_test_report.py
 + scripts/calibrate.sh
 + scripts/chain_eval.py
 + scripts/search_eval.py
@@ -344,6 +345,7 @@
 + tests/agent/test_subagent.py
 + tests/doc_chat/test_addressee.py
 + tests/doc_chat/test_voice_gate.py
++ tests/test_live_test_report.py
 + tests/doc_chat/test_aec.py
 + tests/doc_chat/test_aec_lead.py
 + tests/doc_chat/test_aec_music.py
@@ -411,3 +413,4 @@
 + tests/test_make_entities.py
 + tests/test_pi_device_mcp.py
 + tests/test_pi_device_stdio.py
++ config/eval/live_test_script.json
