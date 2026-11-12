@@ -35,7 +35,8 @@ def test_the_audit_counts_each_failure_once_per_turn() -> None:
         row(
             "10:00:00",
             "make a page",
-            "I am building the restaurant website for you. I am building the website now, ready soon.",
+            "I am building the restaurant website for you. "
+            "I am building the website now, ready soon.",
             "delegate",
         ),
         row("10:00:10", "sorry I mean make a page", "Started.", "delegate"),  # inside 25 s

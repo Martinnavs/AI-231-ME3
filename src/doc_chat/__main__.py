@@ -43,7 +43,7 @@ from doc_chat.corpus import load_and_split_corpus, tokenize
 from doc_chat.dialogue import ChatHistory, Clarification, clarification_for, parse_yes_no
 from doc_chat.fdbench_marks import mark
 from doc_chat.fillers import Fillers, TurnFillers, strip_fillers
-from doc_chat.notices import Notice, NoticeFeed, notice_line
+from doc_chat.notices import RECENT_S, Notice, NoticeFeed, notice_line
 from doc_chat.speech import (
     STITCH_GAP_S,
     DocChatSpeechClient,
@@ -281,6 +281,7 @@ class Session:
     _echo_model: EchoModel | None = None  # speaker-to-microphone coupling, learned over the session
     _cue_s: float | None = None  # seconds into this reply a cue beep sounds, if it has one
     _spoken: list[str] = field(default_factory=list)  # sentences begun so far
+    _recent_said: list[tuple[float, str]] = field(default_factory=list)  # (time, sentence)
     _prompt_count: int = 0
     fillers: Fillers | None = None  # --fillers: pre-recorded lines while a slow answer waits
     _turn_fillers: TurnFillers | None = None
@@ -660,7 +661,10 @@ class Session:
             notice = feed.take()
             if notice is None:
                 continue
-            line = notice_line(notice.text)
+            now = time.time()
+            line = notice_line(
+                notice.text, [t for when, t in self._recent_said if now - when <= RECENT_S]
+            )
             cut = await self._speak_line(line)
             if cut is None:
                 self._log_notice(notice, "played", spoken=line)
@@ -851,6 +855,7 @@ class Session:
         def on_sentence(sentence: str) -> None:
             self._current_is_say = self._stream is not None and sentence in self._stream.flushed
             self._spoken.append(sentence)
+            self._recent_said = [*self._recent_said[-11:], (time.time(), sentence)]
             print(f"bot:  {sentence}", flush=True)
 
         try:

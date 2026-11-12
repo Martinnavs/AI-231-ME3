@@ -12,7 +12,9 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -30,9 +32,25 @@ class Notice:
     arrived: float = field(default_factory=time.time)
 
 
-def notice_line(text: str) -> str:
+RECENT_S = 60.0  # what was said within this long ago counts as "just told"
+RESTATED = 0.5  # share of the notice's content words that were just said
+_STOP_TEXT = (
+    "the a an and or of to in on for with is are was were be it this that my your we i you "
+    "will would can could have has had not now then just also so as at by from up out about "
+    "into its me us them they he she there here what which who when request done ready"
+)
+_STOP = frozenset(re.findall(r"[a-z]+", _STOP_TEXT))
+
+
+def _content(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9']+", text.lower()) if w not in _STOP and len(w) > 2}
+
+
+def notice_line(text: str, recent: Sequence[str] = ()) -> str:
     """What is said: the first sentence, at most MAX_WORDS words, cut at a word boundary. The whole
-    text stays in the job log and in delegate_status."""
+    text stays in the job log and in delegate_status. If most of it was already said in `recent`
+    (what the assistant told the user in the last minute), only "That's done." is said: the
+    details were just heard."""
     words = " ".join(text.split())
     for end in (". ", "? ", "! "):
         head, sep, _ = words.partition(end)
@@ -42,6 +60,9 @@ def notice_line(text: str) -> str:
     parts = words.split()
     if len(parts) > MAX_WORDS:
         words = " ".join(parts[:MAX_WORDS]).rstrip(",;:") + "."
+    mine = _content(words)
+    if len(mine) >= 2 and any(len(mine & _content(r)) / len(mine) >= RESTATED for r in recent):
+        return "That's done."
     return f"Your earlier request is done: {words}"
 
 

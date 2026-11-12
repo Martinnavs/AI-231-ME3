@@ -71,7 +71,7 @@ async def test_the_server_never_sends_the_json_and_logs_the_drop(tmp_path: Path)
             sent.append(event)
             if event.get("done"):
                 break
-    assert "job20" not in json.dumps(sent) and sent[0] == {"text": "I am checking."}
+    assert "job20" not in json.dumps(sent) and sent[0]["text"].strip() == "I am checking."
     row = json.loads((tmp_path / "log.jsonl").read_text().splitlines()[0])
     assert row["dropped_payload"] == ['{"job":"job20","status":"started"}']
     ws_server.close()

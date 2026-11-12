@@ -66,3 +66,12 @@ async def test_a_cut_notice_is_acked_at_once_and_never_comes_back() -> None:
     feed = Feed("ws://unused", "t")
     await feed.cut(Notice(9, "Done."))
     assert feed.waiting == [] and acked == [9]
+
+
+def test_a_notice_that_repeats_what_was_just_said_becomes_a_short_done() -> None:
+    summary = "I changed the Snarky Puppy website to include the international holidays."
+    told = ["I am updating the Snarky Puppy website to include the international holidays."]
+    assert notice_line(summary, told) == "That's done."
+    assert notice_line(summary, ["The weather in Cebu is rain."]).startswith("Your earlier request")
+    assert notice_line(summary, []).startswith("Your earlier request is done: I changed")
+    assert notice_line("Done.", told).startswith("Your earlier request")  # too little to compare
