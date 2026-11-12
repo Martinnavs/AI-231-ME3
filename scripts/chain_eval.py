@@ -690,7 +690,8 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
                     [*history, {"role": "user", "content": user}], case_f=chain.active()
                 )
                 agent_tools.reset_turn_lookups()
-                load("voice_pipeline.question").current = user  # as agent_server.handle sets it
+                question_state: Any = load("voice_pipeline.question")
+                question_state.current = user  # as agent_server.handle sets it
                 before = len(record)
                 result = await agent.ask(steered, reset=True)
                 await asyncio.sleep(2.5)
