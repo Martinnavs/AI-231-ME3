@@ -487,12 +487,12 @@ class Session:
     def music_state(self) -> str | None:
         """Sent with each agent request: "paused" while the music was paused by the user's voice,
         so the music tool agrees and a bare "play" resumes it."""
-        return "paused" if self._music is not None and self._music.auto_paused else None
+        return None  # ducking by voice leaves the music playing: the server's state is right
 
     def _pause_music_for_user(self) -> None:
-        """The user talked over a reply: the music, held for it, stays paused afterwards."""
+        """The user talked over a reply: the music stays down until the exchange is over."""
         if self._music is not None:
-            self._music.user_pause()
+            self._music.user_speech()
 
     def open_url(self, url: str) -> bool:
         """Open `url` in the default browser if, and only if, it is a page of an app served by the
@@ -1017,7 +1017,7 @@ class Session:
             idx += 1
             if heard is None:
                 if self._music is not None:
-                    self._music.resume_after_turn()  # the exchange is over: music comes back
+                    self._music.release_duck()  # the exchange is over: the music comes back up
                 heard, over_notice = await self.hear_idle()
                 after_interrupt = after_interrupt or over_notice
             said = re.sub(r"[^a-z' ]", " ", heard.text.lower()).split()

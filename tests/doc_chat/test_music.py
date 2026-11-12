@@ -13,6 +13,7 @@ import pytest
 
 from doc_chat.aec import EchoCanceller
 from doc_chat.music import (
+    DUCK_DB,
     TTS_REFERENCE_LUFS,
     AutoGain,
     MusicPlayer,
@@ -201,46 +202,46 @@ def test_the_gain_sent_to_the_pi_includes_the_auto_gain() -> None:
     assert gains[0] == -3.0 and len(gains) >= 1
 
 
-# ---- the hold: no music under a reply
+# ---- ducking: music stays audible, very low, while anyone talks
 
 
-def test_no_music_is_sent_while_a_reply_plays_and_a_flush_comes_first() -> None:
+def gains(ws: FakeWs) -> list[float]:
+    return [m["db"] for m in messages(ws) if m["type"] == "music_gain"]
+
+
+def test_music_is_ducked_while_a_reply_plays_and_restored_after_with_no_flush() -> None:
     speaking = {"v": False}
     ws = FakeWs()
     player = MusicPlayer(
-        lambda: ws,
-        decoder=lambda url, rate: FakeProc(30),
-        tts_playing=lambda: speaking["v"],
+        lambda: ws, decoder=lambda url, rate: FakeProc(30), tts_playing=lambda: speaking["v"]
     )
     player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
     assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
     speaking["v"] = True
-    assert wait(lambda: messages(ws)[-1]["type"] == "music_flush")
-    time.sleep(0.1)
-    n = len(ws.sent)
-    time.sleep(0.4)
-    assert len(ws.sent) == n  # nothing, not even a gain, while the reply plays
+    assert wait(lambda: gains(ws)[-1] == DUCK_DB)
+    n = sum(isinstance(m, bytes) for m in ws.sent)
+    assert wait(lambda: sum(isinstance(m, bytes) for m in ws.sent) > n + 3)  # still playing
     speaking["v"] = False
-    assert wait(lambda: len(ws.sent) > n)
+    assert wait(lambda: gains(ws)[-1] == 0.0)
+    assert not any(m["type"] == "music_flush" for m in messages(ws))
     player.close()
 
 
-def test_music_started_during_its_announcement_waits_for_it() -> None:
+def test_music_started_during_its_announcement_plays_ducked() -> None:
     ws = FakeWs()
+    speaking = {"v": True}
     player = MusicPlayer(
-        lambda: ws, decoder=lambda url, rate: FakeProc(30), tts_playing=lambda: True
+        lambda: ws, decoder=lambda url, rate: FakeProc(30), tts_playing=lambda: speaking["v"]
     )
     player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
-    time.sleep(0.4)
-    assert not any(isinstance(m, bytes) for m in ws.sent)
-    player._tts = lambda: False
     assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
+    assert wait(lambda: gains(ws)[-1] == DUCK_DB)
+    speaking["v"] = False
+    assert wait(lambda: gains(ws)[-1] == 0.0)
     player.close()
 
 
-def test_the_spotify_app_is_paused_for_a_reply_and_resumed_after(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_spotify_app_keeps_playing_through_a_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     from doc_chat import music as music_module
 
     commands: list[str] = []
@@ -259,9 +260,10 @@ def test_the_spotify_app_is_paused_for_a_reply_and_resumed_after(
     player.handle({"action": "play", "source": "spotify", "db": 0.0})
     assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
     speaking["v"] = True
-    assert wait(lambda: commands[-1:] == ["pause"])
+    assert wait(lambda: gains(ws)[-1] == DUCK_DB)
     speaking["v"] = False
-    assert wait(lambda: commands[-1:] == ["play"])
+    assert wait(lambda: gains(ws)[-1] == 0.0)
+    assert commands == []  # no pause, no play: the app is never touched for a reply
     player.close()
 
 
@@ -342,7 +344,7 @@ class StubPlayer:
         self.paused_at: list[int] = []
         self.block = 0
 
-    def user_pause(self) -> None:
+    def user_speech(self) -> None:
         self.paused_at.append(self.block)
         self.audible = False
 
@@ -456,130 +458,65 @@ def test_the_voice_detector_only_runs_while_the_music_is_audible() -> None:
     assert vad.fed == 3 and player.paused_at == [0] and vad.resets == 1
 
 
-def test_a_user_pause_flushes_stays_through_the_exchange_and_resumes_after_it() -> None:
+def test_the_user_talking_ducks_the_music_and_the_end_of_the_exchange_lifts_it() -> None:
     player, ws = make(seconds=30)
     player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
     assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
-    assert player.audible
-    player.user_pause()
-    assert player.auto_paused and not player.audible
-    assert messages(ws)[-1]["type"] == "music_flush"
-    time.sleep(0.2)
-    n = len(ws.sent)
-    player.handle({"action": "volume", "db": -3.0})  # volume while paused: still paused
-    time.sleep(0.4)
-    assert [m for m in ws.sent[n:] if isinstance(m, bytes)] == [] and player.auto_paused
-    player.resume_after_turn()  # the exchange is over (2026-11-12: it used to wait for "resume")
-    assert not player.auto_paused and wait(lambda: any(isinstance(m, bytes) for m in ws.sent[n:]))
+    player.user_speech()
+    assert player.ducked and player.audible  # quieter, never silent
+    assert gains(ws)[-1] == DUCK_DB
+    n = sum(isinstance(m, bytes) for m in ws.sent)
+    assert wait(lambda: sum(isinstance(m, bytes) for m in ws.sent) > n + 3)
+    assert not any(m["type"] == "music_flush" for m in messages(ws))
+    player.release_duck()
+    assert not player.ducked and gains(ws)[-1] == 0.0
     player.close()
 
 
-def test_the_music_comes_back_after_the_exchange_in_the_spotify_app(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from doc_chat import music as music_module
-
-    commands: list[str] = []
-    monkeypatch.setattr(
-        music_module, "spotify_local", lambda command, uri="", **kw: commands.append(command)
-    )
-    player, _ = make(seconds=30)
-    player._spotify = True
-    player.playing = True
-    player.user_pause()
-    assert wait(lambda: commands[-1:] == ["pause"])
-    player.resume_after_turn()
-    assert wait(lambda: commands[-1:] == ["play"]) and not player.auto_paused
-    player.resume_after_turn()  # nothing paused it now: no second play
-    time.sleep(0.2)
-    assert commands == ["pause", "play"]
-    player.close()
-
-
-def test_a_pause_or_stop_command_is_not_undone_after_the_exchange(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from doc_chat import music as music_module
-
-    commands: list[str] = []
-    monkeypatch.setattr(
-        music_module, "spotify_local", lambda command, uri="", **kw: commands.append(command)
-    )
-    player, _ = make(seconds=30)
-    player._spotify = True
-    player.playing = True
-    player.user_pause()  # the user's voice, then the command that voice carried
-    player.handle({"action": "pause"})
-    player.resume_after_turn()
-    time.sleep(0.2)
-    assert "play" not in commands and not player.auto_paused and player._paused.is_set()
-    player.close()
-
-
-def test_the_resume_waits_for_the_reply_that_is_playing(monkeypatch: pytest.MonkeyPatch) -> None:
-    from doc_chat import music as music_module
-
-    commands: list[str] = []
-    monkeypatch.setattr(
-        music_module, "spotify_local", lambda command, uri="", **kw: commands.append(command)
-    )
+def test_the_duck_by_voice_stays_through_the_reply_and_ends_with_the_exchange() -> None:
     speaking = {"v": False}
-    player, ws = make(
-        seconds=30, tts_playing=lambda: speaking["v"], pipe_decoder=lambda path, rate: FakeProc(30)
-    )
-    monkeypatch.setattr(player, "_route", lambda: None)
-    player.handle({"action": "play", "source": "spotify", "db": 0.0})
+    player, ws = make(seconds=30, tts_playing=lambda: speaking["v"])
+    player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
     assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
-    player.user_pause()
+    player.user_speech()
     speaking["v"] = True
-    assert wait(lambda: player._held)
-    player.resume_after_turn()
     time.sleep(0.2)
-    assert commands.count("play") == 0  # a reply is still playing
+    player.release_duck()  # the exchange is over but the reply is still playing
+    assert wait(lambda: player.ducked) and gains(ws)[-1] == DUCK_DB
     speaking["v"] = False
-    assert wait(lambda: commands[-1:] == ["play"]) and not player.auto_paused
+    assert wait(lambda: gains(ws)[-1] == 0.0 and not player.ducked)
     player.close()
 
 
-def test_a_pause_by_voice_with_no_turn_after_it_ends_by_itself(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from doc_chat import music as music_module
-
-    monkeypatch.setattr(music_module, "AUTO_RESUME_MAX_S", 0.3)
+def test_a_pause_command_is_not_undone_by_the_end_of_the_exchange() -> None:
     player, ws = make(seconds=30)
     player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
     assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
-    player.user_pause()
-    assert wait(lambda: not player.auto_paused and player.audible, timeout=3.0)
-    player.close()
+    player.user_speech()
+    player.handle({"action": "pause"})  # the command the user's voice carried
+    player.release_duck()
+    time.sleep(0.2)
+    assert player._paused.is_set() and not player.audible
 
 
-def test_a_user_pause_with_no_music_does_nothing() -> None:
-    player, ws = make()
-    player.user_pause()
-    assert not player.auto_paused and ws.sent == []
-
-
-def test_a_barge_in_pause_during_a_reply_stays_after_the_reply(
+def test_ducking_by_voice_with_no_turn_after_it_ends_by_itself(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from doc_chat import music as music_module
 
-    commands: list[str] = []
-    monkeypatch.setattr(
-        music_module, "spotify_local", lambda command, uri="", **kw: commands.append(command)
-    )
-    speaking = {"v": True}
-    player, ws = make(seconds=30, tts_playing=lambda: speaking["v"])
-    player._spotify = True
-    player.handle({"action": "play", "url": "http://x/a", "db": 0.0, "source": "spotify"})
-    time.sleep(0.2)
-    player.user_pause()  # the barge-in
-    speaking["v"] = False
-    time.sleep(0.4)
-    assert "play" not in commands and not any(isinstance(m, bytes) for m in ws.sent)
+    monkeypatch.setattr(music_module, "DUCK_MAX_S", 0.3)
+    player, ws = make(seconds=30)
+    player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
+    assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
+    player.user_speech()
+    assert wait(lambda: not player.ducked and gains(ws)[-1] == 0.0, timeout=3.0)
     player.close()
+
+
+def test_the_user_talking_with_no_music_does_nothing() -> None:
+    player, ws = make()
+    player.user_speech()
+    assert not player.ducked and ws.sent == []
 
 
 def test_the_mic_tap_sees_every_block_after_the_canceller() -> None:
@@ -663,9 +600,9 @@ def test_the_music_state_rides_on_the_agent_request(monkeypatch: pytest.MonkeyPa
     assert sent[0]["music"] == "paused" and "music" not in sent[1] and "music" not in sent[2]
 
 
-def test_no_music_is_audible_alongside_a_reply_end_to_end() -> None:
-    """Real MusicPlayer to a real Mixer through a fake socket; the reply's channel and the hold
-    flag are driven like a session: every slice that has a reply is exactly the reply."""
+def test_the_music_is_in_the_mix_ducked_alongside_a_reply_end_to_end() -> None:
+    """Real MusicPlayer to a real Mixer through a fake socket: while a reply plays the music is
+    still in the mix, DUCK_DB below its level, so it is audible and the reply is on top."""
     from doc_chat.mixer import Mixer
 
     mixer = Mixer(RATE, lambda rate: (lambda data: None, lambda: None))
@@ -675,8 +612,10 @@ def test_no_music_is_audible_alongside_a_reply_end_to_end() -> None:
             super().send(data)
             if isinstance(data, bytes):
                 mixer.music_push(data)
-            elif json.loads(data)["type"] == "music_flush":
-                mixer.music_flush()
+            else:
+                msg = json.loads(data)
+                if msg["type"] == "music_gain":
+                    mixer.music_set_gain(msg["db"])
 
     ws = MixerWs()
     speaking = {"v": False}
@@ -686,18 +625,21 @@ def test_no_music_is_audible_alongside_a_reply_end_to_end() -> None:
     player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
     assert wait(lambda: len(mixer._music) > 0)
     speaking["v"] = True
-    channel = mixer.tts_channel()  # the reply starts: the client's flush is racing the Pi's ring
+    assert wait(lambda: abs(mixer._music_gain - 10 ** (DUCK_DB / 20)) < 1e-6)
+    channel = mixer.tts_channel()
     channel.push((np.full(RATE // 20 * 10, 5000, dtype=np.int16)).tobytes())
-    both, replies = 0, 0
+    extra: list[int] = []
     for _ in range(10):
         out = np.frombuffer(mixer.step() or b"", dtype=np.int16)
         if out.size:
-            replies += 1
-            both += int(set(out.tolist()) != {5000})
+            extra.append(int(np.max(np.abs(out.astype(np.int32) - 5000))))
         time.sleep(0.01)
     speaking["v"] = False
     player.close()
-    assert replies == 10 and both == 0
+    # the music (amplitude 1000 at the file) rides under the reply at the ducked gain, not absent
+    ducked_amplitude = 1000 * 10 ** (DUCK_DB / 20)
+    level = float(np.median(extra))  # (the first slice ramps down to the ducked gain)
+    assert extra and 0.5 * ducked_amplitude < level < 3 * ducked_amplitude
 
 
 def _control():  # type: ignore[no-untyped-def]

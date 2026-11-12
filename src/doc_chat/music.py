@@ -41,7 +41,8 @@ SPOTIFY_FIFO = Path(
 # is recorded instead of librespot's pipe unless SPOTIFY_FIFO is a real FIFO (librespot's audio
 # keys are refused for some accounts: librespot issue #1664).
 SPOTIFY_SINK = os.environ.get("SPOTIFY_SINK", "me3_spotify")
-AUTO_RESUME_MAX_S = 30.0  # a pause by the user's voice with no turn after it ends by itself
+DUCK_DB = float(os.environ.get("MUSIC_DUCK_DB", "-22"))  # while someone talks: low, audible
+DUCK_MAX_S = 30.0  # ducking by voice with no turn after it ends by itself
 SPOTIFY_APP = "spotify"  # application.name of the desktop app's stream
 ROUTE_S = 4.0  # how long to look for the app's stream after a play event
 
@@ -225,7 +226,7 @@ class MusicVoice:
                 x = np.frombuffer(block[: len(block) // 2 * 2], dtype=np.int16) / 32768.0
                 if x.size and float(np.sqrt(np.mean(x * x))) < self._gate:
                     return  # quieter than halfway between the user and the music's leak
-            self._player.user_pause()
+            self._player.user_speech()
 
 
 def _decoder(url: str, rate: int) -> subprocess.Popen[bytes]:
@@ -310,62 +311,49 @@ class MusicPlayer:
         self._auto: AutoGain | None = None
         self._offset = 0.0
         self._applied = 0.0
-        self._held = False  # a reply is playing: the music is not sent
         self.playing = False
-        self.auto_paused = False  # paused by the user's voice, not by a command: the server is told
-        self._auto_since = 0.0  # when the user's voice paused it
-        self._resume_pending = False  # the exchange is over: resume once no reply is playing
+        self._duck_user = False  # the user is talking (or just did and the reply is not over)
+        self._duck_reply = False  # a reply is playing
+        self._duck_since = 0.0
         self._spotify = False  # the current track plays in the desktop Spotify app
 
     @property
     def audible(self) -> bool:
-        """Music is being sent: playing, not held for a reply, not paused."""
-        return self.playing and not self._held and not self._paused.is_set()
+        """Music is being sent (quietly while someone talks): playing and not paused."""
+        return self.playing and not self._paused.is_set()
 
-    def user_pause(self) -> None:
-        """Pause because the user spoke over the music or a reply. It stays paused through the
-        exchange and `resume_after_turn` lets it go when the reply has been heard (it used to stay
-        paused until the user said "resume", 2026-11-12), unless the user's own command (pause,
-        stop) takes over. Safe from any thread."""
+    @property
+    def ducked(self) -> bool:
+        return self._duck_user or self._duck_reply
+
+    def user_speech(self) -> None:
+        """The user is talking over the music: turn it down to DUCK_DB (very low, still audible)
+        instead of pausing it (2026-11-12: a pause by voice never came back; the owner asked for
+        a low volume while anyone talks). It stays down through the exchange and `release_duck`
+        lets it up when the reply has been heard. Safe from any thread."""
         if not self.playing:
             return
-        self.auto_paused = True
-        self._auto_since = time.monotonic()
-        self._resume_pending = False
-        self._paused.set()
-        self._flush()
-        if self._spotify:
-            threading.Thread(target=spotify_local, args=("pause",), daemon=True).start()
+        self._duck_user = True
+        self._duck_since = time.monotonic()
+        self._send_gain(force=True)
 
-    def resume_after_turn(self) -> None:
-        """The exchange that the user's voice interrupted is over: resume the music, now or as soon
-        as the reply that is playing has ended. A no-op unless the user's voice paused it (a
-        command's pause is not undone)."""
-        if self.auto_paused:
-            self._resume_pending = True
-            self._apply_resume()
+    def release_duck(self) -> None:
+        """The exchange is over: the user's part of the ducking ends (a reply that is still
+        playing keeps the music down until it ends)."""
+        if self._duck_user:
+            self._duck_user = False
+            self._send_gain(force=True)
 
-    def _apply_resume(self) -> None:
-        if not (self._resume_pending and self.auto_paused) or self._held:
-            return
-        self._resume_pending = self.auto_paused = False
-        self._paused.clear()
-        if self._spotify:
-            threading.Thread(target=spotify_local, args=("play",), daemon=True).start()
-
-    def _resume_if_stale(self) -> None:
-        """A pause by voice with no turn after it (a cough, someone else's voice) must not last
-        for ever: resume after AUTO_RESUME_MAX_S."""
-        if self.auto_paused and time.monotonic() - self._auto_since > AUTO_RESUME_MAX_S:
-            self.resume_after_turn()
+    def _release_if_stale(self) -> None:
+        """Voice with no turn after it (a cough, someone else) must not keep the music down."""
+        if self._duck_user and time.monotonic() - self._duck_since > DUCK_MAX_S:
+            self.release_duck()
 
     # ---- events
     def handle(self, event: dict[str, Any]) -> None:
         action = event.get("action")
         if event.get("source") == "spotify":
             self._spotify = True
-        if action in ("play", "resume", "stop"):
-            self.auto_paused = False
         if action == "play":
             self.stop()
             self._level_db = float(event.get("db", self._level_db))
@@ -379,19 +367,17 @@ class MusicPlayer:
             else:
                 self._start(str(event["url"]), is_pipe=False)
         elif action == "pause":
-            self.auto_paused = self._resume_pending = False  # the user's command: it stays paused
             self._paused.set()
             self._flush()
             if self._spotify:
                 spotify_local("pause")
         elif action == "resume":
             self._paused.clear()
-            if self._spotify and not self._held:
+            if self._spotify:
                 spotify_local("play")
         elif action == "next" and self._spotify:
             spotify_local("next")
         elif action == "stop":
-            self._resume_pending = False
             if self._spotify:
                 spotify_local("pause")
             self.stop()
@@ -411,7 +397,7 @@ class MusicPlayer:
                 self._ws.send(data)
 
     def _send_gain(self, force: bool = False) -> None:
-        db = self._level_db + self._offset
+        db = self._level_db + self._offset + (DUCK_DB if self.ducked else 0.0)
         if force or abs(self._offset - self._applied) >= GAIN_STEP_DB:
             self._applied = self._offset
             with contextlib.suppress(Exception):
@@ -419,21 +405,13 @@ class MusicPlayer:
             if self._canceller is not None:
                 self._canceller.music_gain = 10 ** (db / 20)
 
-    def _update_hold(self) -> bool:
-        """Follow the replies: the music is flushed (and the Spotify app paused) when one starts
-        and let go when it ends, unless the user paused it. True while held."""
+    def _follow_replies(self) -> None:
+        """Duck while a reply plays and let go when it ends (the music used to be flushed and the
+        Spotify app paused for every reply)."""
         playing = bool(self._tts())
-        if playing != self._held:
-            self._held = playing
-            if playing:
-                self._flush()
-                if self._spotify and not self._paused.is_set():
-                    spotify_local("pause")
-            elif self._resume_pending:
-                self._apply_resume()  # the user's voice paused it and the exchange is over
-            elif self._spotify and not self._paused.is_set():
-                spotify_local("play")
-        return self._held
+        if playing != self._duck_reply:
+            self._duck_reply = playing
+            self._send_gain(force=True)
 
     def _flush(self) -> None:
         with contextlib.suppress(Exception):
@@ -450,7 +428,6 @@ class MusicPlayer:
         self._paused.clear()
         self._offset = self._applied = 0.0
         self._auto = AutoGain(self._rate)
-        self._held = False
         self._gen += 1
         self.playing = True
         self._send_gain(force=True)
@@ -495,8 +472,9 @@ class MusicPlayer:
         t0, sent = 0.0, 0
         try:
             while gen == self._gen:
-                if self._update_hold() or self._paused.is_set():
-                    self._resume_if_stale()
+                self._follow_replies()
+                self._release_if_stale()
+                if self._paused.is_set():
                     time.sleep(0.05)
                     t0, sent = 0.0, 0
                     continue
@@ -512,10 +490,9 @@ class MusicPlayer:
                 while (wait := t0 + sent / rate - LEAD_S - time.perf_counter()) > 0:
                     if gen != self._gen:
                         return
-                    if self._update_hold():
-                        break
+                    self._follow_replies()
                     time.sleep(min(wait, 0.02))
-                if gen != self._gen or self._paused.is_set() or self._held:
+                if gen != self._gen or self._paused.is_set():
                     continue
                 try:
                     self._send(piece)

@@ -86,7 +86,7 @@ def test_the_music_pause_ignores_speech_quieter_than_the_gate() -> None:
         audible = True
         paused = 0
 
-        def user_pause(self) -> None:
+        def user_speech(self) -> None:
             self.paused += 1
 
     class Vad:
