@@ -128,3 +128,20 @@ async def test_without_the_flag_the_gate_does_nothing() -> None:
     await s.handle(1, turn("Breaking news from the studio tonight.", speech(-50, seconds=3)))
     assert chain.questions == ["Breaking news from the studio tonight."]
     assert "level_gate" not in json.loads(log.getvalue())
+
+
+def test_auto_takes_the_gap_and_the_user_level_from_the_calibration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from doc_chat import calibrate
+
+    cal = {"when": "t", "noise_db": -45.0, "user_db": -21.0, "gate_db": 8.0}
+    monkeypatch.setattr(calibrate, "load_calibration", lambda *a, **k: cal)
+    s, _chain, _log = make_session(voice_gate_db=-1.0)  # --voice-gate-db auto
+    gate = s._level_gate()
+    assert gate is not None and gate.gap_db == 8.0 and gate.reference() == (-21.0, "calibration")
+    monkeypatch.setattr(calibrate, "load_calibration", lambda *a, **k: None)
+    s2, _c, _l = make_session(voice_gate_db=-1.0)
+    assert s2._level_gate().gap_db == 10.0  # no calibration: the default gap
+    s3, _c3, _l3 = make_session(voice_gate_db=0.0)
+    assert s3._level_gate() is None

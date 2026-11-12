@@ -379,6 +379,7 @@
 + tests/doc_chat/test_qwen_wiring.py
 + tests/doc_chat/test_remote_speaker.py
 + tests/doc_chat/test_room_calibration.py
++ tests/doc_chat/test_calibration_full.py
 + tests/doc_chat/test_session.py
 + tests/doc_chat/test_stop_pause.py
 + tests/doc_chat/test_stream.py

@@ -48,7 +48,7 @@ status: ## (laptop) read-only: cable, Pi ping, ports. PI_LOGS=1 adds the Pi logs
 talk: ## (laptop) the live loop in the foreground; needs the microphone
 	scripts/stack/talk.sh
 
-calibrate: ## (laptop) room calibration + the six baseline phrases; HEADSET=1 uses the headset microphone (else the laptop one); needs you at the mic
+calibrate: ## (laptop) room calibration + the six baseline phrases + Spotify through the Pi speaker, your voice over it and a background voice (sets --voice-gate-db auto); HEADSET=1 headset mic; QUICK=1 skips music and background; needs you at the mic
 	scripts/calibrate.sh $(if $(HEADSET),--headset)
 
 doctor-tools: ## (laptop) what the delegate sandbox can do with git, GitHub, Hugging Face, and whether your profile is in place (free; --offline skips the network)
