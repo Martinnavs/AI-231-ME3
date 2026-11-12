@@ -363,6 +363,20 @@ def answered_by_web_answer(trace: Trace) -> bool:
     return tools.count("web_answer") == 1 and "web_research" not in tools
 
 
+def build_about_latest_topic(trace: Trace, spec: dict[str, Any]) -> bool | None:
+    """A build that says "their ..." is about what was just researched, not about an earlier
+    topic in the conversation: the delegate task names spec["must"] and none of spec["forbid"]
+    (live 2026-11-12: the five Metro Manila cities became Cebu, Tagaytay and Baguio, the cities of
+    the weather questions before them)."""
+    turn = _build_turn(trace)
+    if turn is None:
+        return None
+    task = next(c["args"].get("task", "") for c in turn["calls"] if c["tool"] == "delegate").lower()
+    return str(spec["must"]).lower() in task and not any(
+        str(w).lower() in task for w in spec["forbid"]
+    )
+
+
 def job_count(trace: Trace, wanted: int) -> bool | None:
     """Exactly `wanted` jobs ran: a repeat is dropped (1), two different builds both run (2)."""
     jobs = trace.get("jobs")
@@ -432,6 +446,7 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "no_stray_apps": no_stray_apps,
     "followup_merged": followup_merged,
     "answered_by_web_answer": answered_by_web_answer,
+    "build_about_latest_topic": build_about_latest_topic,
     "job_count": job_count,
     "read_without_delegate": read_without_delegate,
     "independent_jobs": independent_jobs,
@@ -540,7 +555,8 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             task = f"Build a one-page site. Source {url}"
             calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
         elif builds and last:
-            task = f"Build the deliverable from these verified facts: x. Source {url}"
+            about = (scenario.expect.get("build_about_latest_topic") or {}).get("must", "x")
+            task = f"Build the deliverable from these verified facts: {about}. Source {url}"
             if notes and scenario.kind != "unrelated_build":
                 task += " Notes and sources from the conversation are in /sandbox/scratch/NOTES.md."
             calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
