@@ -296,6 +296,7 @@
 + scripts/stack/pi_netem.sh
 + scripts/stack/pi_service.sh
 + scripts/stack/pi_tune.sh
++ scripts/stack/pi_sync.sh
 + scripts/stack/status.sh
 + scripts/stack/talk.sh
 + scripts/stack/up.sh
