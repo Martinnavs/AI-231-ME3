@@ -19,6 +19,8 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 
+from voice_pipeline.reminders import Reminders
+
 PHONEBOOK = Path(__file__).resolve().parents[3] / "config" / "phonebook.json"
 
 INTENTS: tuple[str, ...] = (
@@ -115,9 +117,12 @@ def make_handler(
     base_url: str | None,
     record: list[dict[str, Any]],
     contacts: list[dict[str, str]] | None = None,
+    reminders: Reminders | None = None,
 ) -> Callable[[FunctionCallParams], Awaitable[None]]:
-    """Handler that records every call, and posts it to the dashboard when base_url is set."""
+    """Handler that records every call, and posts it to the dashboard when base_url is set.
+    Without a dashboard, reminders are kept in `reminders` and listed from it."""
     names = {c["name"].lower(): c["name"] for c in contacts or load_phonebook()}
+    store = reminders if reminders is not None else Reminders()
 
     async def handler(params: FunctionCallParams) -> None:
         intent = str(params.arguments.get("intent", ""))
@@ -132,6 +137,10 @@ def make_handler(
             result = {"ok": False, "message": f"{slot} is not in the phonebook ({known})"}
         elif base_url is None:
             result = {"ok": True, "message": "recorded"}
+            if intent == "CREATE_REMINDER":
+                store.add(str(slot))
+            elif intent == "LIST_REMINDERS":
+                result["message"] = store.spoken_latest()
             if intent in OPTIONAL_SLOT_FOR_INTENT and slot:
                 result["message"] = f"Playing {str(slot).strip().rstrip('.')}."
         else:

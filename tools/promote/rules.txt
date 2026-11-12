@@ -414,3 +414,5 @@
 + tests/test_pi_device_mcp.py
 + tests/test_pi_device_stdio.py
 + config/eval/live_test_script.json
++ pipeline/src/voice_pipeline/reminders.py
++ pipeline/tests/test_reminders.py

@@ -1116,6 +1116,19 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                 await deliver_publish(text, properties=NO_SECOND_REQUEST)
 
             params.result_callback = publish_callback
+        elif schema.name == "smart_home" and str(args.get("intent")) == "LIST_REMINDERS":
+            deliver_list = params.result_callback
+
+            async def list_callback(result: Any, *, properties: Any = None) -> None:
+                said = (
+                    result.get("message") if isinstance(result, dict) and result.get("ok") else None
+                )
+                if said:  # the reminders themselves are the answer: said as they are
+                    await deliver_list(str(said), properties=NO_SECOND_REQUEST)
+                else:
+                    await deliver_list(result, properties=properties)
+
+            params.result_callback = list_callback
         elif schema.name in SPOKEN_RESULT_TOOLS:
             deliver = params.result_callback
 
