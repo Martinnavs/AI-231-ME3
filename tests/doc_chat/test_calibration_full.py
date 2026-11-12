@@ -191,3 +191,48 @@ def test_the_bridge_makes_the_sink_before_it_starts_piping(
     quiet = calibrate.SpotifyBridge(None)
     quiet.start()
     assert made == ["sink"] and quiet.player is None  # no Pi URL: nothing is piped
+
+
+FULL = {
+    "when": "2026-11-12T10:00:00",
+    "noise_db": -39.0,
+    "user_db": -20.0,
+    "music_db": -34.0,
+    "bg_voice_db": -36.0,
+    "gate_db": 8.0,
+}
+
+
+def at(hours_after: float) -> float:
+    import time
+
+    return time.mktime(time.strptime(FULL["when"], "%Y-%m-%dT%H:%M:%S")) + hours_after * 3600
+
+
+def test_status_says_missing_old_short_or_fine() -> None:
+    assert calibrate.status(None)[0] == 1
+    code, line = calibrate.status(FULL, 12.0, now=at(0.05))
+    assert code == 0 and "3 min old" in line and "gate 8 dB" in line
+    assert calibrate.status(FULL, 12.0, now=at(5.0)) == (0, "calibration is 5.0 h old, gate 8 dB")
+    code, line = calibrate.status(FULL, 12.0, now=at(13.0))
+    assert code == 2 and "13 h old" in line and "make calibrate" in line
+    short = {k: v for k, v in FULL.items() if k not in ("music_db", "bg_voice_db", "gate_db")}
+    assert calibrate.status(short, 12.0, now=at(1.0))[0] == 3
+    assert calibrate.status({**FULL, "when": "yesterday"})[0] == 2
+    no_gate = {k: v for k, v in FULL.items() if k != "gate_db"}
+    assert "no gate (voice too close)" in calibrate.status(no_gate, 12.0, now=at(1.0))[1]
+
+
+def test_check_exits_with_the_status_and_never_touches_the_microphone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def no_mic(*a: Any, **k: Any) -> None:
+        raise AssertionError("--check must not record")
+
+    monkeypatch.setattr(calibrate, "_record", no_mic)
+    path = tmp_path / "cal.json"
+    assert calibrate.main(["--check", "--out", str(path)]) == 1  # missing
+    path.write_text(json.dumps({**FULL, "when": "2026-01-01T00:00:00"}))
+    assert calibrate.main(["--check", "--out", str(path)]) == 2  # months old
+    assert calibrate.main(["--check", "--max-age-h", "1000000", "--out", str(path)]) == 0
+    assert "gate 8 dB" in capsys.readouterr().out

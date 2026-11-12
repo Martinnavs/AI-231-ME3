@@ -5,6 +5,8 @@
 # The router (--api-key-file), the speech server and the agent server all require the session token (the delegate sandbox shares loopback).
 # Variables (make passes them): ROUTER_MODEL ROUTER_THREADS GGUF_TOOLS ENTITIES KITTEN_VOICE KITTEN_SITE SPEECH_ARGS AGENT_ARGS
 #   PI_START=ssh|systemd  PI_RUN_SECONDS  DRY=1 (print the commands only)
+#   CALIBRATE=auto|1|0 (default auto: after the stack is up, recalibrate when out/calibration.json is missing, older than
+#   CALIBRATE_MAX_AGE_H hours (default 12) or short; 1 always, 0 never; asks first, and only on a terminal)  HEADSET=1
 source "$(dirname "$0")/lib.sh"
 MODE=${1:-all}
 load_env
@@ -186,9 +188,27 @@ if [ "$HARNESS" = pi ]; then
 else
   case "$MODE" in all | laptop) check_free "$PORT_ROUTER" "$PORT_SPEECH" "$PORT_AGENT" "$PORT_APPS" ;; esac
 fi
+# maybe_calibrate: the stack is up (the Pi speaker is reachable, so the music can be piped to it): recalibrate when
+# the calibration is missing, old or short. make talk reads the result, so nothing else needs setting.
+maybe_calibrate() {
+  case "${CALIBRATE:-auto}" in 0 | no | off) return 0 ;; esac
+  if [ "$DRY" = 1 ]; then echo "+ calibration check (CALIBRATE=${CALIBRATE:-auto}), then scripts/calibrate.sh if needed"; return 0; fi
+  local why
+  if why=$(uv run --offline --group laptop python -W ignore -m doc_chat.calibrate --check --max-age-h "${CALIBRATE_MAX_AGE_H:-12}" 2>/dev/null); then
+    echo "$why"
+    [ "${CALIBRATE:-auto}" = 1 ] || return 0
+  else
+    echo "$why"
+  fi
+  if [ ! -t 0 ]; then echo "not a terminal: calibration skipped (run make calibrate before make talk)"; return 0; fi
+  local answer=Y
+  read -r -t 20 -p "Recalibrate now? It needs you at the microphone, about 4 minutes. [Y/n] " answer || answer=Y
+  case "$answer" in n | N | no) echo "skipped: make calibrate when you are ready"; return 0 ;; esac
+  scripts/calibrate.sh ${HEADSET:+--headset}
+}
 case "$MODE" in
-  all)    tune; start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_pi; start_apps; start_agent ;;
-  laptop) start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_apps; start_agent ;;
+  all)    tune; start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_pi; start_apps; start_agent; maybe_calibrate ;;
+  laptop) start_router; start_speech; [ "$HARNESS" = pi ] && start_resolver; start_librespot; start_apps; start_agent; maybe_calibrate ;;
   pi)     start_pi ;;
   agent)  stop_agent; start_agent ;;
   apps)   start_apps ;;

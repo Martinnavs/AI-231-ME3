@@ -1477,6 +1477,11 @@ async def async_main(args: argparse.Namespace) -> int:
     from doc_chat.calibrate import describe, load_calibration
 
     print(f"  [{describe(load_calibration())}]", flush=True)
+    from doc_chat.calibrate import status
+
+    code, message = status(load_calibration())
+    if code != 0:
+        print(f"  [! {message}]", flush=True)
     await client.connect()
     client.mic_device = mic_device(args.mic_device)
     hub: MicHub | None = None
