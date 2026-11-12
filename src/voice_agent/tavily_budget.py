@@ -20,6 +20,12 @@ PLAN_LIMIT = 1000
 CONSERVE_AT = float(os.environ.get("TAVILY_CONSERVE_AT", "0.70"))
 RESERVE_AT = float(os.environ.get("TAVILY_RESERVE_AT", "0.90"))
 MODES = ("normal", "conserve", "reserve")
+# the search server is a child process that does not inherit the environment, so the mode can
+# also be set in this file (one word: benchmark = conserve, demo = normal, or a mode itself)
+MODE_FILE = Path(
+    os.environ.get("TAVILY_MODE_FILE", Path.home() / ".local/state/voice_agent/tavily_mode")
+)
+ALIASES = {"benchmark": "conserve", "demo": "normal"}
 KEY_FILE = Path(os.environ.get("TAVILY_KEY_FILE", Path.home() / ".secrets/tavily/api-key.txt"))
 
 
@@ -30,6 +36,12 @@ def mode_for(used: float, limit: float) -> str:
 
 def forced_mode() -> str | None:
     forced = os.environ.get("TAVILY_MODE", "")
+    if not forced:
+        try:
+            forced = MODE_FILE.read_text().strip().lower()
+        except OSError:
+            forced = ""
+    forced = ALIASES.get(forced, forced)
     return forced if forced in MODES else None
 
 
