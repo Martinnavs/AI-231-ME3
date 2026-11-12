@@ -407,3 +407,31 @@ def test_first_sentences_does_not_split_after_an_initial_or_a_title(text: str, f
     from voice_agent.mcp_servers.web_info import first_sentences
 
     assert first_sentences(text, 1) == first
+
+
+def test_name_variants_drop_city_municipality_and_city_of() -> None:
+    from voice_agent.mcp_servers.web_info import name_variants
+
+    assert name_variants("Caloocan City") == ["Caloocan City", "Caloocan"]
+    assert name_variants("City of Taguig") == ["City of Taguig", "Taguig"]
+    assert name_variants("Cebu") == ["Cebu"]
+    assert name_variants("Sta. Rosa Municipality") == ["Sta. Rosa Municipality", "Sta. Rosa"]
+
+
+async def test_the_weather_of_a_place_the_geocoder_only_knows_without_city() -> None:
+    """Open-Meteo knows "Caloocan" and "Taguig", not "Caloocan City" (2026-11-12)."""
+    asked: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url.startswith("https://geocoding-api"):
+            name = request.url.params["name"]
+            asked.append(name)
+            hit = {"results": [{"name": "Caloocan", "latitude": 14.65, "longitude": 120.97}]}
+            return httpx.Response(200, json=hit if name == "Caloocan" else {})
+        if url.startswith("https://api.open-meteo.com"):
+            return httpx.Response(200, json=FORECAST)
+        return httpx.Response(404)
+
+    text = await _call(httpx.MockTransport(handle), "weather", {"place": "Caloocan City"})
+    assert asked == ["Caloocan City", "Caloocan"] and text.startswith("Today in Caloocan:")

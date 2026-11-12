@@ -375,3 +375,37 @@ def test_no_stale_context_fails_on_the_notes_sentence_or_the_old_topic() -> None
     assert ce.no_stale_context(trace("Build it. Notes: /sandbox/scratch/NOTES.md")) is False
     assert ce.no_stale_context(trace("Build a page about peru mountains.")) is False
     assert ce.no_stale_context({"params": {}, "turns": [turn("hi")]}) is None
+
+
+def _refine_trace(items: list[str], text: str, refine_task: str, lookup: bool = False) -> Any:
+    refine_calls = [("delegate", {"task": refine_task})]
+    if lookup:
+        refine_calls.insert(0, ("web_research", {"query": "q"}))
+    first = turn("Name three things and make a page.", ("delegate", {"task": "Build a page."}))
+    first["chain_items"] = items
+    return {
+        "turns": [first, turn("Make it a table.", *refine_calls)],
+        "files": {"text": text},
+        "params": {},
+    }
+
+
+def test_items_kept_needs_every_item_of_the_working_set_in_the_final_page() -> None:
+    items = ["Quezon City", "Manila", "Davao"]
+    assert ce.items_kept(_refine_trace(items, "quezon manila davao", "x")) is True
+    assert ce.items_kept(_refine_trace(items, "quezon davao", "x")) is False  # Manila lost
+    assert ce.items_kept(_refine_trace(["A", "B"], "a b", "x")) is False  # fewer than three items
+    no_set = _refine_trace([], "x", "x")
+    assert ce.items_kept(no_set) is False  # a build with no working set recorded
+
+
+def test_refinement_checks_flag_a_lookup_and_a_task_that_is_not_an_update() -> None:
+    patch = "Update the existing apps/x/index.html in place. Keep ALL of these items: A."
+    good = _refine_trace(["A", "B", "C"], "a b c", patch)
+    assert ce.no_lookup_on_refinement(good) is True and ce.refinement_is_patch(good) is True
+    searched = _refine_trace(["A", "B", "C"], "a b c", patch, lookup=True)
+    assert ce.no_lookup_on_refinement(searched) is False
+    restated = _refine_trace(["A", "B", "C"], "a b c", "Build a new table of three cities.")
+    assert ce.refinement_is_patch(restated) is False
+    only_build = {"turns": [turn("x", ("delegate", {"task": "t"}))], "files": {}, "params": {}}
+    assert ce.no_lookup_on_refinement(only_build) is None

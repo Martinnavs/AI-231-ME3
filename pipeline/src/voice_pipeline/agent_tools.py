@@ -29,7 +29,7 @@ from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.mcp_service import MCPClient
 
 from voice_pipeline import question
-from voice_pipeline.chain_state import ChainState, is_chain_tool
+from voice_pipeline.chain_state import ChainState, is_chain_tool, refines
 from voice_pipeline.device_say import device_sentence, single_question
 from voice_pipeline.scratchpad import NOTES_SENTENCE, Scratchpad
 from voice_pipeline.tools.smart_home import SCHEMA, make_handler
@@ -215,6 +215,54 @@ def _distinct(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]{4,}", text.lower())) - TASK_GENERIC
 
 
+UPDATE_IN_PLACE = "Update the existing"
+MANIFEST_SENTENCE = (
+    "When done, also write MANIFEST.json beside the main file: "
+    '{"items": [the names of the things it covers], "gaps": [what it lacks or could not confirm]}.'
+)
+MANIFEST_TASKS = re.compile(r"\b(?:page|website|table|markdown|csv|list|\.md|\.html)\b", re.I)
+PLAYABLE_TASKS = re.compile(r"\b(?:game|playable|animation|simulation)\b", re.I)
+MANIFEST_NAME = "MANIFEST.json"
+MANIFEST_MAX_BYTES = 20_000
+
+
+def read_manifest(artifact: str, workspace: Path | None = None) -> dict[str, list[str]] | None:
+    """The sub-agent's MANIFEST.json beside the deliverable ({"items": [...], "gaps": [...]}), or
+    None: what the page holds and lacks, so the front agent can resolve "the other two". Only a
+    plain file inside the workspace is read, and only a small one."""
+    root = (delegate_workspace() if workspace is None else workspace).resolve()
+    path = (root / artifact).parent / MANIFEST_NAME
+    try:
+        if path.is_symlink() or not path.resolve().is_relative_to(root):
+            return None
+        if not path.is_file() or path.stat().st_size > MANIFEST_MAX_BYTES:
+            return None
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return {
+        key: [str(x) for x in data.get(key, []) if isinstance(x, str | int | float)]
+        for key in ("items", "gaps")
+    }
+
+
+def update_sentence(data: dict[str, Any]) -> str:
+    """The patch half of a refinement task: where the deliverable is, what to keep, what it lacks.
+    The model restated whole pages as new tasks and the page lost three of its five cities
+    (2026-11-12); this goes on every refinement of a finished deliverable."""
+    parts = [
+        f"{UPDATE_IN_PLACE} {data['artifact_path']} in place: read it first and keep everything "
+        "that is on it unless the user asked to remove it."
+    ]
+    if data.get("items"):
+        parts.append(f"Keep ALL of these items: {', '.join(data['items'])}.")
+    if data.get("gaps"):
+        parts.append(f"It is known to lack: {'; '.join(data['gaps'])}. Fill these if you can.")
+    return " ".join(parts)
+
+
 def related(task: str, *texts: str) -> bool:
     """Whether `task` shares a distinctive word with `texts` (a chain's subject and facts, or the
     scratch notes): a build about something else must not carry them."""
@@ -262,7 +310,9 @@ CHAIN_UPDATE_DESCRIPTION = (
     "Record where a multi-step task stands so the next turn knows. phase is one of "
     "awaiting_name, researching, awaiting_fact_approval, building; subject is who or what "
     "it is about; facts is a few short verified facts, separated by ' | ' (while researching they "
-    "add up). Returns ok."
+    "add up); items is the list of things the task is about (cities, phones, events, files), "
+    "separated by ' | ': they are ADDED to the list, never replaced, so give only new ones; remove "
+    "drops items the user no longer wants. Returns ok."
 )
 
 
@@ -278,6 +328,9 @@ def chain_update_schema(chain: ChainState, record: list[dict[str, Any]]) -> Func
             fields["subject"] = str(args["subject"])[:80]
         if args.get("facts"):
             fields["facts"] = re.split(r"\s*(?:\||\n)\s*", str(args["facts"]))
+        for name in ("items", "remove"):
+            if args.get(name):
+                fields[name] = [x for x in re.split(r"\s*(?:\||\n)\s*", str(args[name])) if x]
         if args.get("phase") == "idle":  # only code ends a chain: expiry, cancel words, done
             await params.result_callback(IDLE_REFUSED)
             return
@@ -302,6 +355,8 @@ def chain_update_schema(chain: ChainState, record: list[dict[str, Any]]) -> Func
             },
             "subject": {"type": "string", "description": "who or what the task is about"},
             "facts": {"type": "string", "description": "short facts separated by ' | '"},
+            "items": {"type": "string", "description": "new things the task is about, ' | '"},
+            "remove": {"type": "string", "description": "items to drop, ' | '"},
         },
         required=["phase"],
         handler=handler,
@@ -861,7 +916,12 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                 CHAIN is not None
                 and CHAIN.active()
                 and (CHAIN.data.get("facts") or CHAIN.data.get("subject"))
-                and not related(task, str(CHAIN.data.get("subject", "")), *CHAIN.data["facts"])
+                and not related(
+                    task,
+                    str(CHAIN.data.get("subject", "")),
+                    *CHAIN.data["facts"],
+                    *CHAIN.data["items"],
+                )
             ):
                 CHAIN.update("idle")  # a build about something else: the research chain is over
             if CHAIN is not None and CHAIN.data.get("facts"):
@@ -878,6 +938,20 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                     injected_parts.append(f"Primary source URLs: {', '.join(urls[:5])}.")
                 if NOTES_SENTENCE not in task:
                     injected_parts.append(NOTES_SENTENCE)
+            if (
+                CHAIN is not None
+                and CHAIN.active()
+                and CHAIN.data.get("artifact_path")
+                and (refines(question.current or "") or "existing" in task.lower())
+                and UPDATE_IN_PLACE not in task
+            ):
+                injected_parts.insert(0, update_sentence(CHAIN.data))
+            if (
+                MANIFEST_TASKS.search(task)
+                and not PLAYABLE_TASKS.search(task)
+                and "MANIFEST.json" not in task
+            ):
+                injected_parts.append(MANIFEST_SENTENCE)  # in the task, small models obey it
             if injected_parts:
                 args["task"] = f"{task.rstrip()} " + " ".join(injected_parts)
             if re.search(
