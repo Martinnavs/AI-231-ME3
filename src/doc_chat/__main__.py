@@ -970,13 +970,15 @@ class Session:
     def _level_gate(self) -> Any:
         """The loudness gate (--voice-gate-db), or None when it is off."""
         gap = float(getattr(self.args, "voice_gate_db", 0.0) or 0.0)
-        if gap <= 0:
+        if gap == 0:
             return None
         if self.loudness_gate is None:
             from doc_chat.calibrate import load_calibration
-            from doc_chat.voice_gate import WINDOW_S, LoudnessGate
+            from doc_chat.voice_gate import DEFAULT_GAP_DB, WINDOW_S, LoudnessGate
 
             cal = load_calibration()
+            if gap < 0:  # 'auto': what the calibration found for this room
+                gap = float((cal or {}).get("gate_db", DEFAULT_GAP_DB))
             self.loudness_gate = LoudnessGate(
                 gap,
                 float(getattr(self.args, "voice_gate_window", WINDOW_S)),
@@ -1932,11 +1934,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--voice-gate-db",
-        type=float,
+        type=lambda v: -1.0 if v == "auto" else float(v),
         default=0.0,
         help="ignore a turn this many dB quieter than the user's usual level (TV, radio, "
-        "background talk; try 10); the level is measured over the last 30 s of answered turns, "
-        "starting from out/calibration.json. 0 = off",
+        "background talk; try 10, or 'auto' for the value `make calibrate` found, 10 without "
+        "one); the level is measured over the last 30 s of answered turns, starting from "
+        "out/calibration.json. 0 = off",
     )
     parser.add_argument(
         "--voice-gate-window",

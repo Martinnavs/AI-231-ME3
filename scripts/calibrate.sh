@@ -4,8 +4,11 @@
 #   default      the laptop microphone
 #   --headset    the Bluetooth headset (Sony WH-1000XM4 unless HEADSET_MATCH says otherwise);
 #                falls back to the laptop microphone when it is not connected
-# Needs you at the microphone: it asks for quiet, then for each phrase. Writes
-# out/calibration.json and out/calibration-baseline.wav (docs/HEADSET-MIC.md).
+# Needs you at the microphone: it asks for quiet, then for each phrase, then for the setup as it
+# will be used: Spotify through the Pi speaker (piped there as the client does; without the Pi it
+# is measured as it plays), your voice over the music, and a background voice (a talk video or
+# podcast). Writes out/calibration.json and out/calibration-baseline.wav (docs/HEADSET-MIC.md).
+# QUICK=1 skips the music and background stages.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -35,5 +38,22 @@ done
 src="$(cat "$src_file")"
 case "$src" in bluez_input*) echo "Using the headset microphone ($src)" ;; *) echo "Using the laptop microphone ($src)" ;; esac
 
+full_args=()
+if [[ "${QUICK:-0}" != 1 ]]; then
+    full_args=(--full)
+    # the Pi speaker's address and the token, as the stack scripts read them (nothing is printed)
+    if remote="$(HARNESS=pi bash -c 'source scripts/stack/lib.sh; load_env > /dev/null 2>&1 \
+        && need_token > /dev/null 2>&1 && echo "ws://$PI_V4:$PORT_PI_SPEAKER"' 2> /dev/null)" \
+        && [[ -n "$remote" ]]; then
+        full_args+=(--play-remote "$remote")
+        [[ -r "${TOKEN_FILE:-$HOME/.config/lan_speech_token}" ]] \
+            && LAN_SPEECH_TOKEN="$(cat "${TOKEN_FILE:-$HOME/.config/lan_speech_token}")" \
+            && export LAN_SPEECH_TOKEN
+        echo "Music will be piped to the Pi speaker at $remote"
+    else
+        echo "No Pi speaker found: the music step measures what the room hears as it plays."
+    fi
+fi
+
 PULSE_SOURCE="$src" uv run --group laptop python -W ignore -m doc_chat.calibrate \
-    --mic-device pulse --baseline
+    --mic-device pulse --baseline "${full_args[@]}"
