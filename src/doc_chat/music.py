@@ -41,6 +41,7 @@ SPOTIFY_FIFO = Path(
 # is recorded instead of librespot's pipe unless SPOTIFY_FIFO is a real FIFO (librespot's audio
 # keys are refused for some accounts: librespot issue #1664).
 SPOTIFY_SINK = os.environ.get("SPOTIFY_SINK", "me3_spotify")
+AUTO_RESUME_MAX_S = 30.0  # a pause by the user's voice with no turn after it ends by itself
 SPOTIFY_APP = "spotify"  # application.name of the desktop app's stream
 ROUTE_S = 4.0  # how long to look for the app's stream after a play event
 
@@ -312,6 +313,8 @@ class MusicPlayer:
         self._held = False  # a reply is playing: the music is not sent
         self.playing = False
         self.auto_paused = False  # paused by the user's voice, not by a command: the server is told
+        self._auto_since = 0.0  # when the user's voice paused it
+        self._resume_pending = False  # the exchange is over: resume once no reply is playing
         self._spotify = False  # the current track plays in the desktop Spotify app
 
     @property
@@ -320,15 +323,41 @@ class MusicPlayer:
         return self.playing and not self._held and not self._paused.is_set()
 
     def user_pause(self) -> None:
-        """Pause because the user spoke over the music or a reply. Sticky: nothing resumes it but
-        a play or resume event (the user's own command). Safe from any thread."""
+        """Pause because the user spoke over the music or a reply. It stays paused through the
+        exchange and `resume_after_turn` lets it go when the reply has been heard (it used to stay
+        paused until the user said "resume", 2026-11-12), unless the user's own command (pause,
+        stop) takes over. Safe from any thread."""
         if not self.playing:
             return
         self.auto_paused = True
+        self._auto_since = time.monotonic()
+        self._resume_pending = False
         self._paused.set()
         self._flush()
         if self._spotify:
             threading.Thread(target=spotify_local, args=("pause",), daemon=True).start()
+
+    def resume_after_turn(self) -> None:
+        """The exchange that the user's voice interrupted is over: resume the music, now or as soon
+        as the reply that is playing has ended. A no-op unless the user's voice paused it (a
+        command's pause is not undone)."""
+        if self.auto_paused:
+            self._resume_pending = True
+            self._apply_resume()
+
+    def _apply_resume(self) -> None:
+        if not (self._resume_pending and self.auto_paused) or self._held:
+            return
+        self._resume_pending = self.auto_paused = False
+        self._paused.clear()
+        if self._spotify:
+            threading.Thread(target=spotify_local, args=("play",), daemon=True).start()
+
+    def _resume_if_stale(self) -> None:
+        """A pause by voice with no turn after it (a cough, someone else's voice) must not last
+        for ever: resume after AUTO_RESUME_MAX_S."""
+        if self.auto_paused and time.monotonic() - self._auto_since > AUTO_RESUME_MAX_S:
+            self.resume_after_turn()
 
     # ---- events
     def handle(self, event: dict[str, Any]) -> None:
@@ -350,6 +379,7 @@ class MusicPlayer:
             else:
                 self._start(str(event["url"]), is_pipe=False)
         elif action == "pause":
+            self.auto_paused = self._resume_pending = False  # the user's command: it stays paused
             self._paused.set()
             self._flush()
             if self._spotify:
@@ -361,6 +391,7 @@ class MusicPlayer:
         elif action == "next" and self._spotify:
             spotify_local("next")
         elif action == "stop":
+            self._resume_pending = False
             if self._spotify:
                 spotify_local("pause")
             self.stop()
@@ -398,6 +429,8 @@ class MusicPlayer:
                 self._flush()
                 if self._spotify and not self._paused.is_set():
                     spotify_local("pause")
+            elif self._resume_pending:
+                self._apply_resume()  # the user's voice paused it and the exchange is over
             elif self._spotify and not self._paused.is_set():
                 spotify_local("play")
         return self._held
@@ -463,6 +496,7 @@ class MusicPlayer:
         try:
             while gen == self._gen:
                 if self._update_hold() or self._paused.is_set():
+                    self._resume_if_stale()
                     time.sleep(0.05)
                     t0, sent = 0.0, 0
                     continue
