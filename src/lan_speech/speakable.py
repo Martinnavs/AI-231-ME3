@@ -55,6 +55,14 @@ _MARK = re.compile(
 )
 
 
+# a template's blanks are not words: "[your name]", "(your contact information here)", "{date}"
+# (a draft's signature was read aloud with its placeholder, 2026-11-12)
+_PLACEHOLDER = re.compile(
+    r"\[[^\]\n]{1,80}\]|\((?:your|insert|add|enter|put|type|fill)\b[^)\n]{0,80}\)|\{[^}\n]{1,80}\}",
+    re.IGNORECASE,
+)
+
+
 def _file(match: re.Match[str]) -> str:
     return f"{re.sub(r'[_-]+', ' ', match[1])} {FILE_WORDS[match[2].lower()]}"
 
@@ -62,6 +70,8 @@ def _file(match: re.Match[str]) -> str:
 def speakable(text: str) -> str:
     """The text with web addresses, file names, dotted initials, spelled acronyms and markdown
     marks put in the form a voice should say."""
+    if _PLACEHOLDER.search(text):
+        text = re.sub(r"\s+([.,;:!?])", r"\1", _PLACEHOLDER.sub("", text)).strip()
     text = _FILE.sub(_file, text)
     text = _URL.sub(lambda m: m[1].replace(".", " dot "), text)
     text = _TITLES.sub(lambda m: _SAID[m[1]], text)

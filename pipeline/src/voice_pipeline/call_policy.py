@@ -636,6 +636,55 @@ def alarm_slot(slot: str, user: str) -> str:
     return _PM_TIME.sub(lambda m: m.group(0)[:-2] + "AM", slot)
 
 
+# A routed lookup whose question still holds a reference that only the conversation resolves ("Who
+# is the current chairperson at the program?" went to the web as it stood and the answer was "it
+# is unclear which program you mean", 2026-11-12). Gemini has the history: it takes those turns.
+LOOKUP_NAMES = frozenset({"web_answer", "wiki_summary", "web_research", "search_docs"})
+REFERENCE = re.compile(
+    r"\b(?:he|she|they|him|her|them|his|hers|their|theirs|its)\b"
+    r"|\b(?:the|that|this|those|these)\s+(?:program(?:me)?|course|school|university|college"
+    r"|company|department|person|place|one|team|group|article|book|film|movie|song|band|artist"
+    r"|restaurant|page|website|app)\b",
+    re.IGNORECASE,
+)
+
+
+def lookup_needs_context(calls: list[Any], user: str) -> bool:
+    for call in calls:
+        if call.name in LOOKUP_NAMES:
+            text = " ".join(call.args) if call.args else user
+            if REFERENCE.search(text):
+                return True
+    return False
+
+
+# "What's the current temp?": a forecast of the place the user is in, not a web question (a
+# garbled one went to a lookup and answered Manila for a user in Cebu, 2026-11-12)
+_WEATHERISH = re.compile(
+    r"\b(?:temp(?:erature)?|how (?:hot|cold|warm)|forecast|raining|rain|umbrella)\b", re.I
+)
+_NOWISH = re.compile(
+    r"\b(?:current|currently|right now|now|today|tonight|tomorrow|outside|here)\b", re.I
+)
+_NOT_WEATHER = re.compile(
+    r"\b(?:of the (?:sun|moon|earth|planet|oven|water|body|room)|cpu|pi|pipe|raspberry|device"
+    r"|laptop|machine|battery|boiling|freezing point|celsius to|fahrenheit)\b",
+    re.I,
+)
+_IN_PLACE = re.compile(
+    r"\bin ([A-Z][A-Za-z.' -]{2,30}?)(?=\s+(?:right now|today|tomorrow|now|currently)\b|[?.!,]|$)"
+)
+
+
+def weather_args(user: str) -> dict[str, str] | None:
+    """The weather tool's arguments for a question about the temperature or the rain, or None."""
+    if _WEATHERISH.search(user) and _NOWISH.search(user) and not _NOT_WEATHER.search(user):
+        place = _IN_PLACE.search(user.strip())
+        day = "tomorrow" if re.search(r"\btomorrow\b", user, re.I) else "today"
+        return {"place": place[1].strip() if place else "", "day": day}
+    return None
+
+
 def plan(calls: list[Any], user: str, available: set[str]) -> list[Planned]:
     """The tool and arguments each call runs with. The router was trained on `wiki_summary`; the
     web answer replaces it (Wikipedia is its fallback). A swapped lookup that is the turn's only
@@ -660,6 +709,8 @@ def plan(calls: list[Any], user: str, available: set[str]) -> list[Planned]:
             tool, args = "web_answer", {"query": asked if len(calls) == 1 and asked else topic}
         if tool == "web_answer":
             args = {"query": str(args.get("query", "")).strip() or asked}
+            if "weather" in available and (forecast := weather_args(user)) is not None:
+                tool, args = "weather", forecast
         out.append(Planned(call, tool, args))
     return out
 

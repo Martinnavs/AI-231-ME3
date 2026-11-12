@@ -572,10 +572,37 @@ def app_names(root: Path | None = None) -> list[str]:
         return []
 
 
-APP_NOISE = frozenset({"clone", "game", "app", "the", "a", "an", "version", "my", "web", "of"})
+APP_NOISE = frozenset(
+    {
+        "clone",
+        "game",
+        "app",
+        "the",
+        "a",
+        "an",
+        "version",
+        "my",
+        "web",
+        "of",
+        "website",
+        "site",
+        "page",
+    }
+)
 
 
 GENERIC_APP_WORDS = frozenset({"it", "that", "this", "one", "that one", "something", "anything"})
+
+
+SPOKEN_APPS = 5
+
+
+def spoken_apps(have: list[str]) -> str:
+    """The apps by name, at most SPOKEN_APPS, then "and N more" (twelve names were read out)."""
+    names = [n.replace("_", " ") for n in have]
+    if len(names) <= SPOKEN_APPS:
+        return ", ".join(names)
+    return f"{', '.join(names[:SPOKEN_APPS])}, and {len(names) - SPOKEN_APPS} more"
 
 
 def app_key(name: str) -> str:
@@ -595,6 +622,10 @@ def closest_app(name: str, have: list[str]) -> str | None:
     for app in have:
         if app_key(app) == key:
             return app
+    named = set(key.split())
+    holding = [app for app in have if named <= set(app_key(app).split())]
+    if len(holding) == 1:  # "annie" is one word of annie_billard and of no other app
+        return holding[0]
     scored = sorted(
         ((difflib.SequenceMatcher(None, key, app_key(app)).ratio(), app) for app in have),
         reverse=True,
@@ -640,7 +671,7 @@ def open_app(
     name = name.strip()
     if not name:
         return (
-            "I have " + ", ".join(n.replace("_", " ") for n in have) + ". Which one do you want?"
+            "I have " + spoken_apps(have) + ". Which one do you want?"
             if have
             else "I don't have any apps yet. Want me to make one?",
             None,
@@ -658,12 +689,11 @@ def open_app(
         # "the game", "the clone", "it": nothing was named, so no offer to make an app by that name
         if not have:
             return "I don't have any apps yet. Want me to make one?", None
-        listed = ", ".join(n.replace("_", " ") for n in have)
-        return f"I have {listed}. Which one do you want?", None
+        return f"I have {spoken_apps(have)}. Which one do you want?", None
     if found is None:
         return (
             f"I don't have an app called {spoken}."
-            + (" I have " + ", ".join(n.replace("_", " ") for n in have) + "." if have else "")
+            + (" I have " + spoken_apps(have) + "." if have else "")
             + " Want me to make it?",
             None,
         )
