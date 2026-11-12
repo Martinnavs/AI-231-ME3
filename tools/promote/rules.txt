@@ -270,6 +270,7 @@
 + pipeline/uv.lock
 # scripts
 + scripts/addressee_replay.py
++ scripts/voice_gate_replay.py
 + scripts/calibrate.sh
 + scripts/chain_eval.py
 + scripts/search_eval.py
@@ -301,6 +302,7 @@
 + src/doc_chat/__init__.py
 + src/doc_chat/__main__.py
 + src/doc_chat/addressee.py
++ src/doc_chat/voice_gate.py
 + src/doc_chat/aec.py
 + src/doc_chat/agent_client.py
 + src/doc_chat/bargein.py
@@ -341,6 +343,7 @@
 + tests/agent/test_jobs.py
 + tests/agent/test_subagent.py
 + tests/doc_chat/test_addressee.py
++ tests/doc_chat/test_voice_gate.py
 + tests/doc_chat/test_aec.py
 + tests/doc_chat/test_aec_lead.py
 + tests/doc_chat/test_aec_music.py
