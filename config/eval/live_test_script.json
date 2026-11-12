@@ -1,0 +1,71 @@
+{
+  "about": "Scripted live test of the listening gates: say the lines in order, keep the stated background running for the whole block. ADDRESS lines are said to the assistant and should be answered. SIDE lines are said to an imaginary person next to you (turn your head, same voice and volume) and should be ignored. Anything else the microphone picks up (the background) is counted as unscripted: it should be ignored.",
+  "blocks": [
+    {
+      "id": "A",
+      "title": "Quiet room",
+      "setup": "No music, no TV. Sit where you normally would, about 30 cm from the microphone.",
+      "lines": [
+        {"id": "A1", "kind": "ADDRESS", "say": "What time is it?"},
+        {"id": "A2", "kind": "ADDRESS", "say": "What's the weather like in Cebu today?"},
+        {"id": "A3", "kind": "SIDE", "say": "Hey Jamie, did you feed the dog already?"},
+        {"id": "A4", "kind": "ADDRESS", "say": "How tall is Mount Everest?"},
+        {"id": "A5", "kind": "ADDRESS", "say": "Set a timer for two minutes."},
+        {"id": "A6", "kind": "SIDE", "say": "Dad, can you pass me the charger?"},
+        {"id": "A7", "kind": "ADDRESS", "say": "Where am I right now?"}
+      ]
+    },
+    {
+      "id": "B",
+      "title": "Music playing",
+      "setup": "Start Spotify at the volume you would use in the room. No one else talking. Same distance as block A.",
+      "lines": [
+        {"id": "B1", "kind": "ADDRESS", "say": "What day is it today?"},
+        {"id": "B2", "kind": "ADDRESS", "say": "What's the UV index today?"},
+        {"id": "B3", "kind": "SIDE", "say": "Maria, are you coming to dinner tonight?"},
+        {"id": "B4", "kind": "ADDRESS", "say": "Who wrote Noli Me Tangere?"},
+        {"id": "B5", "kind": "ADDRESS", "say": "What is two hundred times twelve?"},
+        {"id": "B6", "kind": "SIDE", "say": "Mom, where did you put my keys?"},
+        {"id": "B7", "kind": "ADDRESS", "say": "Tell me about the history of Cebu City."}
+      ]
+    },
+    {
+      "id": "C",
+      "title": "People talking in the background",
+      "setup": "Play a podcast, news or talk video on a TV or phone speaker across the room (2 to 3 m from the microphone) at normal volume. No music. Same seat as block A.",
+      "lines": [
+        {"id": "C1", "kind": "ADDRESS", "say": "How many days until Christmas?"},
+        {"id": "C2", "kind": "ADDRESS", "say": "What's the capital of Australia?"},
+        {"id": "C3", "kind": "SIDE", "say": "Hey Alex, can you turn that down a bit?"},
+        {"id": "C4", "kind": "ADDRESS", "say": "Set a timer for three minutes."},
+        {"id": "C5", "kind": "ADDRESS", "say": "Tell me a short fun fact about owls."},
+        {"id": "C6", "kind": "SIDE", "say": "Sis, did you see what he just said?"},
+        {"id": "C7", "kind": "ADDRESS", "say": "What's the weather going to be like tomorrow?"}
+      ]
+    },
+    {
+      "id": "D",
+      "title": "Music and people talking",
+      "setup": "Music playing and the talk video on at the same time, same distances as blocks B and C.",
+      "lines": [
+        {"id": "D1", "kind": "ADDRESS", "say": "What time is it in Tokyo?"},
+        {"id": "D2", "kind": "ADDRESS", "say": "How far is Manila from Cebu?"},
+        {"id": "D3", "kind": "SIDE", "say": "Lola, do you want some water?"},
+        {"id": "D4", "kind": "ADDRESS", "say": "What is the tallest building in the world?"},
+        {"id": "D5", "kind": "ADDRESS", "say": "Pause the music."},
+        {"id": "D6", "kind": "ADDRESS", "say": "Play the music again."}
+      ]
+    },
+    {
+      "id": "E",
+      "title": "Farther from the microphone",
+      "setup": "Everything off. Sit or stand about 1.5 m from the microphone and speak at a normal conversational volume. This checks that the loudness gate does not drop you.",
+      "lines": [
+        {"id": "E1", "kind": "ADDRESS", "say": "What's the date today?"},
+        {"id": "E2", "kind": "ADDRESS", "say": "How many legs does a spider have?"},
+        {"id": "E3", "kind": "ADDRESS", "say": "Set a timer for five minutes."},
+        {"id": "E4", "kind": "ADDRESS", "say": "What's the weather like right now?"}
+      ]
+    }
+  ]
+}
