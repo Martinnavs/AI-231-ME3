@@ -310,3 +310,71 @@ def test_a_short_question_about_the_weather_or_music_is_a_side_question() -> Non
         "Tell me a long story about the weather and the music of the Philippines and its history",
     ):
         assert not is_side_question(said), said
+
+
+async def test_a_queued_addition_is_announced_by_one_fixed_sentence_and_separate_is_passed_on(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
+    monkeypatch.setattr(agent_tools, "CHAIN", None)
+    monkeypatch.setattr(agent_tools, "SCRATCHPAD", None)
+    seen: list[dict[str, Any]] = []
+    answers = iter(
+        [
+            json.dumps({"status": "queued", "job": "job1", "message": "queued"}),
+            json.dumps({"job": "job2", "status": "started", "message": "running"}),
+        ]
+    )
+
+    async def inner(params: Any) -> None:
+        seen.append(dict(params.arguments))
+        await params.result_callback(next(answers))
+
+    said: list[str] = []
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        said.append(str(value))
+
+    schema = FunctionSchema(
+        name="delegate", description="d", properties={}, required=[], handler=inner
+    )
+    wrapped = _recorded(schema, []).handler
+    for args in ({"task": "Also a page about lighthouses."}, {"task": "A page.", "separate": True}):
+        await wrapped(  # type: ignore[misc]
+            SimpleNamespace(
+                function_name="delegate", arguments=args, result_callback=sink, tool_call_id="d"
+            )
+        )
+    assert said == [agent_tools.QUEUED_SAY, agent_tools.DELEGATE_STARTED]
+    assert "separate" in agent_tools.QUEUED_SAY and seen[1]["separate"] is True
+
+
+async def test_a_separate_task_gets_no_update_sentence(tmp_path: Path, monkeypatch: Any) -> None:
+    chain = ChainState(tmp_path)
+    chain.update("building", subject="snake", items=["Snake"], artifact_path="apps/snake/i.html")
+    chain.mark_done()
+    monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
+    monkeypatch.setattr(agent_tools, "CHAIN", chain)
+    monkeypatch.setattr(agent_tools, "SCRATCHPAD", None)
+    record: list[dict[str, Any]] = []
+
+    async def inner(params: Any) -> None:
+        await params.result_callback("ok")
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        return None
+
+    schema = FunctionSchema(
+        name="delegate", description="d", properties={}, required=[], handler=inner
+    )
+    question.current = "Make that snake page update separate"
+    await _recorded(schema, record).handler(  # type: ignore[misc]
+        SimpleNamespace(
+            function_name="delegate",
+            arguments={"task": "Update the snake page", "separate": True},
+            result_callback=sink,
+            tool_call_id="d",
+        )
+    )
+    question.current = ""
+    assert "Update the existing" not in record[-1]["args"]["task"]

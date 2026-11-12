@@ -7,3 +7,4 @@ Case F protocol (a research or build chain is under way; its phase, facts and it
 - "No, I mean ..." corrects your last action: redo that action with the correction, make no new lookup.
 - "Got it", "thanks", "mm-hmm" take in what you said: they are not a request, start no job and no lookup, answer in two words.
 - While a job runs, say it is being made, never that it is done or "I have updated ..."; say it once.
+- After "I'll add that after the first one finishes. Say separate ...": if the user says separate (or "start it now"), call delegate with ONLY the new request and separate=true.

@@ -707,3 +707,32 @@ def test_the_boilerplate_the_front_agent_adds_does_not_make_two_tasks_alike() ->
         "is on it unless the user asked to remove it. Keep ALL of these items: Manila, Davao. "
     )
     assert not same_task(update + "Add a map.", update + "Plot the prices.")
+
+
+async def test_separate_starts_an_overlapping_request_beside_the_running_job(
+    tmp_path: Path,
+) -> None:
+    release = asyncio.Event()
+    started: list[str] = []
+
+    async def slow(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        started.append(task)
+        await release.wait()
+        return RunResult(status="done", summary="Ready.")
+
+    delegator = make(tmp_path, slow)
+    snake = "Create a simple snake game in apps/snake_game/index.html with a score and walls."
+    assert (await delegator.delegate(snake, wait_s=0.05))["status"] == "started"
+    overlapping = "Create a snake game page in apps/snake_game/index.html with a scoreboard table."
+    assert (await delegator.delegate(overlapping, wait_s=0.05))["status"] == "queued"  # default
+    out = await delegator.delegate(overlapping, wait_s=0.05, separate=True)
+    assert out["status"] == "started" and out["job"] == "job2"  # the user said: separate
+    assert len(started) == 2
+    assert delegator.followups.get("job1", []) == []  # the queued addition is gone, not run later
+    release.set()
+    for _ in range(40):
+        await asyncio.sleep(0.05)
+        if all(j.status == DONE for j in delegator.table.jobs.values()):
+            break
+    await asyncio.sleep(0.2)
+    assert list(delegator.table.jobs) == ["job1", "job2"] and len(started) == 2  # no job3
