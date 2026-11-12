@@ -155,3 +155,16 @@ def test_make_down_stops_the_units_the_same_way(world):  # noqa: F811
     env.pop("HARNESS")
     r = run_script("down.sh", env, "pi")
     assert "systemctl --user stop pi-agent pi-speaker" in r.stdout.replace("\\", "")
+
+
+def test_make_talk_says_to_run_make_up_when_the_stack_is_down(world):  # noqa: F811
+    env = stack_env(world, HARNESS="laptop")
+    env["DRY"] = "0"  # nothing listens on the fake cable address or on loopback
+    env["PORT_SPEECH"] = "1"  # a closed local port, answered at once
+    env["LAPTOP_IP"] = "127.0.0.1"
+    world.pi_env.write_text(
+        world.pi_env.read_text().replace("LAPTOP_IP=169.254.1.1", "LAPTOP_IP=127.0.0.1")
+    )
+    r = run_script("talk.sh", env)
+    assert r.returncode != 0
+    assert "run make up first" in r.stderr and "speech server is not running" in r.stderr

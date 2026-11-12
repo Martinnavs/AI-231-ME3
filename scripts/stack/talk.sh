@@ -8,6 +8,14 @@ source "$(dirname "$0")/lib.sh"
 load_env
 need_token
 cd "$STACK_REPO" || exit 1
+# preflight: the client needs the speech server and the agent server; without them it only prints
+# "speech server unavailable" and make reports "Error 2"
+reach() { timeout 2 bash -c "exec 3<>/dev/tcp/$1/$2" 2> /dev/null; }
+if [ "$DRY" != 1 ]; then
+  agent_host=${AGENT_URL#ws://}; agent_host=${agent_host%%:*}
+  reach "$LAPTOP_IP" "${SPEECH_PORT:-$PORT_SPEECH}" || die "the speech server is not running at $LAPTOP_IP:${SPEECH_PORT:-$PORT_SPEECH}: run make up first (make status shows what is up)"
+  reach "$agent_host" "$PORT_AGENT" || die "the agent server is not reachable at $AGENT_URL: run make up first (make status shows what is up)"
+fi
 RUN=out/sessions/stack-$(date +%m%d-%H%M)
 mkdir -p "$STACK_DIR"; [ "$DRY" = 1 ] || echo "$RUN" >"$STACK_DIR/last_session"
 # shellcheck disable=SC2086
