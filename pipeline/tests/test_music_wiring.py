@@ -138,3 +138,48 @@ async def test_the_router_path_speaks_a_string_result(tmp_path: Any) -> None:
     routed = Routed(spec.parse_output("PLAY_MUSIC"), "PLAY_MUSIC", 0.1, None, "play some music")
     done = await server.run_routed(routed, 0.0, on_text)
     assert done is not None and said == ["Playing Song 0."]
+
+
+def test_the_spotify_source_loads_the_music_tool_without_a_resolver(monkeypatch: Any) -> None:
+    """HARNESS=laptop has no resolver; Spotify needs none (Web API search, desktop app plays)."""
+    monkeypatch.setattr(agent_tools, "MUSIC_RESOLVER_URL", None)
+    monkeypatch.setenv("MUSIC_SOURCE", "spotify")
+    command = agent_tools.music_command()
+    assert command is not None and command[-2:] == ["--source", "spotify"]
+    assert "--resolver-url" not in command
+    monkeypatch.setenv("MUSIC_SOURCE", "youtube")
+    assert agent_tools.music_command() is None  # YouTube cannot search without the resolver
+    monkeypatch.setattr(agent_tools, "MUSIC_RESOLVER_URL", "http://10.0.0.1:8796")
+    with_resolver = agent_tools.music_command()
+    assert with_resolver is not None and "--resolver-url" in with_resolver
+    monkeypatch.setenv("MUSIC_SOURCE", "spotify")
+    both = agent_tools.music_command()
+    assert both is not None and "--resolver-url" in both and both[-2:] == ["--source", "spotify"]
+
+
+def test_the_default_source_comes_from_the_music_config(monkeypatch: Any) -> None:
+    monkeypatch.delenv("MUSIC_SOURCE", raising=False)
+    assert agent_tools.music_source() in ("spotify", "youtube")
+
+
+async def test_without_a_music_tool_a_play_request_says_music_is_not_connected() -> None:
+    tools = await build_tools([])  # no dashboard (live None), no music server
+    home = tools.standard_tools[0]
+    said: list[str] = []
+
+    async def result_callback(result: Any, *, properties: Any = None) -> None:
+        said.append(str(result))
+
+    def call(intent: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            arguments={"intent": intent, "slot": "Taylor Swift"},
+            result_callback=result_callback,
+            tool_call_id="x",
+            function_name="smart_home",
+        )
+
+    assert home.handler is not None
+    await home.handler(call("PLAY_MUSIC"))  # type: ignore[arg-type]
+    await home.handler(call("NEXT"))  # type: ignore[arg-type]
+    assert said == [agent_tools.NO_MUSIC, agent_tools.NO_MUSIC]
+    assert "Playing" not in said[0]

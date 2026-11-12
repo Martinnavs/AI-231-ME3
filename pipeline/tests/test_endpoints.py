@@ -63,6 +63,7 @@ def test_the_mcp_python_replaces_uv(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_music_server_is_started_only_with_a_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MUSIC_SOURCE", "youtube")  # Spotify needs no resolver (test_music_wiring)
     monkeypatch.setattr(agent_tools, "MUSIC_RESOLVER_URL", None)
     assert agent_tools.music_command() is None
     monkeypatch.setattr(agent_tools, "MUSIC_RESOLVER_URL", "http://169.254.1.1:8796")

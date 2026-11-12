@@ -82,11 +82,28 @@ def delegate_command() -> list[str]:
     return cmd
 
 
+def music_source() -> str:
+    """ "spotify" or "youtube": $MUSIC_SOURCE, else "source" in config/music.json."""
+    if env := os.environ.get("MUSIC_SOURCE"):
+        return env
+    try:
+        return str(json.loads((REPO_ROOT / "config" / "music.json").read_text()).get("source"))
+    except (OSError, ValueError):
+        return "youtube"
+
+
 def music_command() -> list[str] | None:
-    """The music MCP server (Pi side), or None without a resolver address."""
-    if not MUSIC_RESOLVER_URL:
+    """The music MCP server, or None when it cannot run. YouTube needs the laptop's resolver; the
+    Spotify source does not (the Web API searches, the desktop app on the laptop plays), so
+    HARNESS=laptop gets the music tool too (it had none, and "play X" was answered "Playing"
+    by the smart_home stub with nothing playing, 2026-11-12)."""
+    spotify = music_source() == "spotify"
+    if not MUSIC_RESOLVER_URL and not spotify:
         return None
-    return [*ROOT_MODULE, "voice_agent.mcp_servers.music", "--resolver-url", MUSIC_RESOLVER_URL]
+    command = [*ROOT_MODULE, "voice_agent.mcp_servers.music"]
+    if MUSIC_RESOLVER_URL:
+        command += ["--resolver-url", MUSIC_RESOLVER_URL]
+    return command + (["--source", "spotify"] if spotify else [])
 
 
 def configure(
@@ -630,6 +647,30 @@ def with_music(
     )
 
 
+NO_MUSIC = "Music isn't connected right now."
+
+
+def without_music(home: FunctionSchema) -> FunctionSchema:
+    """smart_home when there is no music tool: a music request says so. The stub that stands in for
+    the dashboard answered OK, and the agent told the owner it was playing something."""
+    inner = home.handler
+    assert inner is not None
+
+    async def handler(params: FunctionCallParams) -> None:
+        if str(params.arguments.get("intent", "")) in MUSIC_INTENTS:
+            await params.result_callback(NO_MUSIC, properties=NO_SECOND_REQUEST)
+            return
+        await inner(params)
+
+    return FunctionSchema(
+        name=home.name,
+        description=home.description,
+        properties=home.properties,
+        required=home.required,
+        handler=handler,
+    )
+
+
 def stdio_server(command: list[str], env: dict[str, str] | None = None) -> MCPClient:
     """MCP client for a server started over stdio from the repo root. With MCP_PYTHON (the Pi:
     nothing is installed) the child gets the repo's src on its path."""
@@ -1006,6 +1047,8 @@ async def build_tools(
     music = next((t for t in tools if t.name == MUSIC_TOOL), None)
     if music is not None:
         tools[0] = with_music(tools[0], music, record)
+    elif live is None:  # no dashboard and no music tool: nothing could play
+        tools[0] = without_music(tools[0])
     return ToolsSchema(standard_tools=tools)
 
 

@@ -93,6 +93,7 @@ def test_the_pi_server_needs_a_url_and_a_token() -> None:
 
 def test_standard_servers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LAN_SPEECH_TOKEN", raising=False)
+    monkeypatch.setenv("MUSIC_SOURCE", "youtube")  # the Spotify source adds the music server
     required, optional = standard_servers()
     assert len(required) == 4 and len(optional) == 1  # no token: the delegate server, no Pi
     monkeypatch.setenv("LAN_SPEECH_TOKEN", "secret")
