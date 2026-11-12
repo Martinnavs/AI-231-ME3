@@ -15,59 +15,23 @@ from __future__ import annotations
 
 import glob
 import json
-import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pipeline" / "src"))
+from voice_pipeline.spoken_filter import (  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+    PREMATURE,
+    repeated,
+)  # the rules the server uses
 
 ROOTS = (
     Path("/mnt/School/PhD/AI231/AI-231-ME3-agy/pipeline/out/agent_server"),
     Path("/mnt/School/PhD/AI231/AI-231-ME3/pipeline/out/agent_server"),
 )
 DUPLICATE_WINDOW_S = 25.0
-OVERLAP = 0.34  # share of the shorter sentence's content words that the other has
-# a sentence in the assistant's own voice about its own action ("I am updating ...", "OK, I am
-# ...", "It's currently being processed ..."): two of these in one reply restate each other. A
-# sentence that names the topic again before its answer ("Looking up X. X was ...") is natural.
-AGENT_VOICE = re.compile(
-    r"^(?:ok(?:ay)?[,.]?\s+|sure[,.]?\s+|alright[,.]?\s+)?(?:i(?:'m|'ve| am| have| will|'ll)\b"
-    r"|it(?:'s| is) (?:currently|being)|the (?:task|update|job|website|page)\b)",
-    re.IGNORECASE,
-)
-MIN_WORDS = 3  # content words a sentence needs to be compared
-_STOP_TEXT = (
-    "a an the and or of to in on for with is are was were be i you it this that my your we am "
-    "will would can could have has had do does did not no yes ok okay now then just also so as at "
-    "by from up out about into over its me us them they he she there here what which who when"
-)
-STOP = frozenset(re.findall(r"[a-z]+", _STOP_TEXT))
-PREMATURE = re.compile(
-    r"\bI(?:'ve| have)\s+(?:just\s+)?(?:updated|added|created|built|finished|made|changed)\b",
-    re.IGNORECASE,
-)
 LOOKUPS = frozenset({"web_answer", "web_research", "search_docs", "delegate"})
-
-
-def words(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9']+", text.lower()) if w not in STOP and len(w) > 2}
-
-
-def sentences(text: str) -> list[str]:
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
-
-
-def repeated(text: str) -> list[tuple[str, str]]:
-    """Pairs of sentences of one reply that restate each other."""
-    out: list[tuple[str, str]] = []
-    parts = [p for p in sentences(text) if AGENT_VOICE.match(p)]
-    for i, a in enumerate(parts):
-        for b in parts[i + 1 :]:
-            wa, wb = words(a), words(b)
-            small = min(len(wa), len(wb))
-            if small >= MIN_WORDS and len(wa & wb) / small >= OVERLAP:
-                out.append((a, b))
-    return out
 
 
 def seconds(stamp: str) -> float:

@@ -86,6 +86,7 @@ from voice_pipeline.router import (
     spec,
 )
 from voice_pipeline.scratchpad import PROFILE_RULE, Scratchpad, install_profile
+from voice_pipeline.spoken_filter import SentenceFilter, is_apology, is_backchannel
 from voice_pipeline.tools.smart_home import load_phonebook
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -661,18 +662,22 @@ class AgentServer:
 
         payloads = PayloadFilter()
         sources = SourceFilter()
+        sentences = SentenceFilter(
+            lambda: any(c.get("tool") == "delegate" for c in self.record[before:])
+        )
 
         async def send_event(event: dict[str, Any]) -> None:
             await ws.send(json.dumps(event))
 
         async def on_text(text: str) -> None:
-            if text := sources.feed(payloads.feed(text)):
+            if text := sentences.feed(sources.feed(payloads.feed(text))):
                 with contextlib.suppress(ConnectionClosed):
                     await ws.send(json.dumps({"text": text}))
 
         async def on_say(text: str) -> None:
             # its own flagged message: the client speaks it now instead of holding it back
             if text := sources.feed(payloads.feed(text)):
+                sentences.note(text)  # what the model says next must not restate it
                 with contextlib.suppress(ConnectionClosed):
                     await ws.send(json.dumps({"text": text, "flush": True}))
 
@@ -716,6 +721,18 @@ class AgentServer:
             work: Any
             if chain is not None and chain.active() and wants_cancel(said):
                 work = self.drop_chain(on_text)
+            elif (
+                last.get("role") == "user"
+                and (is_backchannel(said) or is_apology(said))
+                and not (
+                    chain is not None and chain.active() and chain.data["phase"].startswith("await")
+                )
+                and not (
+                    len(messages) > 1
+                    and call_policy.OFFER.search(str(messages[-2].get("content", "")))
+                )
+            ):
+                work = self.spoken("", on_text)  # "mm-hmm", "I'm sorry": no request, no reply
             elif found is not None and (found.tool == "clock" or found.tool in self.tools):
                 work = self.fast(found, on_text)
             elif (
@@ -748,8 +765,14 @@ class AgentServer:
             closed.cancel()
             for held in [*payloads.finish(), *sources.finish()]:
                 await on_text(held)
+            if rest := sentences.finish():
+                with contextlib.suppress(ConnectionClosed):
+                    await ws.send(json.dumps({"text": rest}))
             if isinstance(result.get("text"), str):
                 result["text"] = strip_sources(result["text"])
+                for gone in sentences.dropped:  # the log holds what was spoken
+                    result["text"] = result["text"].replace(gone, "", 1)
+                result["text"] = re.sub(r"\s{2,}", " ", result["text"]).strip()
             if not cancelled:
                 reply = {"done": True} if result["status"] == "ok" else {"error": "timeout"}
                 try:
@@ -762,6 +785,7 @@ class AgentServer:
                 "calls": self.record[before:],
                 "cancelled": cancelled,
                 **({"dropped_payload": payloads.dropped} if payloads.dropped else {}),
+                **({"dropped_sentences": sentences.dropped} if sentences.dropped else {}),
                 **result,
             }
             with self.log.open("a") as sink:

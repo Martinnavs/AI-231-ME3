@@ -663,3 +663,47 @@ async def test_a_restated_followup_in_a_new_folder_still_joins_the_running_job(
         ):
             break
     assert "continues job1" in tasks[1] and "Timeline" in tasks[1]
+
+
+async def test_a_request_that_replaces_a_just_cancelled_job_starts_instead_of_queueing(
+    tmp_path: Path,
+) -> None:
+    started: list[str] = []
+    release = asyncio.Event()
+
+    async def slow(task: str, model: Model, key: str, folder: Path, pool: str) -> RunResult:
+        started.append(task)
+        await release.wait()  # the first job never finishes by itself
+        return RunResult(status="done", summary="Ready.")
+
+    delegator = make(tmp_path, slow)
+    first = "Create a one-page website about lighthouses saved as apps/lighthouses/index.html."
+    assert (await delegator.delegate(first, wait_s=0.05))["status"] == "started"
+    assert delegator.cancel("job1")["status"] == "cancelled"  # the task may still be unwinding
+    again = (
+        "Create a one-page website about lighthouses with a timeline, apps/lighthouses/index.html."
+    )
+    out = await delegator.delegate(again, wait_s=0.05)
+    assert out["status"] == "started" and out["job"] == "job2"  # not queued behind job1
+    assert len(started) == 2
+    release.set()
+    await asyncio.sleep(0.1)
+
+
+def test_the_boilerplate_the_front_agent_adds_does_not_make_two_tasks_alike() -> None:
+    from voice_agent.mcp_servers.delegate import added_words, same_task
+
+    manifest = (
+        "When done, also write MANIFEST.json beside the main file: "
+        '{"items": [the names of the things it covers], "gaps": [what it lacks or could not '
+        "confirm]}."
+    )
+    snake = "Create a simple snake game in apps/snake_game/index.html with a score. " + manifest
+    page = "Create a one-page website about lighthouses with a short history. " + manifest
+    assert not same_task(snake, page)
+    assert added_words(page, snake)  # the page brings words of its own
+    update = (
+        "Update the existing apps/c/index.html in place: read it first and keep everything that "
+        "is on it unless the user asked to remove it. Keep ALL of these items: Manila, Davao. "
+    )
+    assert not same_task(update + "Add a map.", update + "Plot the prices.")

@@ -8,6 +8,7 @@ Pi's is optional: without a token, or when the Pi is unreachable, the agent star
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import difflib
 import json
 import os
@@ -164,6 +165,14 @@ NO_SECOND_REQUEST = FunctionCallResultProperties(run_llm=False)
 # What a started delegate job is answered with: no second model request, so no invented duration
 # and no raw JSON (R2). TurnTap puts "Started. " in front when the model's own `say` is missing.
 DELEGATE_STARTED = "I'll tell you when it's done."
+DELEGATE_REPLACED = "Okay, I've switched to that. I'll tell you when it's done."
+# "Sorry, I mean ..." / "No, I mean ...": the user restates what they just asked for. A restated
+# request used to start a second and a third job with other wording (three in 20 s, 2026-11-12);
+# now it replaces the job that was started in the last REPLACE_WINDOW_S.
+REPAIR = re.compile(r"\bi\s+mean(?:t)?\b", re.IGNORECASE)
+REPLACE_WINDOW_S = 30.0
+_last_job: list[tuple[str, float]] = []  # [(job id, when it started)]
+_cancel_job: list[Any] = []  # the delegate_cancel handler
 # a delegate task that deletes or overwrites files needs the user's yes first (a misheard fragment
 # once deleted every app in the workspace)
 DESTRUCTIVE = re.compile(r"\b(delete|remove|erase|wipe|clear out|rm|empty|overwrite|reset)\b", re.I)
@@ -306,6 +315,33 @@ def reset_turn_lookups() -> None:
     global _lookup_future
     _turn_lookups.clear()
     _lookup_future = None
+
+
+async def replace_running_job(said: str) -> bool:
+    """A restatement ("sorry, I mean ...") within REPLACE_WINDOW_S of a job's start cancels that
+    job, so that the new request replaces it instead of running beside it. True if one was
+    cancelled."""
+    if not (_last_job and _cancel_job and REPAIR.search(said)):
+        return False
+    job, started = _last_job[0]
+    if time.monotonic() - started > REPLACE_WINDOW_S:
+        return False
+    got: list[Any] = []
+
+    async def done(result: Any, *args: Any, **kwargs: Any) -> None:
+        got.append(result)
+
+    params = SimpleNamespace(
+        function_name="delegate_cancel",
+        tool_call_id="replace",
+        arguments={"job": job},
+        result_callback=done,
+    )
+    with contextlib.suppress(Exception):
+        await _cancel_job[0](params)
+    row = _job_row(got[0]) if got else None
+    _last_job.clear()
+    return row is not None and row.get("status") == "cancelled"
 
 
 def job_started(result: Any) -> bool:
@@ -996,12 +1032,18 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                 _pending_destructive = None
             # a turn that is cut off and resumed is cancelled during this wait, before a job starts
             await asyncio.sleep(DELEGATE_GRACE_S)
+            replaced = await replace_running_job(question.current or "")
 
             async def job_callback(result: Any, *, properties: Any = None) -> None:
+                entry["result"] = str(result)[:160]  # what the delegate server answered
                 if job_started(result):
                     if CHAIN is not None:
                         CHAIN.update("building", job_id=started_job_id(result))
-                    await deliver_job(DELEGATE_STARTED, properties=properties or NO_SECOND_REQUEST)
+                    _last_job[:] = [(started_job_id(result), time.monotonic())]
+                    await deliver_job(
+                        DELEGATE_REPLACED if replaced else DELEGATE_STARTED,
+                        properties=properties or NO_SECOND_REQUEST,
+                    )
                 else:
                     await deliver_job(result, properties=properties)
 
@@ -1057,6 +1099,8 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
 
     if schema.name == "web_answer":
         _web_answer[:] = [handler]  # the newest build wins; web_research redirects to it
+    if schema.name == "delegate_cancel":
+        _cancel_job[:] = [inner]  # the raw handler: a replaced job is cancelled without a record
     return FunctionSchema(
         name=schema.name,
         description=schema.description,

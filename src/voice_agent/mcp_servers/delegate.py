@@ -63,7 +63,22 @@ STOPWORDS = frozenset(
 Runner = Callable[[str, Model, str, Path, str], Awaitable[RunResult]]
 
 
+# sentences the front agent's harness adds to page tasks: they are in every one, so they must not
+# make two different tasks look alike (the manifest request made "a snake game" and "a page about
+# lighthouses" one task and the second was merged into the first, 2026-11-12)
+BOILERPLATE = re.compile(
+    r"When done, also write MANIFEST\.json beside the main file:.*?\]\}\."
+    r"|Update the existing \S+ in place: read it first and keep everything that is on it unless "
+    r"the user asked to remove it\."
+    r"|Keep ALL of these items:.*?\.(?=\s|$)"
+    r"|It is known to lack:.*?Fill these if you can\."
+    r"|Notes and sources from the conversation are in /sandbox/scratch/NOTES\.md[^.]*\.",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
 def content_words(text: str) -> set[str]:
+    text = BOILERPLATE.sub(" ", text)
     return {word for word in re.findall(r"[a-z0-9]+", text.lower()) if word not in STOPWORDS}
 
 
@@ -297,13 +312,17 @@ class Delegator:
         return found
 
     async def delegate(self, task: str, wait_s: float | None = None) -> dict[str, Any]:
-        if sum(not worker.done() for worker in self.tasks.values()) >= self.max_jobs:
+        # a job cancelled a moment ago is not running even while its task unwinds: a request that
+        # replaces it ("sorry, I mean ...") was queued behind it and lost (2026-11-12)
+        live = {j.id for j in self.table.jobs.values() if j.status == RUNNING}
+        if sum(not w.done() for jid, w in self.tasks.items() if jid in live) >= self.max_jobs:
             message = f"Already working on {self.max_jobs} tasks; wait for one to finish."
             return {"status": "busy", "message": message}
         for running in self.table.jobs.values():
             worker = self.tasks.get(running.id)
             if (
                 worker is not None
+                and running.status == RUNNING
                 and not worker.done()
                 and (same_task(task, running.task) or same_deliverable(task, running.task))
             ):
