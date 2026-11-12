@@ -617,3 +617,133 @@ async def test_web_research_retries_one_transient_failure_but_not_a_refusal() ->
         out = await client.call_tool("web_research", {"query": "Nobel prize winner"})
     assert str(out.structured_content["result"]) == "I couldn't search the web right now."
     assert refused["n"] == 1
+
+
+# ---- the Tavily budget (80 % of the month was gone on the demo day, 2026-11-12)
+
+
+def test_the_mode_follows_the_share_of_the_plan_used() -> None:
+    mode = tavily_search.mode_for
+    assert [mode(u, 1000) for u in (0, 699, 700, 899, 900, 1000)] == [
+        "normal",
+        "normal",
+        "conserve",
+        "conserve",
+        "reserve",
+        "reserve",
+    ]
+    assert mode(5, 0) == "normal"
+
+
+def _credits(used: float | None, now: list[float] | None = None) -> tavily_search.Credits:
+    clock = now if now is not None else [0.0]
+    credits = tavily_search.Credits(lambda: "test-key", lambda: clock[0])
+    credits.used, credits.fetched = used, clock[0]  # as if just read
+    return credits
+
+
+async def test_the_usage_is_read_from_tavily_cached_and_counted_locally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    asked: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        body = {"account": {"plan_usage": 751, "plan_limit": 1000}}
+        return httpx.Response(200, json=body)
+
+    now = [0.0]
+    credits = tavily_search.Credits(lambda: "test-key", lambda: now[0])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        assert await credits.mode(http) == "conserve" and len(asked) == 1
+        assert asked[0].headers["Authorization"] == "Bearer test-key"
+        await credits.mode(http)
+        assert len(asked) == 1  # cached for USAGE_TTL_S
+        credits.spend(150)  # counted locally until the next reading
+        assert await credits.mode(http) == "reserve"
+        now[0] += tavily_search.USAGE_TTL_S + 1
+        assert await credits.mode(http) == "conserve" and len(asked) == 2  # and read again
+
+
+async def test_an_unreadable_usage_leaves_the_mode_normal_and_is_not_retried_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    asked: list[int] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        asked.append(1)
+        return httpx.Response(500)
+
+    credits = tavily_search.Credits(lambda: "k", lambda: 0.0)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        assert await credits.mode(http) == "normal"
+        assert await credits.mode(http) == "normal" and len(asked) == 1
+
+
+async def test_tavily_mode_can_be_forced(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TAVILY_MODE", "reserve")
+    async with httpx.AsyncClient() as http:
+        assert await tavily_search.Credits(lambda: "k").mode(http) == "reserve"
+    assert tavily_search.credit_status()[2] == "reserve"
+
+
+def _server(seen: list[httpx.Request], credits: tavily_search.Credits) -> Client:
+    transport = _transport(httpx.Response(200, json=DATED), seen)
+    return Client(
+        build_server(transport, "test-key", None, credits=credits, today=lambda: date(2026, 11, 8))
+    )
+
+
+async def _search_bodies(seen: list[httpx.Request]) -> list[dict[str, object]]:
+    return [json.loads(r.content) for r in seen if str(r.url).startswith(tavily_search.TAVILY_URL)]
+
+
+async def test_conserve_mode_makes_one_query_of_three_results_for_a_recent_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    seen: list[httpx.Request] = []
+    async with _server(seen, _credits(800)) as client:
+        await client.call_tool("web_research", {"query": "next holiday in Japan", "recent": True})
+    bodies = await _search_bodies(seen)
+    assert len(bodies) == 1 and bodies[0]["max_results"] == tavily_search.CONSERVE_RESULTS
+    seen.clear()
+    async with _server(seen, _credits(100)) as client:  # normal: two queries as before
+        await client.call_tool("web_research", {"query": "next holiday in Japan", "recent": True})
+    assert len(await _search_bodies(seen)) == 2
+
+
+async def test_reserve_mode_spends_nothing_and_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    seen: list[httpx.Request] = []
+    async with _server(seen, _credits(950)) as client:
+        out = await client.call_tool("web_research", {"query": "anything", "recent": True})
+        said = await client.call_tool("web_answer", {"query": "Who wrote Blood Meridian?"})
+    assert str(out.structured_content["result"]) == tavily_search.RESEARCH_PAUSED
+    assert await _search_bodies(seen) == []  # no Tavily request of either tool
+    assert "Blood Meridian" in str(said.structured_content["result"])  # Wikipedia answered
+
+
+async def test_the_same_research_question_within_the_hour_costs_one_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    seen: list[httpx.Request] = []
+    async with _server(seen, _credits(100)) as client:
+        first = await client.call_tool("web_research", {"query": "Next Holiday  in Japan"})
+        again = await client.call_tool("web_research", {"query": "next holiday in japan"})
+    assert first.structured_content == again.structured_content
+    assert len(await _search_bodies(seen)) == 1
+
+
+async def test_every_tavily_call_is_counted_against_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    seen: list[httpx.Request] = []
+    credits = _credits(100)
+    async with _server(seen, credits) as client:
+        await client.call_tool("web_research", {"query": "a topic", "recent": True})
+    assert credits.local == 2  # recent=true is two queries in normal mode

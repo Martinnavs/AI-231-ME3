@@ -42,3 +42,13 @@ def test_the_dry_run_passes_every_case_for_both_tools_and_keywords_change_the_qu
     asyncio.run(se.run(cases[:1], ["web_answer"], call, keywords=True))
     assert seen == [cases[0].keywords]
     assert se.main(["--dry"]) == 0
+
+
+def test_the_live_search_eval_does_not_start_past_the_tavily_line(
+    monkeypatch: object, capsys: object
+) -> None:
+    import voice_agent.tavily_budget as budget
+
+    monkeypatch.setattr(budget, "credit_status", lambda: (900, 1000, "reserve"))  # type: ignore[attr-defined]
+    assert se.main(["--tool", "research"]) == 4
+    assert "not started" in capsys.readouterr().out  # type: ignore[attr-defined]

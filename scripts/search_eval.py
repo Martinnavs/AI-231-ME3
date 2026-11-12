@@ -113,6 +113,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--keywords", action="store_true")
     parser.add_argument("--dry", action="store_true")
     parser.add_argument(
+        "--allow-tavily", action="store_true", help="run although the credits are past the line"
+    )
+    parser.add_argument(
         "--no-grounding", action="store_true", help="web_answer without Google (Tavily only)"
     )
     parser.add_argument("--cases", type=Path, default=CASES)
@@ -121,6 +124,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.only:
         wanted = set(args.only.split(","))
         cases = [c for c in cases if c.id in wanted]
+    if not args.dry:
+        sys.path.insert(0, str(ROOT / "src"))
+        from voice_agent.tavily_budget import credit_status
+
+        used, limit, mode = credit_status()
+        print(f"Tavily credits: {used}/{limit} ({mode})")
+        if mode != "normal" and not args.allow_tavily:
+            print("not started: web_research spends Tavily credits (--allow-tavily)")
+            return 4
     tools = {"answer": ["web_answer"], "research": ["web_research"]}.get(
         args.tool, ["web_answer", "web_research"]
     )

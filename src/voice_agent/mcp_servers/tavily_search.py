@@ -38,6 +38,14 @@ from fastmcp import FastMCP
 
 from voice_agent.mcp_servers import gemini_grounding
 from voice_agent.mcp_servers.web_info import USER_AGENT, first_sentences, wiki_text
+from voice_agent.tavily_budget import (  # noqa: F401  (re-exported: the tests use them)
+    MODES,
+    PLAN_LIMIT,
+    USAGE_URL,
+    credit_status,
+    forced_mode,
+    mode_for,
+)
 
 TAVILY_URL = "https://api.tavily.com/search"
 KEY_FILE = Path(os.environ.get("TAVILY_KEY_FILE", Path.home() / ".secrets/tavily/api-key.txt"))
@@ -94,6 +102,56 @@ RESEARCH_TIMEOUT_S = 12.0  # basic depth is slower than the fast one web_answer 
 RESEARCH_SNIPPET = 400
 RESEARCH_CHARS = 2000
 RESEARCH_FAIL = "I couldn't search the web right now."
+RESEARCH_PAUSED = (
+    "I'm saving my web search credits, so I can't research right now. "
+    "I can still answer a quick question."
+)
+USAGE_TTL_S = 600.0  # /usage is read at most this often (voice_agent.tavily_budget)
+CONSERVE_RESULTS = 3
+RESEARCH_CACHE_TTL_S = 3600.0  # the same research question within an hour costs nothing
+
+
+class Credits:
+    """This month's Tavily credits: read from /usage (a free call) at most every USAGE_TTL_S and
+    counted locally in between. If /usage cannot be read the mode stays normal."""
+
+    def __init__(
+        self, key: Callable[[], str | None], clock: Callable[[], float] = time.monotonic
+    ) -> None:
+        self.key, self.clock = key, clock
+        self.used: float | None = None
+        self.limit = float(PLAN_LIMIT)
+        self.local = 0
+        self.fetched = -1e9
+
+    async def refresh(self, http: httpx.AsyncClient) -> None:
+        self.fetched = self.clock()  # on a failure too: do not ask again at once
+        api_key = self.key()
+        if not api_key:
+            return
+        try:
+            response = await http.get(
+                USAGE_URL, headers={"Authorization": f"Bearer {api_key}"}, timeout=5.0
+            )
+            response.raise_for_status()
+            account = response.json()["account"]
+            self.used = float(account["plan_usage"])
+            self.limit = float(account.get("plan_limit") or PLAN_LIMIT)
+            self.local = 0
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            return
+
+    async def mode(self, http: httpx.AsyncClient) -> str:
+        if (forced := forced_mode()) is not None:
+            return forced
+        if self.clock() - self.fetched > USAGE_TTL_S:
+            await self.refresh(http)
+        return "normal" if self.used is None else mode_for(self.used + self.local, self.limit)
+
+    def spend(self, credits: int = 1) -> None:
+        self.local += credits
+
+
 TOPIC_AUTHORITY_HINTS: dict[str, str] = {
     "philippines": "Inquirer OR Philstar OR Rappler",
     "philippine": "Inquirer OR Philstar OR Rappler",
@@ -275,6 +333,7 @@ def build_server(
     grounding: bool = False,
     gemini_key: str | None = None,
     ledger: gemini_grounding.Ledger | None = None,
+    credits: Credits | None = None,
     today: Callable[[], date] = lambda: datetime.now(ZoneInfo(gemini_grounding.TIMEZONE)).date(),
 ) -> FastMCP:
     """A FastMCP server with web_answer; `transport`, `key`, `ping_every_s` (None: no pings) and
@@ -285,6 +344,16 @@ def build_server(
     inflight: dict[frozenset[str], asyncio.Task[str]] = {}
     spend = ledger if ledger is not None else gemini_grounding.Ledger(gemini_grounding.LEDGER)
     last_use = [clock()]
+    # the budget is read from Tavily itself, so only the real server has one (tests pass their own)
+    budget = (
+        credits
+        if credits is not None
+        else (Credits(lambda: key or load_key()) if transport is None else None)
+    )
+    research_cache: OrderedDict[tuple[str, bool], tuple[float, str]] = OrderedDict()
+
+    async def credit_mode() -> str:
+        return "normal" if budget is None else await budget.mode(client())
 
     def client() -> httpx.AsyncClient:
         if not clients:
@@ -362,11 +431,17 @@ def build_server(
         api_key = key or load_key()
         if not api_key:
             return RESEARCH_FAIL
+        remembered = research_cache.get((" ".join(query.lower().split()), recent))
+        if remembered is not None and clock() - remembered[0] < RESEARCH_CACHE_TTL_S:
+            return remembered[1]
+        mode = await credit_mode()
+        if mode == "reserve":
+            return RESEARCH_PAUSED
         base = {
             "search_depth": "basic",
             "include_answer": False,
             "include_raw_content": False,
-            "max_results": RESEARCH_RESULTS,
+            "max_results": CONSERVE_RESULTS if mode == "conserve" else RESEARCH_RESULTS,
         }
         question = spoken_years_to_digits(query)
         if recent and NEWS_WORDS.search(question):
@@ -375,7 +450,7 @@ def build_server(
         hint = authority_hint_for(question)
         if hint:
             queries.append(f"{question} ({hint})")
-        elif recent and RECENT_SECOND_QUERY:
+        elif recent and RECENT_SECOND_QUERY and mode == "normal":  # a 2nd query is a 2nd credit
             now = today()
             queries.append(f"{question} {now:%B %Y}")  # pulls up pages that name the current date
 
@@ -389,6 +464,8 @@ def build_server(
                             headers={"Authorization": f"Bearer {api_key}"},
                         )
                     response.raise_for_status()
+                    if budget is not None:
+                        budget.spend(1)
                     return list(response.json().get("results") or [])
                 except (httpx.HTTPError, ValueError, TimeoutError, AttributeError) as error:
                     print(
@@ -429,7 +506,11 @@ def build_server(
         if core_terms:
             merged.sort(key=relevance_score, reverse=True)
 
-        return research_text({"results": merged}, today().isoformat())
+        text = research_text({"results": merged}, today().isoformat())
+        research_cache[(" ".join(query.lower().split()), recent)] = (clock(), text)
+        while len(research_cache) > CACHE_MAX:
+            research_cache.popitem(last=False)
+        return text
 
     def remember(wanted: frozenset[str], text: str) -> None:
         cache[wanted] = (clock(), text)
@@ -465,7 +546,7 @@ def build_server(
         if grounding and (text := await grounded(http, query, wanted)) is not None:
             return text
         api_key = key or load_key()
-        if api_key:
+        if api_key and await credit_mode() != "reserve":
             body = {
                 "query": query,
                 "search_depth": SEARCH_DEPTH,
@@ -478,6 +559,8 @@ def build_server(
                         TAVILY_URL, json=body, headers={"Authorization": f"Bearer {api_key}"}
                     )
                 response.raise_for_status()
+                if budget is not None:
+                    budget.spend(1)
                 data = response.json()
                 answer = spoken(data)
                 if answer:

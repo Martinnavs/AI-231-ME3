@@ -409,3 +409,12 @@ def test_refinement_checks_flag_a_lookup_and_a_task_that_is_not_an_update() -> N
     assert ce.refinement_is_patch(restated) is False
     only_build = {"turns": [turn("x", ("delegate", {"task": "t"}))], "files": {}, "params": {}}
     assert ce.no_lookup_on_refinement(only_build) is None
+
+
+def test_a_live_run_does_not_start_when_the_tavily_credits_are_past_the_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(ce, "credit_status", lambda: (800, 1000, "conserve"))
+    code = ce.main(["--only", "snake_game", "--out", str(tmp_path), "--max-usd", "0.5"])
+    assert code == 4 and "Tavily credits: 800/1000 (conserve)" in capsys.readouterr().out
+    assert not list(tmp_path.glob("*/trials.jsonl"))  # nothing was run
