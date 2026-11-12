@@ -33,6 +33,9 @@ from typing import Any
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+from voice_agent.tavily_budget import credit_status  # noqa: E402  (httpx only)
+
 SCENARIOS = ROOT / "config/eval/chain_scenarios.jsonl"
 OUT = ROOT / "out/chain_eval"
 LEDGER = OUT / "ledger.json"
@@ -1052,6 +1055,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--seeds", type=int, default=1, help="run seeds seed..seed+N-1, each as separate trials"
     )
     parser.add_argument("--dry", action="store_true", help="fakes: no network, no cost")
+    parser.add_argument(
+        "--allow-tavily",
+        action="store_true",
+        help="run live although Tavily's monthly credits are past the conserve line",
+    )
     parser.add_argument("--run-id", default=time.strftime("%Y%m%d-%H%M%S"))
     parser.add_argument("--scenarios", type=Path, default=SCENARIOS)
     parser.add_argument("--out", type=Path, default=OUT)
@@ -1076,6 +1084,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.dry and cost >= STOP_AT * args.max_usd - budget.spent:
         print("not started: the estimate does not fit under the stop line (raise --max-usd)")
         return 3
+    if not args.dry:
+        used, limit, mode = credit_status()
+        print(f"Tavily credits: {used}/{limit} ({mode})")
+        if mode != "normal" and not args.allow_tavily:
+            print("not started: the research scenarios spend Tavily credits (--allow-tavily)")
+            return 4
     runner = dry_runner if args.dry else make_live_runner(run_dir, args.seed)
     rows, stopped = asyncio.run(
         evaluate(
