@@ -264,6 +264,7 @@
 + pipeline/src/voice_pipeline/router.py
 + pipeline/src/voice_pipeline/scratchpad.py
 + pipeline/src/voice_pipeline/selfinfo.py
++ pipeline/src/voice_pipeline/spoken_filter.py
 + pipeline/src/voice_pipeline/search_count.py
 + pipeline/src/voice_pipeline/venue.py
 + pipeline/uv.lock
@@ -272,6 +273,7 @@
 + scripts/calibrate.sh
 + scripts/chain_eval.py
 + scripts/search_eval.py
++ scripts/output_audit.py
 + scripts/delegate_doctor.py
 + scripts/fetch_laptop_models.py
 + scripts/fetch_turn_model.py
@@ -401,6 +403,7 @@
 + tests/sandbox/test_host_readonly.py
 + tests/test_chain_eval.py
 + tests/test_search_eval.py
++ tests/test_output_audit.py
 + tests/test_make_entities.py
 + tests/test_pi_device_mcp.py
 + tests/test_pi_device_stdio.py
