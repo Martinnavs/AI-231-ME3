@@ -147,6 +147,12 @@ def make_handler(
             result = await _post(base_url, to_command(intent, slot))
             if result.get("ok") and intent in OPTIONAL_SLOT_FOR_INTENT and slot:
                 result["message"] = f"Playing {str(slot).strip().rstrip('.')}."
+        if intent == "LIST_REMINDERS" and result.get("ok") and base_url is None:
+            # the reminders themselves are the answer: said as they are, after the model's `say`
+            await params.result_callback(
+                str(result["message"]), properties=FunctionCallResultProperties(run_llm=False)
+            )
+            return
         # a command that worked needs no second LLM request: the model's `say` is the reply
         # (TurnTap checks that there is one)
         await params.result_callback(
