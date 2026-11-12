@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
+import pytest
 
 from voice_pipeline import agent_server
 from voice_pipeline.agent_server import AgentServer
@@ -527,3 +528,16 @@ async def test_router_sends_the_api_key_as_a_bearer_header() -> None:
     )
     await plain.route([], "hello")
     assert seen == ["Bearer k3y", None]
+
+
+async def test_an_unreachable_router_warns_once_and_again_when_it_is_back(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    router = router_for(None)
+    await router.route([], "hello")
+    await router.route([], "hello again")
+    assert capsys.readouterr().out.count("WARNING: the local router is unreachable") == 1
+    working = router_for("ALARM|6:30 AM|tomorrow")
+    working.down = True
+    await working.route([], "wake me")
+    assert "reachable again" in capsys.readouterr().out and not working.down

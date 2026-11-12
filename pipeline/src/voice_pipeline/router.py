@@ -78,13 +78,14 @@ class LocalRouter:
     ) -> None:
         self.phonebook = phonebook
         self.timeout = timeout
+        self.down = False
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.client = client or httpx.AsyncClient(base_url=url, headers=headers)
         self.grammar = spec.grammar()
 
     async def warm_up(self) -> None:
         """Fill the prompt cache (the first request costs seconds of prefill)."""
-        await self.route([], "Say OK.")
+        await self.route([], "Say OK.")  # route() warns if the router cannot be reached
 
     @staticmethod
     def reason_unusable(calls: list[Any], available: set[str], user: str = "") -> str | None:
@@ -112,7 +113,18 @@ class LocalRouter:
             response.raise_for_status()
             lines = (response.json()["choices"][0]["message"].get("content") or "").strip()
         except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+            if (
+                not self.down
+            ):  # once per outage: every turn then goes to Gemini with the full prompt
+                self.down = True
+                print(
+                    f"WARNING: the local router is unreachable ({exc!r}); turns go to Gemini",
+                    flush=True,
+                )
             return Routed(seconds=time.perf_counter() - started, reason=f"error: {exc!r}")
+        if self.down:
+            self.down = False
+            print("the local router is reachable again", flush=True)
         seconds = time.perf_counter() - started
         try:
             calls = spec.parse_output(lines)
