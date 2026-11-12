@@ -809,3 +809,22 @@ async def test_normal_mode_research_still_uses_tavily_and_a_google_failure_falls
     async with _grounded_server(seen, _credits(950), gemini_ok=False) as client:  # reserve
         out = await client.call_tool("web_research", {"query": "reviews of the new phone"})
     assert str(out.structured_content["result"]) == tavily_search.RESEARCH_PAUSED
+
+
+def test_the_mode_file_forces_a_mode_for_the_search_child(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from voice_agent import tavily_budget
+
+    mode_file = tmp_path / "tavily_mode"
+    monkeypatch.setattr(tavily_budget, "MODE_FILE", mode_file)
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    assert tavily_budget.forced_mode() is None  # no file: the thresholds decide
+    for word, mode in (("benchmark", "conserve"), ("demo\n", "normal"), ("reserve", "reserve")):
+        mode_file.write_text(word)
+        assert tavily_budget.forced_mode() == mode
+    mode_file.write_text("nonsense")
+    assert tavily_budget.forced_mode() is None
+    monkeypatch.setenv("TAVILY_MODE", "reserve")  # the environment wins over the file
+    mode_file.write_text("demo")
+    assert tavily_budget.forced_mode() == "reserve"
