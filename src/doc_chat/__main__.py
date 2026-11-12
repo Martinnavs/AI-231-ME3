@@ -1016,6 +1016,8 @@ class Session:
         while True:
             idx += 1
             if heard is None:
+                if self._music is not None:
+                    self._music.resume_after_turn()  # the exchange is over: music comes back
                 heard, over_notice = await self.hear_idle()
                 after_interrupt = after_interrupt or over_notice
             said = re.sub(r"[^a-z' ]", " ", heard.text.lower()).split()

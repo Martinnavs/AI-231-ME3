@@ -456,7 +456,7 @@ def test_the_voice_detector_only_runs_while_the_music_is_audible() -> None:
     assert vad.fed == 3 and player.paused_at == [0] and vad.resets == 1
 
 
-def test_a_user_pause_is_sticky_flushes_and_only_a_command_resumes_it() -> None:
+def test_a_user_pause_flushes_stays_through_the_exchange_and_resumes_after_it() -> None:
     player, ws = make(seconds=30)
     player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
     assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
@@ -469,8 +469,89 @@ def test_a_user_pause_is_sticky_flushes_and_only_a_command_resumes_it() -> None:
     player.handle({"action": "volume", "db": -3.0})  # volume while paused: still paused
     time.sleep(0.4)
     assert [m for m in ws.sent[n:] if isinstance(m, bytes)] == [] and player.auto_paused
-    player.handle({"action": "resume"})
+    player.resume_after_turn()  # the exchange is over (2026-11-12: it used to wait for "resume")
     assert not player.auto_paused and wait(lambda: any(isinstance(m, bytes) for m in ws.sent[n:]))
+    player.close()
+
+
+def test_the_music_comes_back_after_the_exchange_in_the_spotify_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from doc_chat import music as music_module
+
+    commands: list[str] = []
+    monkeypatch.setattr(
+        music_module, "spotify_local", lambda command, uri="", **kw: commands.append(command)
+    )
+    player, _ = make(seconds=30)
+    player._spotify = True
+    player.playing = True
+    player.user_pause()
+    assert wait(lambda: commands[-1:] == ["pause"])
+    player.resume_after_turn()
+    assert wait(lambda: commands[-1:] == ["play"]) and not player.auto_paused
+    player.resume_after_turn()  # nothing paused it now: no second play
+    time.sleep(0.2)
+    assert commands == ["pause", "play"]
+    player.close()
+
+
+def test_a_pause_or_stop_command_is_not_undone_after_the_exchange(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from doc_chat import music as music_module
+
+    commands: list[str] = []
+    monkeypatch.setattr(
+        music_module, "spotify_local", lambda command, uri="", **kw: commands.append(command)
+    )
+    player, _ = make(seconds=30)
+    player._spotify = True
+    player.playing = True
+    player.user_pause()  # the user's voice, then the command that voice carried
+    player.handle({"action": "pause"})
+    player.resume_after_turn()
+    time.sleep(0.2)
+    assert "play" not in commands and not player.auto_paused and player._paused.is_set()
+    player.close()
+
+
+def test_the_resume_waits_for_the_reply_that_is_playing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from doc_chat import music as music_module
+
+    commands: list[str] = []
+    monkeypatch.setattr(
+        music_module, "spotify_local", lambda command, uri="", **kw: commands.append(command)
+    )
+    speaking = {"v": False}
+    player, ws = make(
+        seconds=30, tts_playing=lambda: speaking["v"], pipe_decoder=lambda path, rate: FakeProc(30)
+    )
+    monkeypatch.setattr(player, "_route", lambda: None)
+    player.handle({"action": "play", "source": "spotify", "db": 0.0})
+    assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
+    player.user_pause()
+    speaking["v"] = True
+    assert wait(lambda: player._held)
+    player.resume_after_turn()
+    time.sleep(0.2)
+    assert commands.count("play") == 0  # a reply is still playing
+    speaking["v"] = False
+    assert wait(lambda: commands[-1:] == ["play"]) and not player.auto_paused
+    player.close()
+
+
+def test_a_pause_by_voice_with_no_turn_after_it_ends_by_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from doc_chat import music as music_module
+
+    monkeypatch.setattr(music_module, "AUTO_RESUME_MAX_S", 0.3)
+    player, ws = make(seconds=30)
+    player.handle({"action": "play", "url": "http://x/a", "db": 0.0})
+    assert wait(lambda: any(isinstance(m, bytes) for m in ws.sent))
+    player.user_pause()
+    assert wait(lambda: not player.auto_paused and player.audible, timeout=3.0)
     player.close()
 
 
