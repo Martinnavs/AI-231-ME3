@@ -165,6 +165,7 @@ NO_SECOND_REQUEST = FunctionCallResultProperties(run_llm=False)
 # What a started delegate job is answered with: no second model request, so no invented duration
 # and no raw JSON (R2). TurnTap puts "Started. " in front when the model's own `say` is missing.
 DELEGATE_STARTED = "I'll tell you when it's done."
+QUEUED_SAY = "I'll add that after the first one finishes. Say separate to start it now."
 DELEGATE_REPLACED = "Okay, I've switched to that. I'll tell you when it's done."
 # "Sorry, I mean ..." / "No, I mean ...": the user restates what they just asked for. A restated
 # request used to start a second and a third job with other wording (three in 20 s, 2026-11-12);
@@ -348,6 +349,12 @@ def job_started(result: Any) -> bool:
     """Whether a `delegate` result says the job was started and runs in the background."""
     row = _job_row(result)
     return row is not None and row.get("status") == "started"
+
+
+def job_queued(result: Any) -> bool:
+    """Whether a `delegate` result says the request was queued as an addition to a running job."""
+    row = _job_row(result)
+    return row is not None and row.get("status") == "queued"
 
 
 def started_job_id(result: Any) -> str:
@@ -1005,6 +1012,7 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                     or "existing" in task.lower()
                 )
                 and UPDATE_IN_PLACE not in task
+                and not args.get("separate")  # a task of its own is not an update of the page
             ):
                 injected_parts.insert(0, update_sentence(CHAIN.data))
             if (
@@ -1044,6 +1052,10 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                         DELEGATE_REPLACED if replaced else DELEGATE_STARTED,
                         properties=properties or NO_SECOND_REQUEST,
                     )
+                elif job_queued(result):
+                    # one fixed sentence (the model said "I've added that update ... it is currently
+                    # being processed ..." in three sentences): the user can say "separate"
+                    await deliver_job(QUEUED_SAY, properties=properties or NO_SECOND_REQUEST)
                 else:
                     await deliver_job(result, properties=properties)
 

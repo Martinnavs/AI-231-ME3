@@ -189,6 +189,7 @@ class Delegator:
         cap = config["limits"]
         self.limits = Limits(cap["max_steps"], cap["max_seconds"], max_usd=cap["max_usd"])
         self.wait_s, self.max_jobs = float(cap["wait_s"]), int(cap["max_jobs"])
+        self.last_queued: tuple[str, str] | None = None  # (job id, task) of the newest addition
         budgets = {"openrouter": cap["budget_usd"], "qwen": 1e9}
         self.ledger = Ledger(table.path.with_name("spend.json"), budgets)
 
@@ -311,9 +312,19 @@ class Delegator:
             pass
         return found
 
-    async def delegate(self, task: str, wait_s: float | None = None) -> dict[str, Any]:
+    async def delegate(
+        self, task: str, wait_s: float | None = None, separate: bool = False
+    ) -> dict[str, Any]:
         # a job cancelled a moment ago is not running even while its task unwinds: a request that
         # replaces it ("sorry, I mean ...") was queued behind it and lost (2026-11-12)
+        if separate and self.last_queued is not None:
+            # "separate" is about the addition just queued: it is no addition any more (it would
+            # run after the first job and redo the first job's work)
+            job_id, queued_task = self.last_queued
+            queue = self.followups.get(job_id, [])
+            if queued_task in queue:
+                queue.remove(queued_task)
+            self.last_queued = None
         live = {j.id for j in self.table.jobs.values() if j.status == RUNNING}
         if sum(not w.done() for jid, w in self.tasks.items() if jid in live) >= self.max_jobs:
             message = f"Already working on {self.max_jobs} tasks; wait for one to finish."
@@ -321,7 +332,8 @@ class Delegator:
         for running in self.table.jobs.values():
             worker = self.tasks.get(running.id)
             if (
-                worker is not None
+                not separate  # the user said it is a task of its own: no merging, no repeat check
+                and worker is not None
                 and running.status == RUNNING
                 and not worker.done()
                 and (same_task(task, running.task) or same_deliverable(task, running.task))
@@ -330,6 +342,7 @@ class Delegator:
                     queued = self.followups.setdefault(running.id, [])
                     if not any(same_task(task, other) for other in queued):
                         queued.append(task)
+                    self.last_queued = (running.id, task)
                     return {
                         "status": "queued",
                         "job": running.id,
@@ -439,11 +452,16 @@ def build_server(delegator: Delegator) -> FastMCP:
             "and JavaScript, no external URLs); the user then plays it in their browser with "
             "open_app. If the user needs sudo or a device, say it cannot be done here instead of "
             "delegating. Never use it for simple questions, home commands, the "
-            "weather or the time."
+            "weather or the time. Give each unrelated request its own delegate call and write only "
+            "that request in `task`; never put it in one task with a running task's request. A "
+            "request that overlaps a running task is queued as an "
+            'addition to it; when the user then says it is separate ("separate", "start it '
+            'now"), call delegate again with only that new request and separate=true to start '
+            "it beside the running one."
         )
     )
-    async def delegate(task: str) -> dict[str, Any]:
-        return await delegator.delegate(task)
+    async def delegate(task: str, separate: bool = False) -> dict[str, Any]:
+        return await delegator.delegate(task, separate=separate)
 
     @server.tool(
         description=(

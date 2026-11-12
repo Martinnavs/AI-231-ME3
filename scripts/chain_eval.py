@@ -463,6 +463,20 @@ def restatement_replaces(trace: Trace) -> bool | None:
     )
 
 
+def separate_on_request(trace: Trace) -> bool | None:
+    """An addition that was queued becomes its own job when the user says "separate": two jobs,
+    the second a fresh task about the new request only (not a continuation, not the first one's
+    topic again)."""
+    jobs = trace.get("jobs")
+    if jobs is None:
+        return None
+    return (
+        len(jobs) == 2
+        and "continues" not in str(jobs[1].get("task", "")).lower()
+        and "snake" not in str(jobs[1].get("task", "")).lower()
+    )
+
+
 def job_count(trace: Trace, wanted: int) -> bool | None:
     """Exactly `wanted` jobs ran: a repeat is dropped (1), two different builds both run (2)."""
     jobs = trace.get("jobs")
@@ -539,6 +553,7 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "last_turn_is_patch": last_turn_is_patch,
     "build_about_latest_topic": build_about_latest_topic,
     "restatement_replaces": restatement_replaces,
+    "separate_on_request": separate_on_request,
     "job_count": job_count,
     "read_without_delegate": read_without_delegate,
     "independent_jobs": independent_jobs,
@@ -729,7 +744,12 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
         if scenario.overlap:
             expect = scenario.expect
             first = {"id": "job1", "task": "Build a one-page site.", "status": "done"}
-            if "restatement_replaces" in expect:
+            if "separate_on_request" in expect:
+                trace["jobs"] = [
+                    first,
+                    {"id": "job2", "task": "Build a page about lighthouses.", "status": "done"},
+                ]
+            elif "restatement_replaces" in expect:
                 trace["jobs"] = [
                     {**first, "status": "cancelled"},
                     {"id": "job2", "task": "Build another page.", "status": "done"},
