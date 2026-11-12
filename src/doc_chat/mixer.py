@@ -8,7 +8,8 @@ two streams would have to share the USB card (not known to work on this Pi), so 
   abort goes silent within one slice with an 8 ms fade, close waits until it has all been played;
 * the music channel (`music_push`, `music_gain`, `music_flush`): a short ring buffer the laptop
   keeps topped up in real time; when it runs dry the music is silent for that slice, when it
-  overflows the oldest audio is dropped. A slice that has reply audio carries no music.
+  overflows the oldest audio is dropped. A slice with reply audio carries the music too, at the
+  gain the laptop sends (it is ducked while anyone talks), summed and soft-limited.
 
 The output is opened when the first audio arrives and closed after IDLE_CLOSE_S of nothing, so the
 card is free otherwise. `sink_factory(rate)` returns (write, close); tests pass a list.
@@ -149,8 +150,8 @@ class Mixer:
         with self._cond:
             tts = self._take(self._tts)
             music = self._take(self._music)
-            if tts is not None:  # never music under a reply; the audio is dropped, not delayed
-                music = None
+            # the music rides under a reply at the gain the laptop sets (ducked to a very low,
+            # still audible level while anyone talks); it used to be dropped under every reply
             fade, self._fade = self._fade, False
             self._cond.notify_all()
         out = np.zeros(n, dtype=np.float32)

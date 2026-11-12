@@ -31,12 +31,22 @@ class Sink:
         return self.written.append, lambda: setattr(self, "closed", self.closed + 1)
 
 
-def test_music_contributes_nothing_to_a_slice_that_has_a_reply() -> None:
+def test_music_rides_under_a_slice_that_has_a_reply_at_its_gain() -> None:
     mixer = Mixer(RATE, Sink().factory)
     mixer.tts_channel().push(const(1000, 150))
     mixer.music_push(const(300, 300))
-    assert [set(samples(mixer.step())) for _ in range(3)] == [{1000}] * 3
-    assert set(samples(mixer.step())) == {300}  # the reply is over: what music is left plays
+    assert [set(samples(mixer.step())) for _ in range(3)] == [{1300}] * 3
+    assert set(samples(mixer.step())) == {300}  # the reply is over: the rest of the music plays
+
+
+def test_ducked_music_is_summed_under_the_reply_not_dropped() -> None:
+    mixer = Mixer(RATE, Sink().factory)
+    mixer.music_set_gain(-20.0)  # DUCK_DB-like: 0.1
+    mixer.step()  # a first, empty slice applies the gain
+    mixer.tts_channel().push(const(1000, 100))
+    mixer.music_push(const(1000, 100))
+    out = samples(mixer.step())
+    assert 1050 <= set(out).pop() <= 1150  # the reply at 1000 plus the music at 0.1 x 1000
 
 
 def test_music_dropped_under_a_reply_is_not_replayed_afterwards() -> None:
