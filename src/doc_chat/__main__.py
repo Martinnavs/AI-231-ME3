@@ -300,6 +300,9 @@ class Session:
     _held_logged: set[int] = field(default_factory=set)
     _reply_end: float | None = None  # time.monotonic() when the last reply finished playing
     _addressee_note: dict[str, Any] | None = None  # --addressee log: verdict for the turn record
+    loudness_gate: Any = (
+        None  # --voice-gate-db: doc_chat.voice_gate.LoudnessGate, made on first use
+    )
 
     def log(self, rec: dict[str, Any]) -> None:
         self.log_file.write(json.dumps(rec) + "\n")
@@ -793,6 +796,17 @@ class Session:
                 await self.say(clarification.question)
                 self.log(self._clarification_record(idx, text, clarification.question, heard))
                 return
+        gate = self._level_gate()
+        if gate is not None and heard.pcm and not was_pending:
+            level = gate.check(heard.pcm)
+            note = {"level_gate": level.as_dict()}
+            if level.far:
+                print(
+                    f"you:  {text}   (ignored: much quieter than you, not meant for me)", flush=True
+                )
+                self.log({"turn": idx, "question": text, "answer_words": 0, **note})
+                return
+            self._addressee_note = note
         mode = getattr(self.args, "addressee", "off")
         if mode != "off":
             since = None if self._reply_end is None else time.monotonic() - self._reply_end
@@ -804,12 +818,18 @@ class Session:
                 names=names,
                 declaratives=bool(getattr(self.args, "addressee_declaratives", False)),
             )
-            note = {"addressee": verdict.label, "addressee_reasons": list(verdict.reasons)}
+            note = {
+                **(self._addressee_note or {}),
+                "addressee": verdict.label,
+                "addressee_reasons": list(verdict.reasons),
+            }
             if mode == "on" and verdict.label == "ignore":
                 print(f"you:  {text}   (ignored: not addressed to me)", flush=True)
                 self.log({"turn": idx, "question": text, "answer_words": 0, **note})
                 return
             self._addressee_note = note
+        if gate is not None and heard.pcm:
+            gate.accept(heard.pcm)  # an answered turn teaches the gate how loud the user is
         await self.turn(idx, text, heard.t_speech_end, heard.stt_ms, heard)
 
     @staticmethod
@@ -946,6 +966,23 @@ class Session:
         self.log(rec)
         self.history.add(question, " ".join(spoken.sentences))
         print(timing_line(rec), flush=True)
+
+    def _level_gate(self) -> Any:
+        """The loudness gate (--voice-gate-db), or None when it is off."""
+        gap = float(getattr(self.args, "voice_gate_db", 0.0) or 0.0)
+        if gap <= 0:
+            return None
+        if self.loudness_gate is None:
+            from doc_chat.calibrate import load_calibration
+            from doc_chat.voice_gate import WINDOW_S, LoudnessGate
+
+            cal = load_calibration()
+            self.loudness_gate = LoudnessGate(
+                gap,
+                float(getattr(self.args, "voice_gate_window", WINDOW_S)),
+                None if cal is None else cal["user_db"],
+            )
+        return self.loudness_gate
 
     def _take_addressee_note(self) -> dict[str, Any]:
         """The gate's verdict for the turn being logged (--addressee log), once."""
@@ -1892,6 +1929,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="with --addressee: also ignore plain statements about me/them/the room "
         "(blocks more background talk, but wrongly ignores 1-2 percent of real turns)",
+    )
+    parser.add_argument(
+        "--voice-gate-db",
+        type=float,
+        default=0.0,
+        help="ignore a turn this many dB quieter than the user's usual level (TV, radio, "
+        "background talk; try 10); the level is measured over the last 30 s of answered turns, "
+        "starting from out/calibration.json. 0 = off",
+    )
+    parser.add_argument(
+        "--voice-gate-window",
+        type=float,
+        default=30.0,
+        help="seconds of speech the --voice-gate-db level is measured over (default: 30)",
     )
     parser.add_argument(
         "--addressee-names",
