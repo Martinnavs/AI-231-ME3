@@ -147,3 +147,47 @@ def test_main_full_writes_every_key_and_the_recommended_gate(
     assert cal["bg_voice_db"] == pytest.approx(-33.0, abs=1.0)
     assert cal["gate_db"] == pytest.approx(6.5, abs=0.6)
     assert "--voice-gate-db auto" in capsys.readouterr().out
+
+
+def fake_pactl(sinks: str, load_ok: bool = True) -> Any:
+    from types import SimpleNamespace
+
+    calls: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: Any) -> Any:
+        calls.append(argv)
+        if argv[:3] == ["pactl", "list", "short"]:
+            return SimpleNamespace(stdout=sinks, returncode=0)
+        return SimpleNamespace(stdout="", returncode=0 if load_ok else 1)
+
+    run.calls = calls  # type: ignore[attr-defined]
+    return run
+
+
+def test_the_spotify_sink_is_made_when_the_stack_has_not_and_left_alone_when_it_has() -> None:
+    from doc_chat.music import ensure_spotify_sink
+
+    has = fake_pactl("329\tme3_spotify\tPipeWire\tfloat32le 2ch 48000Hz\tRUNNING\n")
+    assert ensure_spotify_sink(has) is True and len(has.calls) == 1  # nothing loaded
+    missing = fake_pactl("56\talsa_output.pci\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED\n")
+    assert ensure_spotify_sink(missing) is True
+    load = missing.calls[-1]
+    assert load[:3] == ["pactl", "load-module", "module-null-sink"]
+    assert "sink_name=me3_spotify" in load
+    assert ensure_spotify_sink(fake_pactl("", load_ok=False)) is False
+
+
+def test_the_bridge_makes_the_sink_before_it_starts_piping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from doc_chat import music
+
+    made: list[str] = []
+    monkeypatch.setattr(music, "ensure_spotify_sink", lambda *a, **k: made.append("sink") or True)
+    monkeypatch.setattr(music, "MusicPlayer", lambda connect: object())
+    bridge = calibrate.SpotifyBridge("ws://pi:8780")
+    bridge.start()
+    assert made == ["sink"] and bridge.player is not None
+    quiet = calibrate.SpotifyBridge(None)
+    quiet.start()
+    assert made == ["sink"] and quiet.player is None  # no Pi URL: nothing is piped
