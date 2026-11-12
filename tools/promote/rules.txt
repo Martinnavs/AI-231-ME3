@@ -271,6 +271,7 @@
 + scripts/addressee_replay.py
 + scripts/calibrate.sh
 + scripts/chain_eval.py
++ scripts/search_eval.py
 + scripts/delegate_doctor.py
 + scripts/fetch_laptop_models.py
 + scripts/fetch_turn_model.py
@@ -399,6 +400,7 @@
 + tests/sandbox/test_delegate_smoke.py
 + tests/sandbox/test_host_readonly.py
 + tests/test_chain_eval.py
++ tests/test_search_eval.py
 + tests/test_make_entities.py
 + tests/test_pi_device_mcp.py
 + tests/test_pi_device_stdio.py
