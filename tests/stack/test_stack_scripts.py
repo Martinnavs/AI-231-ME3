@@ -388,7 +388,7 @@ def test_harness_defaults_to_the_laptop_and_talk_uses_the_loopback_agent(world):
 
 
 def test_harness_pi_runs_the_agent_on_the_pi_and_the_router_on_the_cable_address(world):
-    env = stack_env(world, HARNESS="pi")
+    env = stack_env(world, HARNESS="pi", PI_START="ssh")  # the ssh start path (no systemd units)
     up = run_script("up.sh", env, "all")
     assert up.returncode == 0, up.stderr
     out = up.stdout
@@ -411,7 +411,7 @@ def test_harness_pi_runs_the_agent_on_the_pi_and_the_router_on_the_cable_address
 
 
 def test_harness_pi_talk_status_and_down(world):
-    env = stack_env(world, HARNESS="pi")
+    env = stack_env(world, HARNESS="pi", PI_START="ssh")
     assert "--agent-url ws://169.254.7.7:8781" in run_script("talk.sh", env).stdout
     down = run_script("down.sh", env, "pi")
     assert "pi_agent.pid" in down.stdout and "pi_apps.pid" in down.stdout

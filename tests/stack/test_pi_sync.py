@@ -130,3 +130,28 @@ def test_the_pi_harness_is_the_default_for_make_up(world):  # noqa: F811
     assert "(wait for 169.254.7.7:8781)" in r.stdout  # the agent is waited for on the Pi
     laptop = run_script("up.sh", {**env, "HARNESS": "laptop"}, "laptop")
     assert "(wait for 169.254.7.7:8781)" not in laptop.stdout
+
+
+def test_make_up_starts_the_pi_services_as_systemd_units_by_default(world):  # noqa: F811
+    """Port 8780 was 'already in use': the boot service already runs the speaker."""
+    env = stack_env(world)
+    env.pop("HARNESS")
+    r = run_script("up.sh", env, "all")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout.replace("\\", "")
+    assert "systemctl --user restart pi-speaker pi-agent" in out
+    assert "pi_speaker.py" not in out  # no second copy over ssh
+
+
+def test_the_laptop_harness_still_starts_the_speaker_over_ssh(world):  # noqa: F811
+    r = run_script("up.sh", stack_env(world), "all")  # stack_env pins HARNESS=laptop
+    assert "pi_speaker.py" in r.stdout and "systemctl --user restart" not in r.stdout.replace(
+        "\\", ""
+    )
+
+
+def test_make_down_stops_the_units_the_same_way(world):  # noqa: F811
+    env = stack_env(world)
+    env.pop("HARNESS")
+    r = run_script("down.sh", env, "pi")
+    assert "systemctl --user stop pi-agent pi-speaker" in r.stdout.replace("\\", "")

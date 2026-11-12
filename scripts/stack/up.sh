@@ -163,6 +163,9 @@ start_pi() {
     local units="pi-speaker pi-device-mcp"; [ "$HARNESS" = pi ] && units="pi-speaker pi-agent"
     pi_ssh "systemctl --user restart $units" || die "systemd start failed on the Pi (was deploy/install-pi.sh run?)"
   else
+    if [ "$DRY" != 1 ] && pi_ssh 'systemctl --user is-active --quiet pi-speaker' 2>/dev/null; then
+      die "the pi-speaker service already runs on the Pi (port $PORT_PI_SPEAKER): use PI_START=systemd, the default with HARNESS=pi"
+    fi
     local ld=${PI_LD_LIBRARY_PATH:-} device_start=""
     # HARNESS=pi: the device tools are a stdio child of the Pi's agent server, not a service of their own
     [ "$HARNESS" = pi ] || device_start="nohup timeout $PI_RUN_SECONDS .venv/bin/python -u scripts/pi_device_mcp.py --port $PORT_PI_DEVICE > /tmp/pi_device.log 2>&1 < /dev/null & echo \$! > /tmp/pi_device.pid"

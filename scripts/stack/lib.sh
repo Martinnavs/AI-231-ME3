@@ -47,6 +47,10 @@ load_env() {
   # HARNESS=laptop: the agent server runs here (development).
   HARNESS=${HARNESS:-pi}
   case "$HARNESS" in laptop | pi) ;; *) die "HARNESS must be laptop or pi, not $HARNESS" ;; esac
+  # How the Pi's services are started: the production harness runs them as the boot services pi-speaker and
+  # pi-agent (a second copy over ssh would fail with "address already in use" on 8780/8781); the laptop
+  # harness starts the speaker over ssh.
+  if [ -z "${PI_START:-}" ]; then if [ "$HARNESS" = pi ]; then PI_START=systemd; else PI_START=ssh; fi; fi
   if [ "$HARNESS" = pi ]; then AGENT_URL=ws://$PI_V4:$PORT_AGENT; ROUTER_HOST=$LAPTOP_IP; else AGENT_URL=ws://127.0.0.1:$PORT_AGENT; ROUTER_HOST=127.0.0.1; fi
   mkdir -p "$STACK_DIR/logs" "$STACK_DIR/pids" 2>/dev/null || true
 }
