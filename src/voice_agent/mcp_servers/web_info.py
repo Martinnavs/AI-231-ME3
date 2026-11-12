@@ -169,6 +169,17 @@ NOT_AN_END = re.compile(
 )
 
 
+_TOWN_WORDS = re.compile(r"^city of\s+|\s+(?:city|municipality|town|province)$", re.IGNORECASE)
+
+
+def name_variants(name: str) -> list[str]:
+    """The name, then without "City", "Municipality", "Town" or "City of": the geocoder knows
+    "Caloocan" and "Taguig" but not "Caloocan City" or "Taguig City" (the weather of two of five
+    cities came back as not found, 2026-11-12), while it knows "Makati City" as written."""
+    plain = _TOWN_WORDS.sub("", _TOWN_WORDS.sub("", name.strip())).strip()
+    return [name] + ([plain] if plain and plain.lower() != name.strip().lower() else [])
+
+
 def split_sentences(text: str) -> list[str]:
     """Sentences, not breaking after an initial or a title: "Dr. Eugene Rex L. Jalao" is one
     name (the answer was cut after "Rex L." in the live session of 2026-11-11)."""
@@ -241,6 +252,15 @@ def build_server(
                         await client().get(url, timeout=5.0)
             await asyncio.sleep(every)
 
+    async def geocode(http: httpx.AsyncClient, name: str) -> dict[str, Any] | None:
+        """The geocoder's first hit for the name or, failing that, for its plain form."""
+        for variant in name_variants(name):
+            geo = await http.get(GEOCODE_URL, params={"name": variant, "count": 1})
+            found = geo.json().get("results") or []
+            if found:
+                return dict(found[0])
+        return None
+
     async def fetch(name: str) -> tuple[dict[str, Any], dict[str, Any]] | str:
         """(place, daily forecast) or a sentence; a forecast up to STALE_S old stands in when the
         service does not answer (a demo on a poor connection)."""
@@ -252,11 +272,10 @@ def build_server(
             return where, cached[1]  # type: ignore[return-value]
         try:
             if where is None:
-                geo = await http.get(GEOCODE_URL, params={"name": name, "count": 1})
-                found = geo.json().get("results") or []
-                if not found:
+                found_place = await geocode(http, name)
+                if found_place is None:
                     return f"I couldn't find a place called {name}."
-                where = places[name.lower()] = found[0]
+                where = places[name.lower()] = found_place
                 key = (where["latitude"], where["longitude"])
             params: dict[str, Any] = {
                 "latitude": where["latitude"],
@@ -290,13 +309,12 @@ def build_server(
         if known is not None:
             return known
         try:
-            geo = await client().get(GEOCODE_URL, params={"name": name, "count": 1})
-            found = geo.json().get("results") or []
+            found_place = await geocode(client(), name)
         except (httpx.HTTPError, ValueError):
             return None
-        if found:
-            places[name.lower()] = found[0]
-        return found[0] if found else None
+        if found_place is not None:
+            places[name.lower()] = found_place
+        return found_place
 
     async def google_nearby(
         kind: str, lat: float, lon: float

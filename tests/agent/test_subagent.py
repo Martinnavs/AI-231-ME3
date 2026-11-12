@@ -595,3 +595,58 @@ def test_a_number_that_only_appears_in_a_given_url_is_not_flagged_as_invented() 
     assert lint_html("<p>SSRN 7654321</p>", [profile], "Build from PROFILE.md") == [
         "unsourced figure 7654321"
     ]
+
+
+KEEP_TASK = (
+    "Update the existing apps/c/index.html in place: read it first. "
+    "Keep ALL of these items: Quezon City, Manila, Davao. Add a table."
+)
+KEEP_DONE = "Updated it.\nFiles: apps/c/index.html"
+
+
+class PagesBySuccessiveReads(FakeTools):
+    def __init__(self, pages: list[str]) -> None:
+        super().__init__()
+        self.pages, self.reads = pages, 0
+
+    async def call(self, name: str, arguments: Mapping[str, Any]) -> ToolOutcome:
+        if name == "code__read_file":
+            page = self.pages[min(self.reads, len(self.pages) - 1)]
+            self.reads += 1
+            return ToolOutcome(page, False, 0.0)
+        return await super().call(name, arguments)
+
+
+def test_the_items_to_keep_are_read_from_the_task_and_matched_by_name_or_longest_word() -> None:
+    from voice_agent.agent.subagent import item_present, kept_items
+
+    assert kept_items(KEEP_TASK) == ["Quezon City", "Manila", "Davao"]
+    assert kept_items("Make a page about cats") == []
+    assert item_present("Quezon City", "<td>quezon</td>") and not item_present(
+        "Manila", "<td>x</td>"
+    )
+    assert item_present("Davao City", "davao city 1.7m")
+
+
+async def test_an_update_that_dropped_items_is_sent_back_once_and_accepted_when_fixed() -> None:
+    seen: list[dict[str, Any]] = []
+    full = "<tr><td>Quezon City</td><td>Manila</td><td>Davao</td></tr>"
+    tools = PagesBySuccessiveReads(["<td>Quezon City</td>", full])
+    http = client([reply(KEEP_DONE), reply(KEEP_DONE)], seen)
+    result = await run_task(KEEP_TASK, MODEL, "k", tools, client=http)
+    assert result.steps == 2 and result.summary == KEEP_DONE
+    assert injected(seen, "The page no longer mentions these items") == 1
+
+
+async def test_items_still_lost_after_the_retry_are_named_in_the_summary() -> None:
+    http = client([reply(KEEP_DONE), reply(KEEP_DONE)])
+    tools = PagesBySuccessiveReads(["<td>Quezon City</td>"])
+    result = await run_task(KEEP_TASK, MODEL, "k", tools, client=http)
+    assert result.status == "done"
+    assert result.summary.startswith("Not kept: Manila, Davao. ")
+
+
+async def test_a_task_with_no_keep_sentence_is_not_checked() -> None:
+    http = client([reply(KEEP_DONE)])
+    result = await run_task("Make a page about cats", MODEL, "k", FakeTools(), client=http)
+    assert result.steps == 1 and result.summary == KEEP_DONE

@@ -174,4 +174,6 @@ async def test_notes_about_something_else_are_not_handed_to_a_build(
     record: list[dict[str, Any]] = []
     task = "Create a website all about the user using /sandbox/scratch/PROFILE.md."
     await _run("delegate", '{"status":"busy"}', {"task": task}, record)
-    assert record[-1]["args"]["task"] == task  # no NOTES sentence, no restaurant URLs
+    sent = record[-1]["args"]["task"]
+    assert sent.startswith(task) and "Notes" not in sent and "http" not in sent  # nothing carried
+    assert sent[len(task) :].strip() == agent_tools.MANIFEST_SENTENCE  # only the manifest ask

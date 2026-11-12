@@ -76,10 +76,21 @@ SYSTEM = (
     "and link each story to its source URL with clickable badges. Never abort or leave empty "
     "placeholder files. Never invent ratings, star scores, reviews, quotes, reviewer or "
     "attendee names, counts or dates; if something you were asked for is not found, say so once "
-    "in the deliverable in a plain note, with no placeholders."
+    "in the deliverable in a plain note, with no placeholders. When you make or change a page, "
+    "table or file about a list of things (cities, products, events, files), also write "
+    'MANIFEST.json beside the main file, {"items": [the names of the things it covers], '
+    '"gaps": [what it lacks or could not confirm, such as "Caloocan weather"]}, at most 12 '
+    "items and 6 gaps (this is the one extra file the rule above allows). When the task says to "
+    "update an existing file, read it first, change only what was asked, and keep every item on it."
 )
 
 SOURCES_FILE = "SOURCES.json"
+MANIFEST_FILE = "MANIFEST.json"
+KEEP_ITEMS = re.compile(r"Keep ALL of these items:\s*(.+?)\.(?:\s|$)")
+KEEP_RETRY = (
+    "The page no longer mentions these items from the task. Put them back, keep everything "
+    "else, then summarize what you made: "
+)
 SOURCES_MISSING = (
     "You must save the facts and URLs you used to /sandbox/SOURCES.json before finishing."
 )
@@ -97,9 +108,34 @@ def deliverables(result: RunResult) -> list[str]:
     seen: dict[str, None] = {}
     for name in [*result.written, *listed_files(result.summary)]:
         path = name.strip().removeprefix("/sandbox/").removeprefix("./")
-        if path.lower().endswith(TEXT_EXTENSIONS) and Path(path).name != SOURCES_FILE:
+        if path.lower().endswith(TEXT_EXTENSIONS) and Path(path).name not in (
+            SOURCES_FILE,
+            MANIFEST_FILE,
+        ):
             seen[path] = None
     return list(seen)
+
+
+def kept_items(task: str) -> list[str]:
+    """The items an update task says to keep ("Keep ALL of these items: A, B.")."""
+    found = KEEP_ITEMS.search(task)
+    return [i.strip() for i in found[1].split(",") if i.strip()] if found else []
+
+
+def item_present(item: str, text: str) -> bool:
+    """The item's name, or its longest word, is in `text` (lower case)."""
+    low = item.lower()
+    words = re.findall(r"[a-z0-9]{3,}", low)
+    return low in text or bool(words and max(words, key=len) in text)
+
+
+async def missing_kept(pages: Sequence[str], task: str, tools: Tools) -> list[str]:
+    """Items the task says to keep that no text deliverable mentions any more."""
+    items = kept_items(task)
+    if not items or not pages:
+        return []
+    text = " ".join([(await read_text(tools, page) or "") for page in pages]).lower()
+    return [item for item in items if not item_present(item, text)]
 
 
 PROFILE_FILE = "scratch/PROFILE.md"
@@ -442,6 +478,7 @@ async def run_task(
     last = [""]
     warned = False
     linted = False
+    kept_retried = False
     try:
         for _ in range(limits.max_steps):
             if result.steps == limits.max_steps - STEPS_WARNING_AT and not warned:
@@ -497,6 +534,11 @@ async def run_task(
                     shown = "; ".join(flags)[:LINT_SNIPPET_CHARS]
                     messages.append({"role": "user", "content": LINT_RETRY + shown})
                     continue
+                lost = await missing_kept(deliverables(result), task, tools)
+                if lost and not kept_retried:
+                    kept_retried = True
+                    messages.append({"role": "user", "content": KEEP_RETRY + ", ".join(lost)})
+                    continue
                 wrote = any(name in WRITES for name in result.tool_calls)
                 if not result.summary and not wrote:
                     result.status, result.summary = "failed", NO_RESULT
@@ -506,6 +548,8 @@ async def run_task(
                         result.summary = UNSOURCED + result.summary
                     if flags:
                         result.summary = UNVERIFIED + result.summary
+                    if lost:
+                        result.summary = f"Not kept: {', '.join(lost)}. " + result.summary
                 break
             if result.first_call_s is None:
                 result.first_call_s = time.monotonic() - started

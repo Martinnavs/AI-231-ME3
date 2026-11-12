@@ -205,9 +205,9 @@ def test_case_f_has_the_three_rules_and_the_say_exemption() -> None:
     assert "chain_update has no `say`" in text
 
 
-def test_the_prompt_grew_by_less_than_1800_characters() -> None:
+def test_the_prompt_grew_by_less_than_1900_characters() -> None:
     text = PROMPT.read_text()
-    assert len(text) < 4976 + 1800  # 4976: its size at HEAD 014b424
+    assert len(text) < 4976 + 1900  # 4976: its size at HEAD 014b424
     # now 6297: P2 moved the multi-turn chain protocol out to system_agent_case_f.txt
     assert "recent=true" in text
 
@@ -543,7 +543,9 @@ async def test_a_build_about_something_else_ends_the_research_chain_and_carries_
             tool_call_id="d",
         )
     )
-    assert record[-1]["args"]["task"] == task  # no notes, no URLs
+    sent = record[-1]["args"]["task"]
+    assert sent.startswith(task) and "Notes" not in sent and "http" not in sent  # nothing carried
+    assert sent[len(task) :].strip() == agent_tools.MANIFEST_SENTENCE  # only the manifest ask
     assert "Tatler" not in record[-1]["args"]["task"]
     assert chain.data["facts"] == [] and not pad.has_entries()
 

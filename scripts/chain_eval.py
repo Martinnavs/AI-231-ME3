@@ -377,6 +377,52 @@ def build_about_latest_topic(trace: Trace, spec: dict[str, Any]) -> bool | None:
     )
 
 
+def _present(item: str, text: str) -> bool:
+    low = item.lower()
+    words = re.findall(r"[a-z0-9]{3,}", low)
+    return low in text or bool(words and max(words, key=len) in text)
+
+
+def _after_build(trace: Trace) -> list[dict[str, Any]]:
+    turns = trace["turns"]
+    first = next(
+        (i for i, t in enumerate(turns) if any(c["tool"] == "delegate" for c in t["calls"])), None
+    )
+    return [] if first is None else turns[first + 1 :]
+
+
+def items_kept(trace: Trace) -> bool | None:
+    """Every item of the working set after the first build is still in the final deliverable,
+    whatever the topic (2026-11-12: five cities became three after two updates)."""
+    turns = trace["turns"]
+    first = next((t for t in turns if t.get("chain_items")), None)
+    if first is None:
+        return False if _build_turn(trace) else None  # a build with no working set recorded
+    text = str(trace["files"].get("text", "")).lower()
+    return len(first["chain_items"]) >= 3 and all(_present(i, text) for i in first["chain_items"])
+
+
+def no_lookup_on_refinement(trace: Trace) -> bool | None:
+    """Changing a finished deliverable does not search again or read results aloud."""
+    later = _after_build(trace)
+    return None if not later else not any(c["tool"] in LOOKUPS for t in later for c in t["calls"])
+
+
+def refinement_is_patch(trace: Trace) -> bool | None:
+    """Each refinement turn delegates an update of the existing file (the harness adds the
+    sentence that names the file and the items to keep)."""
+    later = _after_build(trace)
+    if not later:
+        return None
+    return all(
+        any(
+            c["tool"] == "delegate" and "Update the existing" in str(c["args"].get("task", ""))
+            for c in t["calls"]
+        )
+        for t in later
+    )
+
+
 def job_count(trace: Trace, wanted: int) -> bool | None:
     """Exactly `wanted` jobs ran: a repeat is dropped (1), two different builds both run (2)."""
     jobs = trace.get("jobs")
@@ -446,6 +492,9 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "no_stray_apps": no_stray_apps,
     "followup_merged": followup_merged,
     "answered_by_web_answer": answered_by_web_answer,
+    "items_kept": items_kept,
+    "no_lookup_on_refinement": no_lookup_on_refinement,
+    "refinement_is_patch": refinement_is_patch,
     "build_about_latest_topic": build_about_latest_topic,
     "job_count": job_count,
     "read_without_delegate": read_without_delegate,
@@ -532,6 +581,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
         "unrelated_build",
         "overlap_build",
         "readback",
+        "refine_build",
     )
     for index, template in enumerate(scenario.turns):
         user = fill(template, params)
@@ -544,6 +594,24 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             notes.append(f"## 00:00 web_research: {user}\n{url}")
             trace["web_urls"].append(url)
             phase = "researching"
+        if scenario.kind == "refine_build":
+            task = "Build a page of three things: Alpha, Beta, Gamma."
+            if index:
+                task = "Update the existing apps/x/index.html in place. Keep ALL of these items."
+            else:
+                calls.append({"tool": "web_answer", "args": {"query": user}})
+            calls.append({"tool": "delegate", "args": {"task": task}, "raw_task": task})
+            trace["turns"].append(
+                {
+                    "user": user,
+                    "calls": calls,
+                    "reply": "Started.",
+                    "chain_phase": "idle",
+                    "scratch_entries": 0,
+                    "chain_items": ["Alpha", "Beta", "Gamma"],
+                }
+            )
+            continue
         if scenario.kind == "lookup":
             calls.append({"tool": "web_answer", "args": {"query": user}})
         elif scenario.kind == "readback" and last:
@@ -593,7 +661,13 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             "SOURCES.json": json.dumps([{"url": url, "fact": "x"}]) if text else None,
             "text_deliverables": [f"out.{scenario.deliverable}"] if text else [],
             "apps": ["snake_game/index.html"] if game else [],
-            "text": str(params.get("marker", "")) if text else "",
+            "text": (
+                "Alpha Beta Gamma"
+                if scenario.kind == "refine_build"
+                else str(params.get("marker", ""))
+            )
+            if text
+            else "",
         }
         if scenario.overlap:
             expect = scenario.expect
@@ -627,7 +701,8 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
         agent_mod = load("voice_pipeline.agent")
         Agent, build_llm = agent_mod.Agent, agent_mod.build_llm
         AgentServer = load("voice_pipeline.agent_server").AgentServer
-        ChainState = load("voice_pipeline.chain_state").ChainState
+        chain_module = load("voice_pipeline.chain_state")
+        ChainState, is_followup = chain_module.ChainState, chain_module.is_followup
         build_tools, standard_servers = agent_tools.build_tools, agent_tools.standard_servers
         without_tools, MODEL_HIDDEN = agent_tools.without_tools, agent_tools.MODEL_HIDDEN
 
@@ -684,6 +759,10 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
         try:
             for turn in scenario.turns:
                 user = fill(turn, params)
+                if chain.active() and chain.data["done"] and not is_followup(user):
+                    chain.update(
+                        "idle"
+                    )  # as agent_server.handle: a finished task ends on a new topic
                 phase = chain.data["phase"]
                 # mirrors the production rule: the Case F protocol joins while a chain is active
                 steered = server.steer(
@@ -705,6 +784,7 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
                         "scratch_entries": pad.render().count("\n## "),
                     }
                 )
+                last_turn = trace["turns"][-1]
                 history += [
                     {"role": "user", "content": user},
                     {"role": "assistant", "content": result.get("text", "")},
@@ -720,6 +800,7 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
                     trace["job"] = job
                     server.note_chain_job(chain.data["job_id"])
                     history.append({"role": "assistant", "content": str(job.get("summary", ""))})
+                last_turn["chain_items"] = list(chain.data["items"])
             if scenario.overlap:
                 trace["job"] = await _wait_all(state)
         finally:

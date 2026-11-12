@@ -588,6 +588,9 @@ class AgentServer:
         files = row.get("files") or []
         if row.get("status") == "done" and files:
             chain.update(artifact_path=str(files[0]))
+            manifest = agent_tools.read_manifest(str(files[0]))
+            if manifest is not None:  # what the deliverable holds and lacks
+                chain.update(items=manifest["items"], gaps=manifest["gaps"])
         if row.get("status") == "done":
             chain.mark_done()
 
