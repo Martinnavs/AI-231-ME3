@@ -423,6 +423,32 @@ def refinement_is_patch(trace: Trace) -> bool | None:
     )
 
 
+ACK_TURN = re.compile(r"\b(?:got it|thanks?|thank you|understood|mm+[- ]?hm+)\b", re.IGNORECASE)
+
+
+def acks_start_nothing(trace: Trace) -> bool | None:
+    """ "Got it, thanks" is not a request: no job and no lookup (a job was started for "Yep, we
+    got it", 2026-11-12)."""
+    acks = [t for t in trace["turns"] if ACK_TURN.search(t["user"]) and len(t["user"].split()) <= 7]
+    if not acks:
+        return None
+    return not any(
+        c["tool"] in LOOKUPS or c["tool"] == "delegate" for t in acks for c in t["calls"]
+    )
+
+
+def last_turn_is_patch(trace: Trace) -> bool | None:
+    """After side questions and an acknowledgement the refinement still reaches the finished page
+    as an update that keeps the items: the task survived the side turns."""
+    turns = trace["turns"]
+    if _build_turn(trace) is None or len(turns) < 3:
+        return None
+    return any(
+        c["tool"] == "delegate" and "Update the existing" in str(c["args"].get("task", ""))
+        for c in turns[-1]["calls"]
+    )
+
+
 def job_count(trace: Trace, wanted: int) -> bool | None:
     """Exactly `wanted` jobs ran: a repeat is dropped (1), two different builds both run (2)."""
     jobs = trace.get("jobs")
@@ -495,6 +521,8 @@ PREDICATES: dict[str, Callable[..., bool | None]] = {
     "items_kept": items_kept,
     "no_lookup_on_refinement": no_lookup_on_refinement,
     "refinement_is_patch": refinement_is_patch,
+    "acks_start_nothing": acks_start_nothing,
+    "last_turn_is_patch": last_turn_is_patch,
     "build_about_latest_topic": build_about_latest_topic,
     "job_count": job_count,
     "read_without_delegate": read_without_delegate,
@@ -582,6 +610,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
         "overlap_build",
         "readback",
         "refine_build",
+        "refine_after_side",
     )
     for index, template in enumerate(scenario.turns):
         user = fill(template, params)
@@ -594,7 +623,20 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             notes.append(f"## 00:00 web_research: {user}\n{url}")
             trace["web_urls"].append(url)
             phase = "researching"
-        if scenario.kind == "refine_build":
+        if scenario.kind == "refine_after_side" and 0 < index < len(scenario.turns) - 1:
+            side = [] if ACK_TURN.search(user) else [{"tool": "weather", "args": {"place": "x"}}]
+            trace["turns"].append(
+                {
+                    "user": user,
+                    "calls": side,
+                    "reply": "ok",
+                    "chain_phase": "idle",
+                    "scratch_entries": 0,
+                    "chain_items": ["Alpha", "Beta", "Gamma"],
+                }
+            )
+            continue
+        if scenario.kind in ("refine_build", "refine_after_side"):
             task = "Build a page of three things: Alpha, Beta, Gamma."
             if index:
                 task = "Update the existing apps/x/index.html in place. Keep ALL of these items."
@@ -663,7 +705,7 @@ async def dry_runner(scenario: Scenario, params: dict[str, str], trial: int) -> 
             "apps": ["snake_game/index.html"] if game else [],
             "text": (
                 "Alpha Beta Gamma"
-                if scenario.kind == "refine_build"
+                if scenario.kind in ("refine_build", "refine_after_side")
                 else str(params.get("marker", ""))
             )
             if text
@@ -759,7 +801,12 @@ def make_live_runner(run_dir: Path, seed: int) -> Runner:
         try:
             for turn in scenario.turns:
                 user = fill(turn, params)
-                if chain.active() and chain.data["done"] and not is_followup(user):
+                if (
+                    chain.active()
+                    and chain.data["done"]
+                    and not is_followup(user)
+                    and not chain_module.is_side_question(user)
+                ):
                     chain.update(
                         "idle"
                     )  # as agent_server.handle: a finished task ends on a new topic

@@ -195,3 +195,118 @@ def test_a_finished_job_copies_its_manifest_into_the_chain(
     assert chain.data["items"] == ["Davao", "Quezon City", "Manila"]  # added to, not replaced
     assert chain.data["gaps"] == ["Manila weather"]
     assert "missing: Manila weather" in chain.block()
+
+
+def test_acknowledgements_are_recognised_and_requests_are_not() -> None:
+    from voice_pipeline.chain_state import is_acknowledgement, is_answer
+
+    for said in (
+        "Yep, we got it.",
+        "Got it, thank you.",
+        "Got it.",
+        "Understood.",
+        "Mm-hmm.",
+        "Thanks!",
+        "No need, ok, got it",
+    ):
+        assert is_acknowledgement(said) and is_answer(said), said
+    for said in (
+        "Yes, thank you, build it",
+        "Thanks, now add the title",
+        "Got it, please make it blue",
+        "What is the weather",
+        "Yes please",
+    ):
+        assert not is_acknowledgement(said), said
+
+
+def test_the_main_file_of_a_job_is_not_its_manifest() -> None:
+    from voice_pipeline.agent_tools import main_file
+
+    files = ["apps/p/MANIFEST.json", "apps/p/index.html", "SOURCES.json"]
+    assert main_file(files) == "apps/p/index.html"
+    assert main_file(["SOURCES.json", "MANIFEST.json", "notes.md"]) == "notes.md"
+    assert main_file(["a.py"]) == "a.py" and main_file([]) == ""
+
+
+def test_side_questions_leave_a_finished_task_alone_but_count_against_research(
+    tmp_path: Path,
+) -> None:
+    done = ChainState(tmp_path / "a")
+    done.update("building", subject="s", artifact_path="apps/p/index.html")
+    for _ in range(5):  # music, weather, the clock while a page is being refined
+        done.touch_unrelated(side=True)
+    assert done.active() and done.data["unrelated_turns"] == 0
+    research = ChainState(tmp_path / "b")
+    research.update("researching", subject="s")
+    for _ in range(3):
+        research.touch_unrelated(side=True)  # no deliverable: the old rule stands
+    assert not research.active()
+    done.touch_unrelated()  # a real topic change still counts
+    assert done.data["unrelated_turns"] == 1
+
+
+async def test_an_acknowledgement_starts_no_job_and_a_loose_refinement_still_gets_the_patch(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    chain = ChainState(tmp_path)
+    chain.update(
+        "building", subject="restaurants", items=["Antonio's", "Toyo"], artifact_path="a/i.html"
+    )
+    chain.mark_done()
+    record: list[dict[str, Any]] = []
+    monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
+    monkeypatch.setattr(agent_tools, "CHAIN", chain)
+    called: list[str] = []
+
+    async def inner(params: Any) -> None:
+        called.append("ran")
+        await params.result_callback("ok")
+
+    said: list[str] = []
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        said.append(str(value))
+
+    schema = FunctionSchema(
+        name="delegate", description="d", properties={}, required=[], handler=inner
+    )
+    question.current = "Yep, we got it."
+    await _recorded(schema, record).handler(  # type: ignore[misc]
+        SimpleNamespace(
+            function_name="delegate",
+            arguments={"task": "Update the page with the title."},
+            result_callback=sink,
+            tool_call_id="d",
+        )
+    )
+    question.current = ""
+    assert called == [] and said == [agent_tools.NOTHING_TO_DO] and record == []
+    # "of the cuisine they have added Taiwan" has no refinement word, the task does
+    loose = await _delegate(
+        chain,
+        "of the cuisine that they have",
+        "Update the page: add the cuisine of Antonio's and Toyo.",
+        monkeypatch,
+    )
+    assert "Keep ALL of these items: Antonio's, Toyo." in loose
+
+
+def test_a_short_question_about_the_weather_or_music_is_a_side_question() -> None:
+    from voice_pipeline.chain_state import is_side_question
+
+    for said in (
+        "What is the weather in Cebu today?",
+        "Play some Taylor Swift",
+        "What time is it?",
+        "Turn on the lights",
+        "Where am I right now?",
+    ):
+        assert is_side_question(said), said
+    for said in (
+        "Update the weather table",  # a refinement that mentions the weather
+        "What is the capital of France?",
+        "Make the page a table sorted by name",
+        "Tell me a long story about the weather and the music of the Philippines and its history",
+    ):
+        assert not is_side_question(said), said
