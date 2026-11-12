@@ -441,11 +441,11 @@ class Session:
     _music: Any = None
     _music_pool: Any = field(default_factory=lambda: ThreadPoolExecutor(1))
 
-    def music_event(self, event: dict[str, Any]) -> None:
-        """Music runs on the Pi speaker's second channel; this machine decodes and paces it."""
+    def _music_player(self) -> Any:
+        """The music player, made on first use (None without --play-remote)."""
         url = getattr(self.args, "play_remote", None)
         if not url:
-            return
+            return None
         if self._music is None:
             from doc_chat.music import MusicPlayer
 
@@ -465,7 +465,20 @@ class Session:
                 ),
             )
             self._attach_music_voice()
-        self._music_pool.submit(self._music.handle, event)  # one worker: events stay in order
+        return self._music
+
+    def music_event(self, event: dict[str, Any]) -> None:
+        """Music runs on the Pi speaker's second channel; this machine decodes and paces it."""
+        player = self._music_player()
+        if player is not None:
+            self._music_pool.submit(player.handle, event)  # one worker: events stay in order
+
+    def adopt_running_music(self) -> None:
+        """Music the Spotify app is already playing into our sink (this client was restarted)
+        comes back instead of staying silent; a no-op when nothing plays there."""
+        player = self._music_player()
+        if player is not None:
+            self._music_pool.submit(player.adopt_spotify)
 
     def _attach_music_voice(self) -> None:
         """The user's voice over the music pauses it (--music-pause-vad): a Silero detector of
@@ -1010,6 +1023,7 @@ class Session:
             f"Listening... speak ({how}).{interrupts} Say 'quit' or press Ctrl-C to stop.",
             flush=True,
         )
+        self.adopt_running_music()  # a restart must not silence the music that is playing
         idx = 0
         heard: HeardTurn | None = None
         after_interrupt = False  # the turn being handled was said right after talking over a reply

@@ -45,6 +45,7 @@ DUCK_DB = float(os.environ.get("MUSIC_DUCK_DB", "-22"))  # while someone talks: 
 DUCK_MAX_S = 30.0  # ducking by voice with no turn after it ends by itself
 SPOTIFY_APP = "spotify"  # application.name of the desktop app's stream
 ROUTE_S = 4.0  # how long to look for the app's stream after a play event
+ROUTE_EVERY_S = 3.0  # while a Spotify track plays, look again: a new stream (after a pause, a skip)
 
 
 MPRIS = [
@@ -104,6 +105,21 @@ def k_weighting_sos(rate: int) -> np.ndarray:
     ah = 1 + kh / qh + kh * kh
     high = np.array([[1.0, -2.0, 1.0, 1.0, 2 * (kh * kh - 1) / ah, (1 - kh / qh + kh * kh) / ah]])
     return np.vstack([shelf, high])
+
+
+def spotify_in_sink(run: Callable[..., Any] = subprocess.run, sink: str = SPOTIFY_SINK) -> bool:
+    """The Spotify app is playing (not corked) into `sink`: its audio is ours to capture."""
+    sinks = json.loads(
+        run(["pactl", "-f", "json", "list", "sinks"], capture_output=True, text=True).stdout or "[]"
+    )
+    mine = {item["index"] for item in sinks if item.get("name") == sink}
+    out = run(["pactl", "-f", "json", "list", "sink-inputs"], capture_output=True, text=True)
+    return any(
+        item.get("sink") in mine
+        and not item.get("corked")
+        and str(item.get("properties", {}).get("application.name", "")).lower() == SPOTIFY_APP
+        for item in json.loads(out.stdout or "[]")
+    )
 
 
 class Loudness:
@@ -375,8 +391,10 @@ class MusicPlayer:
             self._paused.clear()
             if self._spotify:
                 spotify_local("play")
+                threading.Thread(target=self._route, daemon=True).start()
         elif action == "next" and self._spotify:
             spotify_local("next")
+            threading.Thread(target=self._route, daemon=True).start()
         elif action == "stop":
             if self._spotify:
                 spotify_local("pause")
@@ -384,6 +402,47 @@ class MusicPlayer:
         elif action == "volume":
             self._level_db = float(event["db"])
             self._send_gain(force=True)
+
+    def adopt_spotify(self) -> bool:
+        """The client was restarted while the desktop app kept playing into our sink: nothing
+        captured it any more, so the music was gone for good. Capture it again."""
+        if self.playing:
+            return False
+        try:
+            running = spotify_in_sink()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return False
+        if running:
+            self._spotify = True
+            self._start(SPOTIFY_FIFO, is_pipe=True)
+        return running
+
+    def _reroute(self) -> None:
+        """Keep the app's stream in our sink (it makes a new stream after a pause or a skip, and
+        that one starts on the default output: the music then comes out of the laptop, not the
+        Pi)."""
+        with contextlib.suppress(OSError, ValueError, subprocess.SubprocessError):
+            if not spotify_in_sink():
+                route_spotify()
+
+    def _reopen(self) -> bool:
+        """The socket to the Pi speaker broke (the speaker restarted, the cable blinked): connect
+        again and go on; before, the stream ended and the audio never came back."""
+        with self._lock:
+            old, self._ws = self._ws, None
+        if old is not None:
+            with contextlib.suppress(Exception):
+                old.close()
+        try:
+            ws = self._connect()
+            self._rate = int(json.loads(ws.recv(timeout=5))["rate"])
+            ws.send(json.dumps({"type": "music"}))
+        except Exception:
+            return False
+        with self._lock:
+            self._ws = ws
+        self._send_gain(force=True)
+        return True
 
     def _route(self) -> None:
         end = time.monotonic() + ROUTE_S
@@ -470,10 +529,14 @@ class MusicPlayer:
         with self._lock:
             self._proc = proc
         t0, sent = 0.0, 0
+        routed = time.monotonic()
         try:
             while gen == self._gen:
                 self._follow_replies()
                 self._release_if_stale()
+                if self._spotify and time.monotonic() - routed > ROUTE_EVERY_S:
+                    routed = time.monotonic()
+                    threading.Thread(target=self._reroute, daemon=True).start()
                 if self._paused.is_set():
                     time.sleep(0.05)
                     t0, sent = 0.0, 0
@@ -497,7 +560,11 @@ class MusicPlayer:
                 try:
                     self._send(piece)
                 except Exception:
-                    break
+                    if not self._reopen():
+                        print("  [music: the speaker connection is lost]", flush=True)
+                        break
+                    print("  [music: reconnected to the speaker]", flush=True)
+                    continue
                 if self._canceller is not None:
                     x = np.frombuffer(piece[: len(piece) // 2 * 2], dtype=np.int16)
                     ref = resample_poly(x.astype(np.float64), REF_RATE // g, rate // g)
