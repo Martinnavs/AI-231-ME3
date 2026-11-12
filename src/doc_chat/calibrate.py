@@ -141,6 +141,27 @@ def advice(result: dict[str, Any]) -> list[str]:
     return out
 
 
+def status(
+    cal: dict[str, Any] | None, max_age_h: float = 12.0, now: float | None = None
+) -> tuple[int, str]:
+    """(exit code, one line) for `--check`: 0 fresh and complete, 1 missing, 2 older than
+    `max_age_h`, 3 a short calibration (no music or background voice measured)."""
+    if cal is None:
+        return 1, "no calibration (out/calibration.json): make calibrate"
+    try:
+        taken = time.mktime(time.strptime(cal["when"], "%Y-%m-%dT%H:%M:%S"))
+        age = ((time.time() if now is None else now) - taken) / 3600.0
+    except (KeyError, ValueError):
+        return 2, "the calibration has no readable date: make calibrate"
+    if age > max_age_h:
+        return 2, f"calibration is {age:.0f} h old (limit {max_age_h:.0f} h): make calibrate"
+    if "music_db" not in cal or "bg_voice_db" not in cal:
+        return 3, "short calibration (no music or background voice): make calibrate"
+    gate = f", gate {cal['gate_db']:.0f} dB" if "gate_db" in cal else ", no gate (voice too close)"
+    old = f"{age * 60:.0f} min" if age < 1 else f"{age:.1f} h"
+    return 0, f"calibration is {old} old{gate}"
+
+
 def load_calibration(path: Path = PATH) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text())
@@ -324,6 +345,13 @@ def main(argv: list[str] | None = None) -> int:
         help="the Pi speaker's websocket (ws://PI:8780) to pipe Spotify to; the token is read "
         "from LAN_SPEECH_TOKEN",
     )
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="only report whether the calibration is there, fresh and complete (exit 0, "
+        "1 missing, 2 old, 3 short) and stop",
+    )
+    ap.add_argument("--max-age-h", type=float, default=12.0, help="for --check (default: 12)")
     ap.add_argument("--out", default=str(PATH))
     ap.add_argument(
         "--mic-device",
@@ -338,6 +366,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--baseline-wav", default=str(BASELINE_WAV))
     args = ap.parse_args(argv)
+    if args.check:
+        code, message = status(load_calibration(Path(args.out)), args.max_age_h)
+        print(message)
+        return code
     device = mic_device(args.mic_device)
     print(f"Microphone: {_input_name(device)}", flush=True)
     print("Quiet, please: measuring the room for 3 s...", flush=True)
