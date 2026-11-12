@@ -202,8 +202,9 @@ class SpotifyBridge:
     def start(self) -> None:
         if not self.url:
             return
-        from doc_chat.music import MusicPlayer
+        from doc_chat.music import MusicPlayer, ensure_spotify_sink
 
+        ensure_spotify_sink()  # `make up` makes the sink; a calibration may run without the stack
         url, token = self.url, self.token
 
         def connect() -> Any:

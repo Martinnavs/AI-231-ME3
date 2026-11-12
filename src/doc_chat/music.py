@@ -69,6 +69,32 @@ def spotify_local(command: str, uri: str = "", run: Callable[..., Any] = subproc
         return False
 
 
+def ensure_spotify_sink(run: Callable[..., Any] = subprocess.run, sink: str = SPOTIFY_SINK) -> bool:
+    """Make sure the null sink the Spotify app is routed into exists. `make up` creates it; without
+    the stack running (a calibration, a client started alone) nothing has, and there was nowhere
+    to route the app's sound. True when the sink is there afterwards."""
+    try:
+        listed = run(["pactl", "list", "short", "sinks"], capture_output=True, text=True, timeout=5)
+        names = [line.split("\t")[1] for line in listed.stdout.splitlines() if "\t" in line]
+        if sink in names:
+            return True
+        made = run(
+            [
+                "pactl",
+                "load-module",
+                "module-null-sink",
+                f"sink_name={sink}",
+                "sink_properties=device.description=ME3-Spotify",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return bool(made.returncode == 0)
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def route_spotify(run: Callable[..., Any] = subprocess.run, sink: str = SPOTIFY_SINK) -> bool:
     """Move the Spotify app's playback stream into `sink`; False if no such stream yet."""
     out = run(["pactl", "-f", "json", "list", "sink-inputs"], capture_output=True, text=True)
