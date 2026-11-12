@@ -215,7 +215,7 @@ def stack_env(w, **extra):
         "PI_REPO=/home/pi/repo\nPI_AUDIO_DEVICE=CD002-AUDIO\nPI_LD_LIBRARY_PATH=/ld\n"
     )
     (w.tmp / "pipeline").mkdir(exist_ok=True)
-    return {**w.env, "DRY": "1", "ROUTER_MODEL": "my-router", **extra}
+    return {**w.env, "DRY": "1", "ROUTER_MODEL": "my-router", "HARNESS": "laptop", **extra}
 
 
 def run_script(name: str, env: dict, *args: str) -> subprocess.CompletedProcess:

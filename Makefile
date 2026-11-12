@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
+.PHONY: pi-sync pi-mode help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
         pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall pi-tune pi-netem \
         spotify-login calibrate doctor-tools addressee-replay chain-eval-list chain-eval-dry chain-eval test-chain
 
@@ -73,6 +73,12 @@ test-chain: ## (laptop, free) the tests behind the addressee gate, the delegate 
 
 pi-check: ## (run ON the Pi) config/pi.env, venv, token mode, audio device, the six clips
 	scripts/stack/pi_check.sh
+
+pi-sync: ## (laptop) make the Pi's code exactly PI_REF (default HEAD), the same way every time: rsync with --delete, scripts executable, search mode PI_SEARCH_MODE=demo|benchmark|auto|keep (default demo), restart pi-speaker and pi-agent (PI_RESTART=all|agent|none), verify by checksum
+	scripts/stack/pi_sync.sh sync
+
+pi-mode: ## (laptop) only the Pi's search mode, no restart: make pi-mode MODE=demo|benchmark|auto (demo = unconstrained Tavily; benchmark = Google first)
+	scripts/stack/pi_sync.sh mode $(MODE)
 
 pi-clips: ## (laptop) regenerate tests/fixtures/pi_echo and rsync it to the Pi
 	scripts/stack/pi_clips.sh

@@ -5,9 +5,7 @@ from typing import Any
 import pytest
 
 from voice_pipeline import agent_tools
-from voice_pipeline.agent_tools import _recorded
 from voice_pipeline.reminders import Reminders
-from voice_pipeline.tools.smart_home import load_phonebook, make_handler, make_schema
 
 
 def store(tmp_path: Path, now: list[float] | None = None) -> Reminders:
@@ -66,29 +64,23 @@ def test_the_cap_keeps_the_newest_fifty(tmp_path: Path) -> None:
     assert r.count() == 50 and r.latest(1) == ["item 59"]
 
 
-async def _call(intent: str, slot: str | None, reminders: Reminders) -> list[tuple[Any, Any]]:
-    handler = make_handler(base_url=None, record=[], reminders=reminders)
-    schema = make_schema(load_phonebook())
+async def _home_handler(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
+    """The smart_home handler exactly as build_tools hands it to the agent, over a temp store."""
+    monkeypatch.setenv("REMINDERS_FILE", str(tmp_path / "reminders.json"))
+    tools = await agent_tools.build_tools([], servers=[])
+    home = next(t for t in tools.standard_tools if t.name == "smart_home")
+    assert home.handler is not None
+    return home.handler
+
+
+async def _call(handler: Any, intent: str, slot: str | None = None) -> list[tuple[Any, Any]]:
     seen: list[tuple[Any, Any]] = []
 
     async def sink(value: Any, *, properties: Any = None) -> None:
         seen.append((value, properties))
 
-    from pipecat.adapters.schemas.function_schema import FunctionSchema
-
-    wrapped = _recorded(
-        FunctionSchema(
-            name="smart_home",
-            description="d",
-            properties=schema.properties,
-            required=[],
-            handler=handler,
-        ),
-        [],
-    ).handler
-    assert wrapped is not None
     args = {"intent": intent, **({"slot": slot} if slot else {})}
-    await wrapped(
+    await handler(
         SimpleNamespace(
             function_name="smart_home", arguments=args, result_callback=sink, tool_call_id="t"
         )
@@ -96,13 +88,21 @@ async def _call(intent: str, slot: str | None, reminders: Reminders) -> list[tup
     return seen
 
 
-async def test_creating_stores_and_listing_says_the_reminders_as_they_are(
+async def test_listing_says_the_stored_reminders_as_they_are_through_the_real_tool(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(agent_tools, "DELEGATE_GRACE_S", 0)
-    r = store(tmp_path)
-    await _call("CREATE_REMINDER", "clean the car", r)
-    assert r.latest() == ["clean the car"]
-    seen = await _call("LIST_REMINDERS", None, r)
-    assert seen[-1][0] == "You have one reminder: clean the car."
-    assert seen[-1][1].run_llm is False  # no second LLM request: the list is the reply
+    handler = await _home_handler(monkeypatch, tmp_path)
+    assert (await _call(handler, "LIST_REMINDERS"))[-1][0] == "You have no reminders yet."
+    await _call(handler, "CREATE_REMINDER", "clean the car")
+    seen = await _call(handler, "LIST_REMINDERS")
+    assert seen[-1][0] == "You have one reminder: clean the car."  # a string: it is spoken
+    assert seen[-1][1].run_llm is False  # and no second LLM request follows
+    assert Reminders(tmp_path / "reminders.json").latest() == ["clean the car"]
+
+
+async def test_creating_a_reminder_still_returns_the_dict_the_model_said_a_line_over(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler = await _home_handler(monkeypatch, tmp_path)
+    seen = await _call(handler, "CREATE_REMINDER", "call Mom")
+    assert isinstance(seen[-1][0], dict) and seen[-1][0]["ok"] is True

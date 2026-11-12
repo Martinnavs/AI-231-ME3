@@ -15,17 +15,21 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-DEFAULT_PATH = Path(
-    os.environ.get("REMINDERS_FILE", Path.home() / ".local/state/voice_agent/reminders.json")
-)
+
+def default_path() -> Path:
+    return Path(
+        os.environ.get("REMINDERS_FILE", Path.home() / ".local/state/voice_agent/reminders.json")
+    )
+
+
 MAX_KEPT = 50
 DUPLICATE_S = 60.0  # the same text twice within this many seconds is one reminder (router + model)
 NUMBER_WORDS = {1: "one", 2: "two", 3: "three"}
 
 
 class Reminders:
-    def __init__(self, path: Path = DEFAULT_PATH, clock: Callable[[], float] = time.time) -> None:
-        self.path = path
+    def __init__(self, path: Path | None = None, clock: Callable[[], float] = time.time) -> None:
+        self.path = path or default_path()
         self.clock = clock
 
     def _read(self) -> list[dict[str, object]]:
