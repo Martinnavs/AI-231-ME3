@@ -435,6 +435,13 @@ def build_server(
         if remembered is not None and clock() - remembered[0] < RESEARCH_CACHE_TTL_S:
             return remembered[1]
         mode = await credit_mode()
+        # past the credit line Google answers first: no Tavily credit
+        text = None
+        if grounding and mode != "normal":
+            text = await grounded_research(client(), spoken_years_to_digits(query))
+        if text is not None:
+            research_cache[(" ".join(query.lower().split()), recent)] = (clock(), text)
+            return text
         if mode == "reserve":
             return RESEARCH_PAUSED
         base = {
@@ -541,6 +548,29 @@ def build_server(
         text = first_sentences(answer.text, ANSWER_SENTENCES, ANSWER_CHARS)
         remember(wanted, text)
         return text
+
+    async def grounded_research(http: httpx.AsyncClient, query: str) -> str | None:
+        """Research from Gemini with Google Search (a longer answer, source names, no links), or
+        None to go on to Tavily."""
+        api_key = gemini_key or gemini_grounding.load_key()
+        if not api_key or spend.exhausted:
+            return None
+        started = time.perf_counter()
+        try:
+            async with asyncio.timeout(GEMINI_TIMEOUT_S * 2):
+                answer = await gemini_grounding.ask(http, query, api_key, research=True)
+        except (httpx.HTTPError, ValueError, KeyError, TimeoutError) as exc:
+            spend.add_failure(
+                time.perf_counter() - started,
+                "timeout" if isinstance(exc, TimeoutError) else type(exc).__name__,
+            )
+            return None
+        if answer is None:
+            return None
+        spend.add(answer)
+        pages = "; ".join(dict.fromkeys(t for t in answer.titles if t))[:300]
+        header = f"Researched with Google Search on {today().isoformat()} (no links).\n"
+        return header + answer.text + (f"\nPages used: {pages}" if pages else "")
 
     async def search(http: httpx.AsyncClient, query: str, wanted: frozenset[str]) -> str:
         if grounding and (text := await grounded(http, query, wanted)) is not None:

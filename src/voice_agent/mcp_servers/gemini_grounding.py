@@ -48,6 +48,11 @@ SYSTEM = (
     "rates, records, rankings, events described as latest, last, next, current or new. Do not "
     "search for settled facts."
 )
+SYSTEM_RESEARCH = (
+    "You are researching for a voice assistant. Today is {today}. Search the web, then answer in "
+    "at most six short sentences of plain words, no lists, no markdown, naming the sources "
+    "(site or publication) the facts come from. Say plainly what you could not find."
+)
 
 
 @dataclass
@@ -93,11 +98,20 @@ async def ask(
     query: str,
     key: str,
     now: Callable[[], datetime] = lambda: datetime.now(ZoneInfo(TIMEZONE)),
+    research: bool = False,
 ) -> Grounded | None:
     """Gemini's grounded answer to `query`, or None when it gave no text. Network and HTTP
     errors are raised (httpx.HTTPError) for the caller to fall back on."""
     body = {
-        "systemInstruction": {"parts": [{"text": SYSTEM.format(today=f"{now():%A, %B %-d, %Y}")}]},
+        "systemInstruction": {
+            "parts": [
+                {
+                    "text": (SYSTEM_RESEARCH if research else SYSTEM).format(
+                        today=f"{now():%A, %B %-d, %Y}"
+                    )
+                }
+            ]
+        },
         "contents": [{"parts": [{"text": query}]}],
         "tools": [{"google_search": {}}],
         "generationConfig": {"thinkingConfig": {"thinkingLevel": "minimal"}},

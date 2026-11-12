@@ -747,3 +747,65 @@ async def test_every_tavily_call_is_counted_against_the_budget(
     async with _server(seen, credits) as client:
         await client.call_tool("web_research", {"query": "a topic", "recent": True})
     assert credits.local == 2  # recent=true is two queries in normal mode
+
+
+def _grounded_server(
+    seen: list[httpx.Request], credits: tavily_search.Credits, gemini_ok: bool = True
+) -> Client:
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if "generativelanguage" in str(request.url):
+            if not gemini_ok:
+                return httpx.Response(500)
+            reply = {
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": "Rappler and Inquirer report it."}]},
+                        "groundingMetadata": {
+                            "webSearchQueries": ["q"],
+                            "groundingChunks": [{"web": {"title": "Rappler"}}],
+                        },
+                    }
+                ]
+            }
+            return httpx.Response(200, json=reply)
+        return httpx.Response(200, json=DATED)
+
+    return Client(
+        build_server(
+            httpx.MockTransport(handle), "test-key", None, credits=credits, grounding=True,
+            gemini_key="fake-gemini", ledger=tavily_search.gemini_grounding.Ledger(None),
+            today=lambda: date(2026, 11, 8),
+        )
+    )  # fmt: skip
+
+
+async def test_past_the_credit_line_research_goes_to_google_not_tavily(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    for used in (800, 950):  # conserve and reserve
+        seen: list[httpx.Request] = []
+        async with _grounded_server(seen, _credits(used)) as client:
+            out = await client.call_tool("web_research", {"query": "reviews of the new phone"})
+        text = str(out.structured_content["result"])
+        assert "Rappler and Inquirer report it." in text and "Pages used: Rappler" in text
+        assert await _search_bodies(seen) == []
+
+
+async def test_normal_mode_research_still_uses_tavily_and_a_google_failure_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TAVILY_MODE", raising=False)
+    seen: list[httpx.Request] = []
+    async with _grounded_server(seen, _credits(100)) as client:
+        await client.call_tool("web_research", {"query": "reviews of the new phone"})
+    assert len(await _search_bodies(seen)) >= 1
+    seen.clear()
+    async with _grounded_server(seen, _credits(800), gemini_ok=False) as client:  # conserve
+        await client.call_tool("web_research", {"query": "reviews of the new phone"})
+    assert len(await _search_bodies(seen)) == 1  # Google failed: Tavily, one query
+    seen.clear()
+    async with _grounded_server(seen, _credits(950), gemini_ok=False) as client:  # reserve
+        out = await client.call_tool("web_research", {"query": "reviews of the new phone"})
+    assert str(out.structured_content["result"]) == tavily_search.RESEARCH_PAUSED
