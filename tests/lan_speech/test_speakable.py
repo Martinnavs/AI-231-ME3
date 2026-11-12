@@ -34,3 +34,16 @@ def test_markdown_marks_are_not_spoken() -> None:
     out = speakable(md)
     assert "#" not in out and "*" not in out and "`" not in out
     assert "Email Draft" in out and "To: Doctor Jalao" in out and "first" in out
+
+
+@pytest.mark.parametrize(
+    "written, said",
+    [
+        ("Best regards, Anthony (your contact information here)", "Best regards, Anthony"),
+        ("Sincerely, [Your Name]", "Sincerely,"),
+        ("It rains in Cebu (Philippines) today [1].", "It rains in Cebu (Philippines) today."),
+        ("Dear {name}, hello", "Dear, hello"),
+    ],
+)
+def test_a_templates_blanks_are_not_read_aloud(written: str, said: str) -> None:
+    assert speakable(written) == said

@@ -535,6 +535,13 @@ class AgentServer:
         async def local(claim: Callable[[], bool]) -> dict[str, Any] | None:
             routed = await router.route(self.history(messages), user, set(self.tools))
             info.update(router_s=routed.seconds, router_lines=routed.lines)
+            has_history = any(m.get("role") == "assistant" for m in messages[:-1])
+            if (
+                routed.reason is None
+                and has_history
+                and call_policy.lookup_needs_context(routed.calls, user)
+            ):
+                routed.reason = "the question refers back to the conversation"
             if self.offline() and re.match(r"\s*(web_answer|wiki_summary)\|", routed.lines):
                 info["router_reason"] = "offline lookup"  # no cache: fail at once
                 return None
