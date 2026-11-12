@@ -29,7 +29,13 @@ from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.mcp_service import MCPClient
 
 from voice_pipeline import question
-from voice_pipeline.chain_state import ChainState, is_chain_tool, refines
+from voice_pipeline.chain_state import (
+    SIDE_TOOLS,
+    ChainState,
+    is_acknowledgement,
+    is_chain_tool,
+    refines,
+)
 from voice_pipeline.device_say import device_sentence, single_question
 from voice_pipeline.scratchpad import NOTES_SENTENCE, Scratchpad
 from voice_pipeline.tools.smart_home import SCHEMA, make_handler
@@ -216,6 +222,7 @@ def _distinct(text: str) -> set[str]:
 
 
 UPDATE_IN_PLACE = "Update the existing"
+NOTHING_TO_DO = "Okay, nothing to do."
 MANIFEST_SENTENCE = (
     "When done, also write MANIFEST.json beside the main file: "
     '{"items": [the names of the things it covers], "gaps": [what it lacks or could not confirm]}.'
@@ -224,6 +231,16 @@ MANIFEST_TASKS = re.compile(r"\b(?:page|website|table|markdown|csv|list|\.md|\.h
 PLAYABLE_TASKS = re.compile(r"\b(?:game|playable|animation|simulation)\b", re.I)
 MANIFEST_NAME = "MANIFEST.json"
 MANIFEST_MAX_BYTES = 20_000
+
+
+def main_file(files: list[Any]) -> str:
+    """The deliverable among a job's files: not the manifest or the sources list (the manifest
+    came first in one job's file list and "Update the existing .../MANIFEST.json" went to the
+    delegate, 2026-11-12). The first page, else the first file that is not bookkeeping."""
+    names = [str(f) for f in files]
+    kept = [n for n in names if Path(n).name not in (MANIFEST_NAME, "SOURCES.json")]
+    pages = [n for n in kept if n.lower().endswith((".html", ".htm", ".md", ".csv", ".txt"))]
+    return (pages or kept or [""])[0]
 
 
 def read_manifest(artifact: str, workspace: Path | None = None) -> dict[str, list[str]] | None:
@@ -850,7 +867,7 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             entry["raw_task"] = raw_args["task"]
         record.append(entry)
         if CHAIN is not None and CHAIN.active() and not is_chain_tool(schema.name):
-            CHAIN.touch_unrelated()
+            CHAIN.touch_unrelated(side=schema.name in SIDE_TOOLS)
         params.arguments = args  # the real tool never sees `say`
         if schema.name in LOOKUP_TOOLS:
             global _lookup_future
@@ -911,6 +928,10 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         elif schema.name == "delegate":
             deliver_job = params.result_callback
             task = str(args.get("task", ""))
+            if is_acknowledgement(question.current or ""):
+                record.pop()  # "got it" is no request (it once started a job): nothing runs
+                await deliver_job(NOTHING_TO_DO, properties=NO_SECOND_REQUEST)
+                return
             injected_parts: list[str] = []
             if (
                 CHAIN is not None
@@ -942,7 +963,11 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
                 CHAIN is not None
                 and CHAIN.active()
                 and CHAIN.data.get("artifact_path")
-                and (refines(question.current or "") or "existing" in task.lower())
+                and (
+                    refines(question.current or "")
+                    or refines(task[:200])
+                    or "existing" in task.lower()
+                )
                 and UPDATE_IN_PLACE not in task
             ):
                 injected_parts.insert(0, update_sentence(CHAIN.data))

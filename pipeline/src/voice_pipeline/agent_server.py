@@ -56,10 +56,12 @@ from voice_pipeline.agent_tools import (
     without_tools,
 )
 from voice_pipeline.chain_state import (
+    SIDE_TOOLS,
     ChainState,
     is_answer,
     is_chain_tool,
     is_followup,
+    is_side_question,
     wants_cancel,
 )
 from voice_pipeline.device_say import device_sentence
@@ -586,9 +588,10 @@ class AgentServer:
         except (OSError, ValueError, KeyError, StopIteration):
             return
         files = row.get("files") or []
-        if row.get("status") == "done" and files:
-            chain.update(artifact_path=str(files[0]))
-            manifest = agent_tools.read_manifest(str(files[0]))
+        main = agent_tools.main_file(files)
+        if row.get("status") == "done" and main:
+            chain.update(artifact_path=main)
+            manifest = agent_tools.read_manifest(main)
             if manifest is not None:  # what the deliverable holds and lacks
                 chain.update(items=manifest["items"], gaps=manifest["gaps"])
         if row.get("status") == "done":
@@ -707,6 +710,7 @@ class AgentServer:
                 and chain.data["done"]
                 and not wants_cancel(said)
                 and not is_followup(said)
+                and not is_side_question(said)
             ):
                 chain.update("idle")  # the finished task is over; its facts go with it
             work: Any
@@ -714,7 +718,12 @@ class AgentServer:
                 work = self.drop_chain(on_text)
             elif found is not None and (found.tool == "clock" or found.tool in self.tools):
                 work = self.fast(found, on_text)
-            elif chain is not None and chain.active() and last.get("role") == "user":
+            elif (
+                chain is not None
+                and chain.active()
+                and last.get("role") == "user"
+                and not (chain.data["done"] and is_side_question(said))
+            ):
                 # a research/build task is under way: Gemini sees its state and protocol
                 work = self.gemini(self.steer(messages, case_f=True), on_text, on_tool, on_say)
             elif (
@@ -763,7 +772,7 @@ class AgentServer:
                 # website request picked its notes up (2026-11-11)
                 used = [str(c.get("tool", "")) for c in self.record[before:]]
                 if not any(is_chain_tool(t) for t in used) and not is_answer(said):
-                    chain.touch_unrelated()
+                    chain.touch_unrelated(side=all(t in SIDE_TOOLS for t in used))
 
 
 async def run(

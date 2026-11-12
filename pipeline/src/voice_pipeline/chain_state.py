@@ -64,6 +64,52 @@ _REFINES = re.compile(
 )
 
 
+# "got it", "thanks", "mm-hmm": the user takes in what was said. It is neither a request nor a new
+# topic (a delegate job was started for "Yep, we got it", and three such turns ended the task)
+_ACK_PHRASE = re.compile(
+    r"\b(?:got it|understood|noted|that'?s (?:all|it)|mm+[- ]?hm+|uh[- ]?huh)\b|\bthank(?:s| you)\b"
+)
+_ASKS_FOR_SOMETHING = frozenset(
+    {"yes", "sure", "please", "go", "ahead", "do", "build", "make", "create", "update", "add"}
+)
+ACK_MAX_WORDS = 7
+# tools of side questions (the lights, music, weather, the clock): they leave a finished task alone
+SIDE_TOOLS = frozenset(
+    {"smart_home", "weather", "get_current_time", "nearby", "open_app", "device_status"}
+    | {"get_volume", "set_volume", "music", ""}  # "" is a router intent (music, lights)
+)
+
+
+_SIDE_QUESTION = re.compile(
+    r"\b(?:weather|temperature|forecast|rain|umbrella|time|date|play|pause|resume|skip|music|song"
+    r"|volume|louder|quieter|lights?|turn (?:on|off)|where am i|which barangay|nearest|nearby"
+    r"|near me)\b",
+    re.IGNORECASE,
+)
+SIDE_QUESTION_WORDS = 12
+
+
+def is_side_question(text: str) -> bool:
+    """A short question about the weather, the time, the music or the lights, said while a task is
+    open: the router answers it and the task stays (it ended a finished page's task, so the next
+    "make it a table" had no page to update)."""
+    return (
+        len(text.split()) <= SIDE_QUESTION_WORDS
+        and _SIDE_QUESTION.search(text) is not None
+        and _REFINES.search(text) is None
+    )
+
+
+def is_acknowledgement(text: str) -> bool:
+    low = text.lower()
+    words = re.findall(r"[a-z']+", low)
+    return (
+        0 < len(words) <= ACK_MAX_WORDS
+        and _ACK_PHRASE.search(low) is not None
+        and not _ASKS_FOR_SOMETHING & set(words)
+    )
+
+
 def wants_cancel(text: str) -> bool:
     return CANCEL.search(text) is not None
 
@@ -71,7 +117,7 @@ def wants_cancel(text: str) -> bool:
 def is_answer(text: str) -> bool:
     """A bare yes, no or okay: it answers the chain's question, it is not another topic."""
     words = re.findall(r"[a-z']+", text.lower())
-    return bool(words) and all(w in _ANSWER_WORDS for w in words)
+    return (bool(words) and all(w in _ANSWER_WORDS for w in words)) or is_acknowledgement(text)
 
 
 def is_followup(text: str) -> bool:
@@ -184,7 +230,12 @@ class ChainState:
         self.data["done"] = True
         self._save()
 
-    def touch_unrelated(self) -> None:
+    def touch_unrelated(self, side: bool = False) -> None:
+        """A turn that is not about the task. A side question (music, weather, the clock) does not
+        count while a finished deliverable is there to refine: the user asks them while a job
+        runs and then goes on with the page."""
+        if side and self.data["artifact_path"]:
+            return
         if self.data["phase"] != "idle":
             self.data["unrelated_turns"] += 1
             self._save()
