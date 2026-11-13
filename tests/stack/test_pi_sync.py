@@ -51,7 +51,11 @@ def test_dry_sync_runs_every_step_in_order_and_never_prints_the_token(world):  #
     for folder in ("src", "pipeline/src", "pipeline/config", "config", "corpus", "scripts"):
         assert f"169.254.7.7:/home/pi/repo/{folder}/" in out
     assert out.count("--delete") == 6
-    assert "--exclude=pi.env" in out and "--exclude=profile.md" in out
+    assert (
+        "--exclude=pi.env" in out
+        and "--exclude=profile.md" in out
+        and "--exclude=publish.toml" in out
+    )
     assert "--exclude=pi_known_hosts" in out
     order = [
         out.index("rsync"),
