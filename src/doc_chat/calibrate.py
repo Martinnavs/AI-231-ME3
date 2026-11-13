@@ -44,7 +44,7 @@ BASELINE_PROMPTS = (
 BASELINE_WAV = Path("out/calibration-baseline.wav")
 OPTIONAL_KEYS = ("music_db", "noise_music_db", "user_music_db", "bg_voice_db", "gate_db")
 MIN_SEPARATION_DB = 12.0  # the user must be this far above the background voice to gate on level
-GATE_MIN_DB, GATE_MAX_DB = 6.0, 14.0
+GATE_MIN_DB, GATE_MAX_DB = 8.0, 14.0
 MIN_SNR_DB = 15.0  # the user's voice should be this far above the noise for reliable recognition
 MIN_MUSIC_GAP_DB = 10.0
 SILENCE_DB = -80.0  # a recording quieter than this has nothing in it
@@ -99,13 +99,14 @@ def turn_level_db(pcm: bytes) -> float | None:
 
 
 def recommend_gate_db(user: float, background: float) -> float | None:
-    """The --voice-gate-db for this room: half the distance between you and the background voice,
-    kept between 6 and 14 dB; None when the background voice is under 12 dB below you, where no
-    loudness gate can tell it from you."""
+    """The --voice-gate-db for this room: two thirds of the distance between you and the background
+    voice, kept between 8 and 14 dB; None when the background voice is under 12 dB below you,
+    where no loudness gate can tell it from you. (Half the distance dropped quiet addressed
+    turns: fdbench's clips sit 8 to 10 dB under the user's average, a gap of 7.9 lost 4 of 100.)"""
     gap = user - background
     if gap < MIN_SEPARATION_DB:
         return None
-    return round(min(max(gap / 2.0, GATE_MIN_DB), GATE_MAX_DB), 1)
+    return round(min(max(gap * 2.0 / 3.0, GATE_MIN_DB), GATE_MAX_DB), 1)
 
 
 def advice(result: dict[str, Any]) -> list[str]:
