@@ -10,6 +10,8 @@ for everything hard). The model card documents how it was made, what it was test
 Everything here is reproducible from the repository: <https://github.com/Martinnavs/AI-231-ME3>, directory `finetune/`
 (commit `82a5c27` and later on branch `agy/interrupts`).
 
+> A stand-alone copy of the training code and the generated data is at <https://github.com/Martinnavs/ME3-LoRA-training>.
+
 > **Read this first.** This is an adapter, not a general assistant. It is trained to emit calls in one specific language and
 > to be served with the exact system message below, under a grammar (GBNF) that forces well-formed lines. Outside that setup
 > it will not behave. The training and dev data are template-generated, so the dev scores are optimistic; the numbers that
