@@ -201,6 +201,7 @@
 + .gitignore
 + Makefile
 + README.md
++ LICENSE
 + pyproject.toml
 + uv.lock
 # config
