@@ -276,7 +276,7 @@ async def test_where_are_we_is_answered_by_the_fast_path_with_no_llm(tmp_path: P
     ws_server, url = await _serve(server)
     frames = await _frames(url, "Can you tell me where we are right now?")
     ws_server.close()
-    assert "We're in" in frames and agent.asked == []
+    assert "University of the Philippines Cebu" in frames and agent.asked == []
 
 
 async def test_where_are_we_during_a_task_goes_to_the_model_with_its_state(tmp_path: Path) -> None:

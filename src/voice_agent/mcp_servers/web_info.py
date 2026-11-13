@@ -33,9 +33,13 @@ FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 WIKI_SEARCH_URL = "https://en.wikipedia.org/w/rest.php/v1/search/title"
 WIKI_SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/"
 HOME_PLACE = os.environ.get("VOICE_AGENT_HOME_PLACE", "Cebu City")  # the demo venue
-# the venue's point (Guadalupe, near the user; the geocoder's Cebu City point is in Calamba), so
-# "near me" and the boot-time barangay lookup agree and resolve with no geocoder
-KNOWN_PLACES = {"cebu city": {"name": "Cebu City", "latitude": 10.3157, "longitude": 123.8854}}
+# the venue's point (the University of the Philippines Cebu, in Lahug; the geocoder's Cebu City
+# point is in Calamba), so
+# "near me" and the boot-time barangay lookup agree and resolve with no geocoder (the agent server
+# normally passes the pin or the IP-detected point with --coords; this is the same default)
+KNOWN_PLACES = {
+    "cebu city": {"name": "Cebu City", "latitude": 10.3225319, "longitude": 123.8988885}
+}
 # Photon's reverse search: the nearest places with an OSM tag, no text match (Overpass took 24 s or
 # timed out from Cebu on 2026-11-11; this answers in about 1.3 s)
 PHOTON_URL = "https://photon.komoot.io/reverse"

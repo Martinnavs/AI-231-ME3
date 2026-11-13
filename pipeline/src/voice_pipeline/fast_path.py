@@ -242,6 +242,9 @@ def match(text: str) -> Match | None:
         if what.startswith("self:") and selfinfo.answer(what[5:]) is None:
             return None  # the profile does not say: the model answers as before
         return Match("clock", {"what": what}, None)
+    for what, patterns in (("place", PLACE_PHRASES), ("barangay", BARANGAY_PHRASES)):
+        if any(pattern.fullmatch(said) for pattern in patterns):
+            return Match("clock", {"what": what}, None)
     if said in FIXED:
         intent, confirm = FIXED[said]
         return Match("smart_home", {"intent": intent}, confirm)
@@ -263,6 +266,36 @@ def match(text: str) -> Match | None:
         if m and (n := number(m.group(1))) is not None and 0 <= n <= 100:
             return Match("set_volume", {"percent": n}, None)
     return None
+
+
+# "Can you then tell me where I am right now", "check the location of where I am", "what's my
+# current location": the spoken forms of the fixed place questions. Whole-utterance matches only, so
+# "where are we in the build" still goes to the model.
+_ASK = r"(?:(?:can|could|would|will) you )?(?:(?:then|also|now|just|quickly|actually) )*"
+_VERB = r"(?:(?:tell me|check|find out|figure out|look up|let me know|show me|say|give me) )?"
+_NOW = r"(?: (?:right now|now|currently|at the moment|at present|today))?"
+_HERE = r"(?:where (?:exactly )?(?:am i|we are|are we|i am)(?: located| at)?)"
+_SITE = r"(?:the )?(?:current |exact |present )?(?:location|position)"
+PLACE_PHRASES = tuple(
+    re.compile(f"{_ASK}{_VERB}{body}{_NOW}")
+    for body in (
+        _HERE,
+        rf"{_SITE} (?:of )?{_HERE}",
+        r"(?:what s |what is |whats )?(?:my|our) (?:current |exact |present )?"
+        r"(?:location|position)(?: is)?",
+        r"(?:what|which) (?:place|city|area|part of (?:town|the city|cebu)) "
+        r"(?:am i|are we) (?:in|at)",
+        rf"(?:what s |what is |whats )?{_SITE} (?:of )?(?:me|us)",
+    )
+)
+BARANGAY_PHRASES = tuple(
+    re.compile(f"{_ASK}{_VERB}{body}{_NOW}")
+    for body in (
+        r"(?:what|which) barangay (?:am i|are we|is this|i am|we are)(?: in| at)?",
+        r"(?:what s |what is |whats )?(?:my|our|the current) barangay",
+        r"(?:the )?barangay (?:of )?where (?:i am|we are)(?: located)?",
+    )
+)
 
 
 DATE_ASKED = re.compile(

@@ -8,6 +8,17 @@ from fastmcp import Client
 from voice_agent.mcp_servers import web_info
 from voice_agent.mcp_servers.web_info import build_server, first_sentences
 
+
+@pytest.fixture(autouse=True)
+def _old_cebu_point(monkeypatch: pytest.MonkeyPatch) -> None:
+    # the fixtures below place results around this point, not around the default venue (UP Cebu)
+    monkeypatch.setitem(
+        web_info.KNOWN_PLACES,
+        "cebu city",
+        {"name": "Cebu City", "latitude": 10.3157, "longitude": 123.8854},
+    )
+
+
 GEO = {"results": [{"name": "Quezon City", "latitude": 14.65, "longitude": 121.05}]}
 FORECAST = {
     "daily": {

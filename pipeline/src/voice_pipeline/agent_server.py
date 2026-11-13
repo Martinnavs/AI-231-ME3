@@ -838,7 +838,9 @@ async def run(
         pad = Scratchpad(agent_tools.delegate_workspace() / "scratch" / "NOTES.md")
         chain.on_change = lambda event: pad.reset() if event == "end" else None
         scratch = pad
-    servers, optional = standard_servers(pi_url)
+    with contextlib.suppress(Exception):  # once, 1 to 7 s; offline UP Cebu stays
+        await asyncio.wait_for(venue.resolve(), 2 * venue.TIMEOUT_S + 1)
+    servers, optional = standard_servers(pi_url)  # after the venue: the places server is told it
     tools = await build_tools(
         record, live=live, servers=servers, optional=optional, chain=chain, scratchpad=scratch
     )
@@ -852,8 +854,6 @@ async def run(
             system += "\n\n" + PROFILE_RULE  # only when the owner filled one in
     if (who := selfinfo.owner_name()) and system_file.name == "system_agent.txt":
         system += f"\n\nThe user's name is {who}: use it when they ask to be greeted or addressed."
-    with contextlib.suppress(Exception):  # once, about 1 s; offline the answer names the city only
-        await asyncio.wait_for(venue.resolve(), venue.TIMEOUT_S + 1)
     if (line := venue.prompt_line()) and system_file.name == "system_agent.txt":
         system += "\n\n" + line
     if agent_tools.publish_configured() and system_file.name == "system_agent.txt":

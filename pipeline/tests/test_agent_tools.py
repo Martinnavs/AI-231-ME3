@@ -19,6 +19,7 @@ from voice_pipeline.agent_tools import (
     build_tools,
     pi_device_server,
     runnable,
+    same_app_paths,
     standard_servers,
     with_builtin_search,
 )
@@ -248,3 +249,50 @@ def test_publish_target_is_the_named_app_the_closest_name_or_the_newest(tmp_path
     os.utime(old, (0, 0))
     os.utime(tmp_path / "tech_news" / "index.html", (0, 0))
     assert agent_tools.publish_target("", tmp_path) == ""
+
+
+def test_same_app_paths_rewrites_spelled_variants() -> None:
+    have = ["nvidia_news_update"]
+    # Different spellings of the same app name
+    assert same_app_paths("Update apps/nvidianewsupdate/index.html", have) == (
+        "Update apps/nvidia_news_update/index.html"
+    )
+    assert same_app_paths("Update apps/Nvidia-News-Update/index.html", have) == (
+        "Update apps/nvidia_news_update/index.html"
+    )
+    assert same_app_paths("Update apps/NVIDIA_NEWS_UPDATE/index.html", have) == (
+        "Update apps/nvidia_news_update/index.html"
+    )
+
+
+def test_same_app_paths_keeps_exact_names() -> None:
+    have = ["nvidia_news_update"]
+    # Already correct name is unchanged
+    assert same_app_paths("Update apps/nvidia_news_update/index.html", have) == (
+        "Update apps/nvidia_news_update/index.html"
+    )
+
+
+def test_same_app_paths_ignores_unrelated_names() -> None:
+    have = ["angry_birds"]
+    # Unrelated names are left alone (not considered a spelling variant)
+    assert same_app_paths("Create apps/angry_bird_2/index.html", have) == (
+        "Create apps/angry_bird_2/index.html"
+    )
+    assert same_app_paths("Update apps/tech_newsletter/index.html", have) == (
+        "Update apps/tech_newsletter/index.html"
+    )
+
+
+def test_same_app_paths_handles_multiple_paths_in_one_task() -> None:
+    have = ["tech_news", "nvidia_news_update"]
+    task = "Update apps/technews/page.html and apps/nvidianewsupdate/style.css"
+    assert same_app_paths(task, have) == (
+        "Update apps/tech_news/page.html and apps/nvidia_news_update/style.css"
+    )
+
+
+def test_same_app_paths_ignores_task_with_no_app_path() -> None:
+    have = ["nvidia_news_update"]
+    task = "Update the homepage without touching any app"
+    assert same_app_paths(task, have) == task

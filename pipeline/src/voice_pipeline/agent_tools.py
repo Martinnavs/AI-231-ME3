@@ -29,7 +29,7 @@ from pipecat.frames.frames import FunctionCallResultProperties
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.mcp_service import MCPClient
 
-from voice_pipeline import question
+from voice_pipeline import question, venue
 from voice_pipeline.chain_state import (
     SIDE_TOOLS,
     ChainState,
@@ -52,16 +52,15 @@ DOCS_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.docs"]
 
 def web_info_command(env: Mapping[str, str] | None = None) -> list[str]:
     """The weather/places server's command. The MCP child does not inherit the environment, so the
-    venue goes on the command line."""
+    venue goes on the command line: the pin, else the venue found at boot (voice_pipeline.venue),
+    so "near me" and "where am I" agree."""
     env = os.environ if env is None else env
     cmd = [*ROOT_MODULE, "voice_agent.mcp_servers.web_info"]
     cmd += ["--home", env.get("VOICE_AGENT_HOME_PLACE") or "Cebu City"]
-    return cmd + (
-        ["--coords", env["VOICE_AGENT_HOME_COORDS"]] if env.get("VOICE_AGENT_HOME_COORDS") else []
-    )
+    coords = venue.coords_arg(env)
+    return cmd + (["--coords", coords] if coords else [])
 
 
-WEB_INFO_COMMAND = web_info_command()
 TAVILY_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.tavily_search"]
 # $DELEGATE_STATE_DIR (a second server for testing) keeps its jobs and notices apart from the
 # running stack's; the MCP child does not inherit the environment, so it goes on the command line
@@ -649,6 +648,28 @@ def app_key(name: str) -> str:
     return " ".join(w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words)
 
 
+def _squashed(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def same_app_paths(task: str, have: list[str]) -> str:
+    """`task` with each apps/<name> that is only another spelling of an existing app
+    (nvidianewsupdate for nvidia_news_update: case, dashes, underscores, a plural s) written as
+    it. The model spelled one app two ways in two tasks, the delegate made a second folder, and
+    the republish pushed it beside the first (2026-11-13)."""
+    squashed = {_squashed(app): app for app in have}
+    keyed = {_squashed(app_key(app)): app for app in have}
+
+    def fix(m: re.Match[str]) -> str:
+        name = m.group(2)
+        if name in have:
+            return m.group(0)
+        found = squashed.get(_squashed(name)) or keyed.get(_squashed(app_key(name)))
+        return f"{m.group(1)}{found}" if found else m.group(0)
+
+    return re.sub(r"(\bapps/)([A-Za-z0-9_-]+)", fix, task)
+
+
 def closest_app(name: str, have: list[str]) -> str | None:
     """The existing app `name` means, or None: same key, else the best spelling match >= 0.8."""
     if name in have:
@@ -913,7 +934,7 @@ def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list
     required = [
         docs_server(),
         stdio_server(TIME_COMMAND),
-        stdio_server(WEB_INFO_COMMAND),
+        stdio_server(web_info_command()),
         stdio_server(TAVILY_COMMAND),
     ]
     optional = [stdio_server(delegate_command())]
@@ -1040,7 +1061,8 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             params.result_callback = status_callback
         elif schema.name == "delegate":
             deliver_job = params.result_callback
-            task = str(args.get("task", ""))
+            task = same_app_paths(str(args.get("task", "")), app_names())
+            args["task"] = task
             if publish_configured() and PUBLISH_TASK.search(task):
                 record.pop()  # no job: the model is told which tool publishes
                 await deliver_job(NOT_DELEGATED)
