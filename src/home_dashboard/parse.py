@@ -174,4 +174,12 @@ def css_color(name: str) -> str:
     low = " ".join(name.lower().split())
     if re.fullmatch(r"#(?:[0-9a-f]{3}|[0-9a-f]{6})", low):
         return low
-    return COLORS.get(low, UNKNOWN_COLOR)
+    if low in COLORS:
+        return COLORS[low]
+    words = low.split()
+    for size in range(
+        len(words) - 1, 0, -1
+    ):  # "warm purple": its longest known tail, then any word
+        if " ".join(words[-size:]) in COLORS:
+            return COLORS[" ".join(words[-size:])]
+    return next((COLORS[w] for w in reversed(words) if w in COLORS), UNKNOWN_COLOR)
