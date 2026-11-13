@@ -15,6 +15,7 @@ def test_spoken_drops_the_files_line_and_files_are_listed() -> None:
     assert spoken(summary) == "I built it. It works."
     assert listed_files(summary) == ["recipes/index.html", "recipes/style.css"]
     assert listed_files("No files line.") == []
+    assert listed_files("It failed.\nFiles: none") == []  # "none" once became the page to update
 
 
 def test_create_finish_persist_and_reload(tmp_path: Path) -> None:
