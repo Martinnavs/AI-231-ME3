@@ -30,7 +30,7 @@ stop_pi() {
   if [ "${PI_START:-ssh}" = systemd ]; then
     pi_ssh 'systemctl --user stop pi-agent pi-speaker pi-device-mcp; echo "Pi services stopped"'
   else
-    pi_ssh 'for f in /tmp/pi_speaker.pid /tmp/pi_device.pid /tmp/pi_agent.pid /tmp/pi_apps.pid; do [ -f $f ] && kill $(cat $f) 2>/dev/null && rm -f $f; done; echo "Pi services stopped"'
+    pi_ssh 'for f in /tmp/pi_speaker.pid /tmp/pi_device.pid /tmp/pi_agent.pid /tmp/pi_apps.pid /tmp/pi_dash.pid; do [ -f $f ] && kill $(cat $f) 2>/dev/null && rm -f $f; done; echo "Pi services stopped"'
   fi
 }
 case "$MODE" in

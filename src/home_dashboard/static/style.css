@@ -1,0 +1,386 @@
+:root {
+  --bg: #ffffff;
+  --panel-bg: #f5f5f5;
+  --panel-border: #e0e0e0;
+  --text: #1a1a1a;
+  --text-muted: #666666;
+  --accent: #2563eb;
+  --warning: #dc2626;
+  --success: #16a34a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f172a;
+    --panel-bg: #1e293b;
+    --panel-border: #334155;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --accent: #3b82f6;
+    --warning: #f87171;
+    --success: #4ade80;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f172a;
+  --panel-bg: #1e293b;
+  --panel-border: #334155;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --accent: #3b82f6;
+  --warning: #f87171;
+  --success: #4ade80;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* --- Header -------------------------------------------------------- */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 16px;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--panel-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.clock {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.connection-pill {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--success);
+  color: white;
+}
+
+.connection-pill.offline {
+  background: var(--warning);
+}
+
+/* --- Panels Grid -------------------------------------------------- */
+
+.panels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+@media (max-width: 760px) {
+  .panels-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel h2 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.panel-content {
+  padding: 8px 0;
+}
+
+/* Highlight states */
+.panel.highlight {
+  border-color: var(--warning);
+  box-shadow: 0 0 10px rgba(220, 38, 38, 0.2);
+}
+
+.panel.pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* --- Lights Panel ------------------------------------------------- */
+
+.lights-display {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.lights-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #cccccc;
+  flex-shrink: 0;
+}
+
+.lights-text {
+  font-size: 16px;
+  color: var(--text);
+}
+
+/* --- Thermostat Panel --------------------------------------------- */
+
+.big-number {
+  font-size: 48px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+  margin: 12px 0;
+}
+
+/* --- Timer Panel -------------------------------------------------- */
+
+.timer-panel .timer-state {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.timer-progress-bar {
+  height: 4px;
+  background: var(--panel-border);
+  border-radius: 2px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.timer-progress-bar::after {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  border-radius: 2px;
+}
+
+/* --- Alarm Panel -------------------------------------------------- */
+
+.alarm-panel.highlight {
+  border-color: var(--warning);
+}
+
+.alarm-display {
+  font-size: 18px;
+  color: var(--text);
+}
+
+/* --- Phone Panel -------------------------------------------------- */
+
+.phone-display {
+  font-size: 16px;
+  color: var(--text);
+}
+
+/* --- Reminders Panel ---------------------------------------------- */
+
+.reminders-panel.highlight {
+  border-color: var(--accent);
+  background: var(--panel-bg);
+}
+
+.reminders-header {
+  font-size: 16px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.reminders-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.reminders-list li {
+  padding: 8px 0;
+  font-size: 14px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.reminders-list li:last-child {
+  border-bottom: none;
+}
+
+/* --- Last Heard Panel --------------------------------------------- */
+
+.detected-large {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+  min-height: 1.2em;
+}
+
+.status-small {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  min-height: 1.2em;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.history-list li {
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--panel-border);
+  display: flex;
+  justify-content: space-between;
+}
+
+.history-list li:last-child {
+  border-bottom: none;
+}
+
+.history-list li.failed {
+  color: var(--warning);
+}
+
+/* --- Footer ------------------------------------------------------- */
+
+.footer {
+  padding: 20px 16px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.command-details {
+  cursor: pointer;
+}
+
+.command-details summary {
+  padding: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  outline: none;
+}
+
+.command-details summary:hover {
+  color: var(--accent);
+}
+
+.command-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: center;
+}
+
+select,
+input[type="text"],
+button {
+  padding: 8px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+select:hover,
+input[type="text"]:hover,
+button:hover {
+  border-color: var(--accent);
+}
+
+select:focus,
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+button {
+  cursor: pointer;
+  font-weight: 600;
+  background: var(--accent);
+  color: white;
+  border: none;
+  transition: opacity 0.2s ease;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+button:active {
+  opacity: 0.8;
+}
+
+#reset-btn {
+  background: var(--text-muted);
+}
+
+#command-reply {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

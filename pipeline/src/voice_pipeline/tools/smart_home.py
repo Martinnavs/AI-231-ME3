@@ -120,7 +120,7 @@ def make_handler(
     reminders: Reminders | None = None,
 ) -> Callable[[FunctionCallParams], Awaitable[None]]:
     """Handler that records every call, and posts it to the dashboard when base_url is set.
-    Without a dashboard, reminders are kept in `reminders` and listed from it."""
+    Reminders are kept in `reminders` and listed from it (spoken) with or without a dashboard."""
     names = {c["name"].lower(): c["name"] for c in contacts or load_phonebook()}
     store = reminders if reminders is not None else Reminders()
 
@@ -147,7 +147,11 @@ def make_handler(
             result = await _post(base_url, to_command(intent, slot))
             if result.get("ok") and intent in OPTIONAL_SLOT_FOR_INTENT and slot:
                 result["message"] = f"Playing {str(slot).strip().rstrip('.')}."
-        if intent == "LIST_REMINDERS" and result.get("ok") and base_url is None:
+            if result.get("ok") and intent == "CREATE_REMINDER":
+                store.add(str(slot))  # the panel shows the list; the harness keeps and speaks it
+            elif result.get("ok") and intent == "LIST_REMINDERS":
+                result["message"] = store.spoken_latest()
+        if intent == "LIST_REMINDERS" and result.get("ok"):
             # the reminders themselves are the answer: said as they are, after the model's `say`
             await params.result_callback(
                 str(result["message"]), properties=FunctionCallResultProperties(run_llm=False)

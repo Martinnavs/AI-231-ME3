@@ -185,11 +185,13 @@
 + pipeline/tests/**
 + src/audio_engine/**
 + src/lan_speech/**
++ src/home_dashboard/**
 + tests/fixtures/fragments/**
 + tests/fixtures/music_pause/**
 + tests/fixtures/pi_echo/**
 + tests/lan_speech/**
 + tests/stack/**
++ tests/home_dashboard/**
 
 # --- single files
 # (root)
@@ -217,6 +219,7 @@
 + docs/BARGE-IN.md
 + docs/CORPUS-BABY-ONIT.md
 + docs/DOC-CHAT.md
++ docs/HOME-DASHBOARD.md
 + docs/EVENT-LOG.md
 + docs/HANDOFF.md
 + docs/HEADSET-MIC.md
@@ -228,6 +231,7 @@
 + docs/LATENCY.md
 + docs/LIVE-AGENT.md
 + docs/MCP-SERVERS.md
++ docs/USAGE.md
 + docs/ONIT-PARITY.md
 + docs/PI-REMOTE-SPEAKER.md
 + docs/PI-TEST-PLAN.md
