@@ -201,10 +201,15 @@ PUBLISH_ASK = " Should I go ahead and publish it?"
 PUBLISH_YES_S = 90.0
 _pending_publish: tuple[str, float] | None = None
 PUBLISH_RULE = (
-    "Publishing: to put an app that was already made on GitHub Pages ('publish it', 'put it "
-    "online'), call open_app with an empty name to list the folders, then publish_pages with the "
-    "listed folder (never a guessed name). "
-    "It asks the user to confirm; say what it returns. Never publish anything else."
+    "Publishing ('publish it', 'push it', 'commit and push', 'republish', 'put it online'): call "
+    "open_app with an empty name to list the folders, then publish_pages with the app just built "
+    "or published (never a guessed name). The delegate cannot publish. It asks the user to "
+    "confirm; say what it returns."
+)
+PUBLISH_TASK = re.compile(r"\b(?:re-?publish|publish|push|commit|deploy|github pages)\b", re.I)
+NOT_DELEGATED = (
+    "The delegate has no credentials and cannot publish, push or commit. To put an app online call "
+    "publish_pages with its folder (list them with open_app); delegate only the change to the app."
 )
 DELEGATE_GRACE_S = 1.5
 _pending_destructive: str | None = None
@@ -1017,6 +1022,10 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
         elif schema.name == "delegate":
             deliver_job = params.result_callback
             task = str(args.get("task", ""))
+            if publish_configured() and PUBLISH_TASK.search(task):
+                record.pop()  # no job: the model is told which tool publishes
+                await deliver_job(NOT_DELEGATED)
+                return
             if is_acknowledgement(question.current or ""):
                 record.pop()  # "got it" is no request (it once started a job): nothing runs
                 await deliver_job(NOTHING_TO_DO, properties=NO_SECOND_REQUEST)

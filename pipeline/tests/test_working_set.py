@@ -378,3 +378,30 @@ async def test_a_separate_task_gets_no_update_sentence(tmp_path: Path, monkeypat
     )
     question.current = ""
     assert "Update the existing" not in record[-1]["args"]["task"]
+
+
+async def test_the_delegate_is_not_given_a_publish_task(monkeypatch: Any) -> None:
+    monkeypatch.setattr(agent_tools, "publish_configured", lambda path=None: True)
+    record: list[dict[str, Any]] = []
+    ran: list[str] = []
+    said: list[str] = []
+
+    async def inner(params: Any) -> None:
+        ran.append("ran")
+
+    async def sink(value: Any, *, properties: Any = None) -> None:
+        said.append(str(value))
+
+    schema = FunctionSchema(
+        name="delegate", description="d", properties={}, required=[], handler=inner
+    )
+    for task in ("Commit and push the app.", "Add two articles, then republish it."):
+        await _recorded(schema, record).handler(  # type: ignore[misc]
+            SimpleNamespace(
+                function_name="delegate",
+                arguments={"task": task},
+                result_callback=sink,
+                tool_call_id="d",
+            )
+        )
+    assert ran == [] and record == [] and said == [agent_tools.NOT_DELEGATED] * 2
