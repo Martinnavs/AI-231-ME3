@@ -34,14 +34,22 @@ def build_server(corpus: Path, topic: str = DEFAULT_TOPIC) -> FastMCP:
         description=(
             f"Search the documents about {topic} and return the best-matching passages with "
             "their source file. Use it, and only it, for any question on that topic and answer "
-            "from the passages. Write the query as a short self-contained question."
+            "from the passages. Write the query as a short self-contained question. An empty "
+            "result means no passage shares a word with the question: say you don't know."
         )
     )
     def search_docs(query: str, top_k: int = 3) -> list[dict[str, str]]:
-        retriever.k = max(1, min(top_k, 8))
+        # BM25Retriever returns k chunks even when no query word is in any of them (score 0.0);
+        # those are arbitrary passages, so a miss is an empty list (2026-11-14)
+        scores = retriever.vectorizer.get_scores(tokenize(query))
+        best = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
         return [
-            {"source": Path(str(doc.metadata.get("source", ""))).name, "text": doc.page_content}
-            for doc in retriever.invoke(query)
+            {
+                "source": Path(str(retriever.docs[i].metadata.get("source", ""))).name,
+                "text": retriever.docs[i].page_content,
+            }
+            for i in best[: max(1, min(top_k, 8))]
+            if scores[i] > 0
         ]
 
     return server

@@ -73,3 +73,16 @@ async def test_the_documents_own_wording_for_the_tool_count_is_kept() -> None:
 async def test_top_k_is_clamped() -> None:
     assert len(await _search("agent loop", top_k=1)) == 1
     assert len(await _search("agent loop", top_k=50)) == 8
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["What is the capital of France?", "How do I bake sourdough bread?", "Who directed The Road?"],
+)
+async def test_a_question_sharing_no_word_with_the_corpus_gets_no_passages(question: str) -> None:
+    assert await _search(question) == []
+
+
+async def test_a_partial_match_still_returns_passages() -> None:
+    hits = await _search("What is the capital of the agent loop?")
+    assert hits and hits[0]["source"].startswith("08-the-agent")
