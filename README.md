@@ -1,70 +1,97 @@
-# AI-231 ME3: a voice assistant that runs on a laptop CPU and a Raspberry Pi
+# ME3: a voice assistant on a laptop CPU and a Raspberry Pi
 
-A spoken assistant for a home and a few "big tasks". The microphone is on the laptop; the answer plays from a USB loudspeaker on a Raspberry Pi 4 over one Ethernet cable. Everything that thinks runs on the laptop CPU: speech to text (Kroko streaming, Parakeet final), a 350M fine-tuned router that answers simple turns itself, text to speech (Kitten), and the agent server. The cloud handles the turns the router will not take (Gemini 3.1 flash-lite), web answers (Gemini with Google Search, then Tavily, then Wikipedia), and big tasks (a background "delegate" job on Claude Haiku 5.5 through OpenRouter, in a bubblewrap sandbox). The Pi runs no model.
+**BLUF.** You talk to a laptop microphone. Speech recognition, speech synthesis and a 350M tool router run on the laptop CPU; a Raspberry Pi 4 runs the agent and its tools and plays the answer on a USB loudspeaker; Gemini and web search are in the cloud. It does home commands (shown on a panel), music (Spotify), questions with web search, and "big tasks" (builds a page, publishes it to GitHub Pages). End of speech to first sound: **1.69 s mean, 2.48 s p95** on the class benchmark. Weak spots: the first model token is slow (p95 1.92 s), it still answers side talk (5 of 6 clips), and every number below is one run on 12 clips per group.
 
-Read first: `docs/HANDOFF.md` (the map), `docs/ARCHITECTURE.md` (how a turn flows), `docs/PROGRESS-2026-11-09.md` (latest work), `docs/ISSUES-2026-11-07.md` (what is open, section H is the newest). Full document list: `docs/INDEX.md`.
+```
+laptop mic -> VAD -> Parakeet ASR -> [router 350M: one tool call, or escalate] -> Pi: agent (Pipecat) -> Gemini + tools (MCP)
+                                                                                    |-> home dashboard   |-> Spotify   |-> web, docs, delegate
+laptop Kitten TTS -> Pi mixer -> USB loudspeaker              (barge-in: speech detected -> stop playback and the model)
+```
 
-## Layout
-
-| Folder | What is in it |
+| Where | What |
 |---|---|
-| `src/doc_chat/` | the live client: microphone, turn handling, barge-in, echo guard, addressee gate, playback |
-| `src/lan_speech/` | the speech server (STT + TTS) |
-| `src/voice_agent/` | the agent's MCP servers (docs, web, delegate, code sandbox, music) and the delegate sub-agent |
-| `pipeline/` | the Pipecat project (a separate `uv` project and venv: agent server, router client, tools, chain state, scratchpad) |
-| `config/` | settings, entity lists, the delegate config, `config/eval/` evaluation scenarios |
-| `scripts/` | stack start-up (`scripts/stack/`), replays, doctors, `chain_eval.py` |
-| `tests/`, `pipeline/tests/` | unit tests (root venv, pipeline venv) |
-| `finetune/` | the router fine-tuning project (start at `finetune/README.md`) |
-| `fd-benchmark/` | the class Full-Duplex-Bench harness (git-ignored clone; method in `docs/FDBENCH-FIRST-PASS.md`) |
+| Laptop (CPU only) | Silero VAD, Parakeet speech recognition, Kitten TTS, the router (`llama-server`), the live client `doc_chat` (barge-in, echo guard, loudness and addressee gates) |
+| Raspberry Pi 4 | the agent server and its MCP servers (docs, web, search, delegate, music, time, speech), the home dashboard, the apps server, the loudspeaker mixer |
+| Cloud | Gemini (the agent's model), Tavily and Google search, Claude Haiku (the delegate that builds pages) |
+| Link | one Ethernet cable laptop to Pi (link-local, about 1.5 ms); the Pi also needs internet |
 
-## Setup
+## Results (final build, Pi, one run, class benchmark `fdbench`, seed 922546)
 
-```
-uv sync                # root environment (.venv)
-make pipeline-sync     # pipeline/ environment (pipeline/.venv)
-```
-
-Secrets live under `~/.secrets/` (Gemini, OpenRouter, Tavily, Spotify) and are read by the code at run time. Never print or paste them. The Pi is reached by SSH key only.
-
-## Make recipes
-
-`make help` lists them all. Free means no network spend. "Needs you" means a microphone or a person.
-
-| Recipe | What it does | Cost |
+| Measure | Result | Target |
 |---|---|---|
-| `make check` / `make test` | ruff, format check and mypy; the root test suite | free |
-| `make pipeline-check` / `make pipeline-test` | the same for `pipeline/` | free |
-| `make check-all` / `make test-all` | both projects | free |
-| `make test-chain` | only the tests behind the addressee gate, delegate doctor, chain state, scratchpad and chain evaluation (about 1 minute) | free |
-| `make addressee-replay` (`DECL=1` adds the opt-in statement rule) | replays the addressee gate over the logged turns and the benchmark texts | free |
-| `make doctor-tools` | what the delegate sandbox can do with git, GitHub and Hugging Face, and (optional) whether your profile is in place (add `--offline` by running the script directly to skip the two network checks) | free |
-| `make chain-eval-list` | the 8 chain scenarios and the cost estimate of one pass | free |
-| `make chain-eval-dry` | the chain evaluation against fakes: proves the harness, no network | free |
-| `make chain-eval YES=1` (`SEED=n`, `SEEDS=k`, `ONLY=id,id`, `MAX_USD=0.19`) | the live chain evaluation: Gemini front agent, Tavily, the Haiku delegate | about $0.01 per scenario, about $0.08 for all 8; refuses to run without `YES=1` |
-| `make agent-dryrun` (`LIMIT=n`) | the older stress dry run of the agent over `pipeline/config/eval/agent_prompts.jsonl` | cents |
-| `make pi-detect`, `make up`, `make talk`, `make down`, `make status` | find the Pi, start the whole stack, talk to it, stop it, read-only status | live audio, needs you |
-| `make up-laptop`, `make up-pi`, `make restart-agent` | start only part of the stack | needs you |
-| `make calibrate` (`HEADSET=1`) | room calibration and the six baseline phrases | needs you at the mic |
-| `make pi-check` (run on the Pi), `pi-env`, `pi-clips`, `pi-firewall`, `pi-tune`, `pi-netem MODE=...` | Pi set-up and a poor-link simulation | touches the Pi, ask first |
-| `make spotify-login` | one-time Spotify login in the browser | needs you |
+| End of speech to first audio, mean / p95 (30 phrases) | **1.69 / 2.48 s** | < 4 s |
+| ASR final / LLM first token / TTS first audio, mean | 0.33 / 1.12 / 0.23 s | < 0.8 / 1.5 / 0.6 s |
+| Barge-in, playback stopped, mean / p95 | 0.65 / 0.89 s | < 0.8 s |
+| Turn-taking (12 clips) / interruption v1 (11) | 12/12 / 11/11 answered | |
+| Interruption v1.5, stopped and answered | 11/12 | |
+| False turn-taking on TV, background, side talk, noise (24 clips), lower is better | **7/24** (TV 0, noise 0, background 2/6, side talk 5/6); 19/24 without the gates | |
+| Pause take-over / backchannel resumed | 17 % and 25 % / 83 % | |
 
-Do not run `uv run` or `uv sync` from a copied or symlinked tree; use the real repository.
+Not measured on the final build: word error rate (the phrase draw broke it), a spoken session with hedging on, a noisy real room. Method and every table: `docs/PROGRESS-2026-11-11.md` sections 21 to 29.
 
-## Test it yourself, in this order
+## Prerequisites (set up before the quickstart)
 
-1. **Everything is wired (free, about 3 minutes).** `make check-all` then `make test-all`. Expected: clean checks; tests pass except one known case, `tests/doc_chat/test_flow.py::test_llm_echo_is_accepted_without_documents` (it needs a speech server on port 8765). Ruff may also flag `scripts/pi_synth_report.py` (known, not ours).
-2. **The newest work only (free).** `make test-chain`. Expected: both lines end in `passed` (about 441 and 45 tests).
-3. **The addressee gate (free).** `make addressee-replay`. Expected: about 0.2 % of 1,479 logged real turns ignored with the default rules; run it with `DECL=1` to see the opt-in rule (about 2 %). The benchmark-clip block rates are printed below it (side talk 9 of 10; background and TV/radio 0 of 10 by default). The gate is off in the live client until you pass `--addressee log` (records its verdict, still answers) or `--addressee on` (drops turns judged side talk).
-4. **The delegate sandbox (free).** `make doctor-tools`. Expected: OK for sandbox, git, local commit, GitHub read and Hugging Face reachable; MISSING (warnings only) for `gh`, `hf` and the credential folders; the last two lines say what the voice agent can and cannot do. It cannot push, by design. Two more optional lines report the owner profile (`config/profile.md` filled in; the delegate can read it): `docs/PROFILE.md`.
-5. **The chain evaluation harness (free).** `make chain-eval-list` then `make chain-eval-dry`. Expected: 8 scenarios, an estimate of about $0.16 (the measured cost is about half), and 8 `yes` rows against the fakes with `total spend $0.000`.
-6. **A live chain pass (spends).** Check the keys exist in `~/.secrets/`, then `make chain-eval YES=1 SEED=21` (or one scenario: `make chain-eval YES=1 ONLY=product_table`). It prints the estimate before any call, stops at 90 % of `MAX_USD`, and writes traces and the scratch workspaces to `out/chain_eval/<run>/`. Open `<run>/<scenario>-0/workspace/` to read the generated pages, `SOURCES.json` and `scratch/NOTES.md`. Strict pass rates on the last two passes were 2 of 8 and 3 of 8 (before the final fixes); a scenario can fail a check because of the harness, so read the trace before judging. The shared spend ledger is `out/chain_eval/ledger.json`; move it aside to start a fresh cap.
-7. **Live voice (needs you).** `make pi-detect`, `make up`, `make talk` (`make down` to stop). To record the addressee gate's verdicts without changing behaviour: `make talk TALK_ARGS="--addressee log"` (`on` drops turns judged side talk). Compare against `docs/FDBENCH-FIRST-PASS.md` before and after.
+| Need | Why | How |
+|---|---|---|
+| Laptop: Linux x64, 4+ cores, microphone, [`uv`](https://docs.astral.sh/uv/), `git`, `curl`, `rsync`, PipeWire/PulseAudio (`pactl`) | the live stack | tested on Arch, HP EliteBook 840 G8 |
+| Raspberry Pi 4 (4 GB), Raspberry Pi OS 64-bit, USB loudspeaker, Ethernet cable to the laptop, ssh key login | the harness and the speaker | on the Pi: `sudo apt install python3-venv python3-dev build-essential libsndfile1 libportaudio2 rsync` |
+| The Pi has internet (Wi-Fi) | Gemini, search | a Wi-Fi profile with its password stored system-wide (`sudo nmcli device wifi connect ...`), or a keyring-less headless login fails |
+| Gemini API key | the agent's model | <https://aistudio.google.com/apikey> to `~/.secrets/google-ai-studio/api-key.txt` |
+| Tavily key (free, 1,000 credits a month) | web research | <https://tavily.com> to `~/.secrets/tavily/api-key.txt` |
+| OpenRouter key | the delegate (Claude Haiku) and the benchmark judge | `~/.secrets/openrouter/api-key.txt` |
+| **Spotify**: a Premium account, the Spotify desktop app logged in on the laptop, a developer app | music (searched by the Web API, played by the app into a private sink that the Pi speaker replays) | <https://developer.spotify.com/dashboard>: create an app, redirect URI `http://127.0.0.1:8888/callback`, save the client id to `~/.secrets/spotify/client-id.txt` and the secret to `~/.secrets/spotify/api-key.txt`, then `make spotify-login` once |
+| A shared session token | every laptop/Pi connection | `umask 077; python3 -c "import secrets;print(secrets.token_urlsafe(24))" > ~/.config/lan_speech_token`, the same file on the Pi |
+| Keys on the Pi | the agent, search and the delegate run there | `scp` the key files for Gemini, Tavily, OpenRouter (and Google Maps) to the same paths under the Pi's `~/.secrets/` (`chmod 700 ~/.secrets`, `chmod 600` the files); the Spotify files stay on the laptop |
+| Optional: Google Maps key (Places API New) | nearby-places tools | `~/.secrets/google-maps/api-key.txt` |
+| Optional: GitHub token and a public demo repository | "publish it" to GitHub Pages | `config/publish.toml` on the Pi only (`repo = "https://github.com/<you>/<repo>"`), token in `~/.secrets/github/pat` on the Pi (see `docs/PUBLISH-PAGES.md`) |
+| Optional: your profile | "make me a page about me" | `cp config/profile.example.md config/profile.md`, fill it in (git-ignored; `docs/PROFILE.md`) |
 
-## Where things are not finished
+Keys are read by the code at run time and never printed; `~/.secrets/` is never committed.
 
-The GitHub Pages push is not built (it waits on the owner's account, a single-repository token held outside the sandbox, and a spoken yes). The addressee gate has not been measured live, and TV/radio needs a voice signal. Nothing from the last day went through an independent test or review pass. Details and the prune-later list: `docs/ISSUES-2026-11-07.md` sections H1 to H8.
+## Quickstart
 
-## Rules for working here
+```bash
+git clone https://github.com/Martinnavs/AI-231-ME3 && cd AI-231-ME3
+uv sync --group laptop && make pipeline-sync          # the two Python environments
+uv run python scripts/fetch_laptop_models.py          # speech models into models/ (checksummed)
+make setup-router                                     # the router GGUF (Hugging Face) + a prebuilt llama.cpp, ~250 MB
+make setup-kitten                                     # the Kitten TTS voice (not a project dependency)
+ssh <pi> 'mkdir -p ~/Documents/AI-231-ME3'            # where the repo lives on the Pi
+PI_USER=<pi user> PI_KEY=~/.ssh/<key> make pi-detect  # finds the Pi on the cable, writes config/pi.env
+PI_RESTART=none make pi-sync && make pi-env           # this repo's code (a git ref, reproducible) and pi.env to the Pi
+ssh <pi> 'cd ~/Documents/AI-231-ME3 && deploy/install-pi.sh --venvs'   # Pi environments and systemd units
+make pi-firewall && make pi-tune                      # once: open the cable ports (sudo), Pi performance settings
+make calibrate                                        # your room and voice, about 4 minutes; `make talk` reads the result
+make up                                               # router, speech, Pi services; prints the home dashboard address
+make talk                                             # speak
+```
 
-Add files to git by explicit name, never `-A` or a whole folder. Do not push without asking. Never read or print anything under `~/.secrets/`. Do not touch the Pi or start servers on it without the owner's go. Details: `docs/HANDOFF.md` section 8.
+Say "turn the lights purple", "set a timer for an hour and a half", "who is the current mayor of Cebu City", "play something by Eraserheads", "make me a one-page site about sourdough", "publish it". Open the dashboard address that `make up` prints in a laptop browser to see the home commands land. `make down` stops everything; `make status` is read-only. Day-to-day: `make pi-sync` after a commit, `make pi-mode MODE=demo|benchmark` for the search budget.
+
+## Reproduce the numbers
+
+| Step | How |
+|---|---|
+| Unit tests (free, 3 minutes) | `make check-all && make test-all` (one known failure that needs a running speech server) |
+| Latency and conversation benchmark | the class harness `fd-benchmark/` (provided by the course, git-ignored) over two virtual audio cables: `docs/FDBENCH-FIRST-PASS.md` has the method and commands; this build's runs are in `docs/PROGRESS-2026-11-11.md` section 29. Use `make calibrate` first, `make pi-mode MODE=benchmark` (no Tavily credits), `--rounds 12 --seed 922546`. About 90 minutes, about $0.30 for the judge |
+| The loudness gate, offline and free | `scripts/voice_gate_replay.py --gap 10` |
+| The live test script (music, talking background) | `scripts/live_test_report.py --print`, speak it, `scripts/live_test_report.py` scores the session |
+
+## The router model
+
+A Granite 4.0 H 350M with a LoRA adapter, distilled from a 1B teacher on template-generated data; it writes one tool call per request or `escalate`. `make setup-router` downloads the ready GGUF: <https://huggingface.co/martinnavs/granite-4.0-h-350m-router-kd-web4-s0-GGUF> (the adapter: <https://huggingface.co/martinnavs/granite-4.0-h-350m-router-kd-web4-s0>). To retrain it and follow the methodology (data generator, teacher, distillation, evaluation, model card): <https://github.com/Martinnavs/ME3-LoRA-training>, then `scripts/setup_router_gguf.sh` with `ROUTER_REPO=<your adapter>` turns your adapter into the GGUF `make up` serves.
+
+## Where everything else is
+
+| Need | Read |
+|---|---|
+| Every make recipe, test order, layout | [`docs/USAGE.md`](docs/USAGE.md) |
+| How a turn flows, ports, servers | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| The home dashboard (open values, API) | [`docs/HOME-DASHBOARD.md`](docs/HOME-DASHBOARD.md) |
+| The Pi: commands, Wi-Fi, systemd | [`deploy/PI-HARNESS-COMMANDS.md`](deploy/PI-HARNESS-COMMANDS.md), `make pi-sync` |
+| Latest measurements and every decision | [`docs/PROGRESS-2026-11-11.md`](docs/PROGRESS-2026-11-11.md) |
+| Industry comparison, latency work | [`docs/INDUSTRY-COMPARISON.md`](docs/INDUSTRY-COMPARISON.md), [`docs/LATENCY.md`](docs/LATENCY.md) |
+| Publishing pages, the owner profile | [`docs/PUBLISH-PAGES.md`](docs/PUBLISH-PAGES.md), [`docs/PROFILE.md`](docs/PROFILE.md) |
+| The map for a new maintainer | [`docs/HANDOFF.md`](docs/HANDOFF.md) |
+
+`main` holds only what runs the assistant; research, experiments and history are on the `agy/interrupts` branch (`tools/promote/README.md` explains the split).
