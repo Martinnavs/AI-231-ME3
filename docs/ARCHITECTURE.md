@@ -113,7 +113,7 @@ Order is fixed so the agent sees the Pi tools: router, speech server, Pi service
 | router | `llama-server --jinja -c 8192 -np 1 -fa on -t 3 -tb 3 -m <gguf> --port 8089` (`up.sh:47`) | `GET /health`, 60 s | `out/stack/logs/router.log`, `out/stack/pids/router` |
 | speech | `uv run --offline --group laptop python -m lan_speech --host $LAPTOP_IP --port 8770 --stt-model parakeet --entities config/entities.json --tts-engine kitten --kitten-voice Jasper` with `KITTEN_SITE` set (`up.sh:55-57`) | port listening, 120 s | `speech.log`, `pids/speech` |
 | Pi | token compare, then over ssh: `timeout 7200 .venv/bin/python -u scripts/pi_speaker.py --device CD002-AUDIO --rate 48000 --port 8780` and `scripts/pi_device_mcp.py --port 8790`, both `nohup` (`up.sh:88-93`) | both ports open from the laptop, 8 tries | on the Pi: `/tmp/pi_speaker.log`, `/tmp/pi_device.log`, `/tmp/pi_speaker.pid`, `/tmp/pi_device.pid` |
-| agent | in `pipeline/`: `uv run python -m voice_pipeline.agent_server --ipv4 --hedge -1 --router-url http://127.0.0.1:8089` (`up.sh:63`) | log line `agent server on`, 120 s; warns `left out` if a Pi tool did not load | `agent.log`, `pids/agent` |
+| agent | in `pipeline/`: `uv run python -m voice_pipeline.agent_server --ipv4 --hedge 0 --router-url http://127.0.0.1:8089` (`up.sh`) | log line `agent server on`, 120 s; warns `left out` if a Pi tool did not load | `agent.log`, `pids/agent` |
 
 Variables (Makefile:10-25): `ROUTER_MODEL` = `router-350m-kd-web3-s0-unverified`, `ROUTER_THREADS` 3, `GGUF_TOOLS` `~/work/gguf-tools`, `ENTITIES` `config/entities.json`, `KITTEN_VOICE` Jasper, `KITTEN_SITE` `~/work/tts-bakeoff/venv/lib/python3.12/site-packages`, `PI_START` `ssh`, `PI_RUN_SECONDS` 7200, `DRY=1` prints the commands only.
 
@@ -273,7 +273,7 @@ Kroko's `finalize` path pads 1.5 s of zeros (`engines.py:21`, `FINALIZE_TAIL_S`)
 | statements | `web_answer`/`wiki_summary` only if the user asked a question or shares a content word with the query ("not a question") | `_lookup_asked` |
 | swap | the trained `wiki_summary` runs as `web_answer`; a single swapped call asks the whole user question; a `web_answer` keeps the router's own question (it resolved follow-up context) | `plan` |
 
-4. **Gemini** takes everything else (section 5.4). `up.sh` starts the server with `--hedge -1`, so there is **one** Gemini pipeline, not two racing ones, and the router runs **first**; Gemini starts only after the router declines (`agent_server.py:371-377`). `--router-hold` is 0 and has no effect without hedging.
+4. **Gemini** takes everything else (section 5.4). `up.sh` and `pi_service.sh` start the server with `--hedge 0` (since 2026-11-13), so **two** Gemini requests race the router and each other; Gemini starts at the same time as the router (`routed_turn` in `agent_server.py`), the router's answer wins when it can run the turn, and a hedged turn speaks nothing before the claim. With `--hedge -1` the router goes first and Gemini only after it declines. `--router-hold` is 0.
 
 **Failure behaviour.** The router can only make a turn faster, never lose it: every refusal falls through to Gemini. A web lookup that fails before anything was spoken also falls through. Router refusals in the 2026-11-05 agent log (74 turns): `escalate` 19, `unsupported: device_status` 3, `lookup failed or Gemini first` 2; routes: router 45, Gemini 24, fast path 5 (`pipeline/out/agent_server/20261105-082810.jsonl`).
 
@@ -297,7 +297,7 @@ Kroko's `finalize` path pads 1.5 s of zeros (`engines.py:21`, `FINALIZE_TAIL_S`)
 | Key | read from `~/.secrets/google-ai-studio/api-key.txt` at start (`agent.py` `read_key`); never logged |
 | Tools the model sees | 13: `smart_home` (17 intents, phonebook of 5 contacts in `pipeline/config/phonebook.json`), `search_docs`, `get_current_time`, `convert_time`, `weather`, `wiki_summary`, `web_answer`, `delegate`, `delegate_status`, `delegate_cancel`, and from the Pi `get_volume`, `set_volume`, `device_status` (the Pi's three are absent if the Pi was unreachable when the agent started) |
 | Connection | `--ipv4` (IPv6 to Google resets on this network); keep-alive **300 s** so idle connections stay warm (`KEEPALIVE_S`) |
-| Hedging | **off** in the deployed stack (`--hedge -1`); the code supports two racing requests (`hedge.py`) and the server default is on |
+| Hedging | **on** in the deployed stack (`--hedge 0`, since 2026-11-13: escalated turns' first text 1.07 -> 0.81 s median on the Pi, section 28 of the progress doc); `-1` turns it off |
 | `say` sentence | a short line the model emits with a tool call; held 0.6 s and dropped if the tool answers first; `weather` has no hold (`SAY_DELAY_BY_TOOL`) |
 | One request for sentence tools | `weather`, `wiki_summary`, `web_answer`, `get_volume`, `set_volume` return a ready sentence; the result is spoken without a second LLM call unless it failed or the question needs reasoning (`agent_tools.py:50,134-153`) |
 | **Stall watchdog** | after every tool of a response has returned, if the model says nothing for **8.0 s** (`STALL_S`; **16.0 s** after `web_research` — just past the 15 s worst-case first-chunk retry — and **10.0 s** after `search_docs`), the turn is answered from the tool result (Pi status worded for the question, or the tool's own sentence, else "Sorry, I got the result but couldn't put it into words. Could you ask again?"); for `web_research` and `search_docs` the answer is always the generic apology, never the untrusted search data. The model's late reply is interrupted. Added after a 16 s stall on 2026-11-05 (ticket G) |
@@ -525,7 +525,7 @@ Mitigations in place: no sudo or ssh (`shell_policy`), no secrets mounted, memor
 | `HISTORY_PAIRS` | `router.py:29` | 1 | earlier turns shown to the router |
 | `ROUTER_DEVICE_STATUS` | `call_policy.py:32` | `False` | router `device_status` calls go to Gemini |
 | `CHAT_MAX_WORDS` / `CHAT_REPLY_MAX_WORDS` | `call_policy.py:21-25` | 5 / 10 | longest router chat turn / reply |
-| `--hedge` | `up.sh:63` | `-1` (off) | one Gemini pipeline; code default is on |
+| `--hedge` | `up.sh`, `pi_service.sh` | `0` (on) | two racing Gemini requests; `-1` is one pipeline |
 | `--ipv4` | `up.sh:63` | on | Gemini over IPv4 only |
 | `--keepalive` | `agent.py:58` | 300 s | idle Gemini connections stay open |
 | Gemini model | `agent.py:48` | `gemini-3.1-flash-lite` | agent, doc answer, grounded answer |
@@ -595,7 +595,7 @@ Mitigations in place: no sudo or ssh (`shell_policy`), no secrets mounted, memor
 
 The code or config wins.
 
-1. **Hedging.** `docs/LATENCY.md` (R4) and `HANDOFF.md` describe two racing Gemini pipelines. `up.sh:63` starts the agent with `--hedge -1`, so hedging is off; the router goes first, then one Gemini request.
+1. **Hedging.** `docs/LATENCY.md` (R4) and `HANDOFF.md` describe two racing Gemini pipelines. Until 2026-11-13 `up.sh` started the agent with `--hedge -1` (off); `up.sh` and `pi_service.sh` now use `--hedge 0` after the paired Pi test in section 28 of the progress doc.
 2. **Stall filler.** The docstring of `fillers.py` and the `--fillers` help text say 1.2 s. `config/fillers.json` says `stall_s` 1.8 s, and `docs/LATENCY.md` R2b agrees with the config.
 3. **Padding.** `out/padding-eval.txt` and the `breakdown.txt` note say "1.5 s zeros kept". The Parakeet code pads 0.5 s lead and **1.0 s** tail (`hybrid_stt.py:150-151`); the 1.5 s is the Kroko finalize tail (`engines.py:21`).
 4. **Name repair.** `PROGRESS-2026-11-04.md` mentions the server flag `--repair-only doc`; `make up` does not pass it (`SPEECH_ARGS` is empty). With `--slot "doc+term?"` and no `doc` category in `config/entities.json`, only the 2 `term` names are repair targets; the 1 444 names are all hotwords.
