@@ -202,7 +202,8 @@ PUBLISH_YES_S = 90.0
 _pending_publish: tuple[str, float] | None = None
 PUBLISH_RULE = (
     "Publishing: to put an app that was already made on GitHub Pages ('publish it', 'put it "
-    "online'), call publish_pages with its folder name (open_app with an empty name lists them). "
+    "online'), call open_app with an empty name to list the folders, then publish_pages with the "
+    "listed folder (never a guessed name). "
     "It asks the user to confirm; say what it returns. Never publish anything else."
 )
 DELEGATE_GRACE_S = 1.5
