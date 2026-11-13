@@ -68,6 +68,8 @@ TAVILY_COMMAND = [*ROOT_MODULE, "voice_agent.mcp_servers.tavily_search"]
 DELEGATE_STATE_DIR: str | None = os.environ.get("DELEGATE_STATE_DIR") or None
 DELEGATE_CONFIG: str | None = os.environ.get("DELEGATE_CONFIG") or None
 MUSIC_RESOLVER_URL: str | None = os.environ.get("MUSIC_RESOLVER_URL") or None
+SPEECH_LAN_URL: str | None = os.environ.get("SPEECH_LAN_URL") or None
+SPEECH_TOKEN_FILE = "~/.config/lan_speech_token"
 APPS_HOST: str | None = os.environ.get("APPS_PUBLIC_HOST") or None
 
 
@@ -111,6 +113,16 @@ def music_command() -> list[str] | None:
     if MUSIC_RESOLVER_URL:
         command += ["--resolver-url", MUSIC_RESOLVER_URL]
     return command + (["--source", "spotify"] if spotify else [])
+
+
+def speech_command() -> list[str] | None:
+    """The speech MCP server on the laptop's speech server, or None without SPEECH_LAN_URL. The
+    token file is named on the command line (the child has no environment); the token is not."""
+    if not SPEECH_LAN_URL:
+        return None
+    command = [*ROOT_MODULE, "voice_agent.mcp_servers.speech", "--stt-backend", "lan"]
+    command += ["--tts-backend", "lan", "--lan-url", SPEECH_LAN_URL]
+    return command + ["--lan-token-file", SPEECH_TOKEN_FILE]
 
 
 def configure(
@@ -719,7 +731,8 @@ MUSIC_TOOL = "music"
 # Not shown to the model: music (the router plays it), convert_time (get_current_time takes any
 # zone) and wiki_summary (web_answer covers it, and the router's wiki_summary calls already run as
 # web_answer). Fewer tools to choose between; the router path still reaches all of them.
-MODEL_HIDDEN = frozenset({MUSIC_TOOL, "convert_time", "wiki_summary"})
+SPEECH_TOOLS = ("transcribe_audio_file", "synthesize_speech_to_file", "get_tts_voices")
+MODEL_HIDDEN = frozenset({MUSIC_TOOL, "convert_time", "wiki_summary", *SPEECH_TOOLS})
 MUSIC_INTENTS = {
     "PLAY_MUSIC": "play",
     "PAUSE": "pause",
@@ -883,6 +896,8 @@ def standard_servers(pi_url: str | None = PI_URL) -> tuple[list[MCPClient], list
         optional.append(stdio_server([*ROOT_MODULE, "voice_agent.mcp_servers.pages"]))
     if (music := music_command()) is not None:
         optional.append(stdio_server(music))
+    if (speech := speech_command()) is not None:
+        optional.append(stdio_server(speech))
     return required, optional + ([pi] if pi is not None else [])
 
 
