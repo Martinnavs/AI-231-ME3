@@ -2,7 +2,8 @@
 
 Where the venue is, most trusted first: `$VOICE_AGENT_HOME_COORDS` ("lat,lon", copied from a map
 pin; the answer says "in"), then the machine's public IP looked up once at boot (a Philippine
-result only; city-level at best, so the answer says "around"; `VOICE_AGENT_GEOIP=0` turns it off),
+result, and only when two services agree; city-level at best, so the answer says "around";
+`VOICE_AGENT_GEOIP=0` turns it off),
 then the built-in default, the University of the Philippines Cebu in Lahug, Cebu City ("in"). The
 barangay is looked up once at boot (OpenStreetMap's Nominatim reverse search, about 1 s) from those
 coordinates and kept; every later question is answered from memory, offline. A failed lookup keeps
@@ -13,6 +14,7 @@ worse.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import os
 from collections.abc import Mapping
@@ -29,6 +31,7 @@ DEFAULT_LANDMARK = "the University of the Philippines Cebu"  # the demo's venue
 DEFAULT_BARANGAY = "Lahug"
 GEOIP_URLS = ("https://ipwho.is/", "https://ipapi.co/json/")  # free, no key, HTTPS
 GEOIP_SAME_AREA_KM = 25.0  # an IP lookup is city-level: inside this it cannot beat the default pin
+GEOIP_AGREE_KM = 25.0  # the two services must put this machine this close together
 GEOIP_COUNTRY = "PH"  # the prompt says Philippines; a result from elsewhere is a VPN or a bad guess
 NOMINATIM_REVERSE = "https://nominatim.openstreetmap.org/reverse"
 USER_AGENT = "me3-voice-agent/0.1 (https://github.com/Martinnavs/AI-231-ME3; course project)"
@@ -96,22 +99,32 @@ def km_between(a: tuple[float, float], b: tuple[float, float]) -> float:
     return 12742 * math.asin(math.sqrt(h))
 
 
+async def _geoip_one(http: httpx.AsyncClient, url: str) -> tuple[float, float, str | None] | None:
+    try:
+        r = await http.get(url)
+        r.raise_for_status()
+        body = r.json()
+        if body.get("success") is False:
+            return None
+        country = str(body.get("country_code") or "").upper()
+        lat, lon = float(body["latitude"]), float(body["longitude"])
+    except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if country != GEOIP_COUNTRY:
+        return None
+    return lat, lon, (str(body.get("city") or "").strip() or None)
+
+
 async def geoip(http: httpx.AsyncClient) -> tuple[float, float, str | None] | None:
-    """(lat, lon, city) of this machine's public IP address in the Philippines, or None."""
-    for url in GEOIP_URLS:
-        try:
-            r = await http.get(url)
-            r.raise_for_status()
-            body = r.json()
-            if body.get("success") is False:
-                continue
-            country = str(body.get("country_code") or "").upper()
-            lat, lon = float(body["latitude"]), float(body["longitude"])
-        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
-            continue
-        if country == GEOIP_COUNTRY:
-            return lat, lon, (str(body.get("city") or "").strip() or None)
-    return None
+    """(lat, lon, city) of this machine's public IP address, only when both services answer, say
+    the Philippines and agree to within GEOIP_AGREE_KM; else None. One service alone is not
+    believed: on 2026-11-13 the two disagreed by 450 km for the same address (Cebu, Iloilo)."""
+    first, second = await asyncio.gather(*(_geoip_one(http, url) for url in GEOIP_URLS))
+    if first is None or second is None:
+        return None
+    if km_between(first[:2], second[:2]) > GEOIP_AGREE_KM:
+        return None
+    return first
 
 
 def barangay_from(address: dict[str, str]) -> str | None:

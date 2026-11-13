@@ -314,3 +314,32 @@ def test_web_info_command_uses_coords_arg() -> None:
     # Pin overrides coords
     cmd = web_info_command({"VOICE_AGENT_HOME_COORDS": "10.2, 123.8"})
     assert cmd[cmd.index("--coords") + 1] == "10.2, 123.8"
+
+
+def _two_services(ipwho: dict[str, Any] | int, ipapi: dict[str, Any] | int) -> httpx.AsyncClient:
+    def handle(request: httpx.Request) -> httpx.Response:
+        if "nominatim" in str(request.url):
+            return httpx.Response(200, json=NOMINATIM_MANILA)
+        body = ipwho if "ipwho" in str(request.url) else ipapi
+        return httpx.Response(body) if isinstance(body, int) else httpx.Response(200, json=body)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+
+def _ph(lat: float, lon: float, city: str) -> dict[str, Any]:
+    return {"country_code": "PH", "latitude": lat, "longitude": lon, "city": city}
+
+
+async def test_two_services_that_disagree_keep_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cebu City from one service, Iloilo City from the other (2026-11-13): neither is believed."""
+    monkeypatch.setenv("VOICE_AGENT_GEOIP", "1")
+    client = _two_services(_ph(14.5995, 120.9842, "Manila"), _ph(10.6969, 122.5644, "Iloilo City"))
+    await venue.resolve(client)
+    assert "University of the Philippines Cebu" in venue.spoken()
+
+
+async def test_one_service_alone_is_not_believed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VOICE_AGENT_GEOIP", "1")
+    client = _two_services(_ph(14.5995, 120.9842, "Manila"), 500)
+    await venue.resolve(client)
+    assert "University of the Philippines Cebu" in venue.spoken()
