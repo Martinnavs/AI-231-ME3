@@ -1,6 +1,6 @@
 # finetune/: train the voice agent's local router (start here on the cluster)
 
-**Production model (2026-11-13): `kd-web4-s0`, public at <https://huggingface.co/martinnavs/granite-4.0-h-350m-router-kd-web4-s0>. How it was made, tested and where it is wrong: [`MODEL-CARD.md`](MODEL-CARD.md) (this file is the round-by-round session log). A stand-alone copy of the training code with the generated data: <https://github.com/Martinnavs/ME3-LoRA-training>.**
+**Production model (2026-11-13): `kd-web4-s0`, public at <https://huggingface.co/martinnavs/granite-4.0-h-350m-router-kd-web4-s0>. How it was made, tested and where it is wrong: [`MODEL-CARD.md`](MODEL-CARD.md) (this file is the round-by-round session log). The training code and generated data also live in <https://github.com/Martinnavs/ME3-LoRA-training> (data and training only; see its `docs/ARCHITECTURE.md` for the split). This directory owns the contract the router is trained against (`spec/tools.py`, `data/format.py`, the evaluation sets) and the serving and acceptance side; the training code here is a mirror until it is trimmed.**
 
 You are picking this up on the HPC cluster with no memory of the chat that produced it. Read this file, then `docs/LOCAL-LLM-FINETUNE-PLAN.md` (sections 1c, 3, 7, 8) and `docs/LOCAL-LLM-RESULTS.md` (what was measured). Everything needed to continue is in the repository.
 
