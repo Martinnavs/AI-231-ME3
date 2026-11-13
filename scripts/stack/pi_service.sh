@@ -24,6 +24,6 @@ case "${1:-}" in
     .venv-mcp/bin/python -u -m voice_agent.apps_server --host "$PI_V4" --port "$PORT_APPS" &
     trap 'kill $! 2>/dev/null' EXIT
     .venv-agent/bin/python -u -m voice_pipeline.agent_server --host "$PI_V4" --port "${PORT_AGENT:-8781}" \
-      --pi-url local --apps-host "$PI_V4" --ipv4 --hedge -1 ;;
+      --pi-url local --apps-host "$PI_V4" --ipv4 --hedge 0 ;;
   *) echo "usage: pi_service.sh speaker|device|agent" >&2; exit 2 ;;
 esac

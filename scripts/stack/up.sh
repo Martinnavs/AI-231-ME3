@@ -118,7 +118,7 @@ start_pi_harness() {
   pi_ssh "cd $(printf '%q' "$PI_REPO") && mkdir -p ~/agent_sandbox/workspace/apps && export $env
     nohup timeout $PI_RUN_SECONDS .venv-mcp/bin/python -u -m voice_agent.apps_server --host $PI_V4 --port $PORT_APPS > /tmp/pi_apps.log 2>&1 < /dev/null &
     echo \$! > /tmp/pi_apps.pid
-    nohup timeout $PI_RUN_SECONDS .venv-agent/bin/python -u -m voice_pipeline.agent_server --host $PI_V4 --port $PORT_AGENT --pi-url local --apps-host $PI_V4 --ipv4 --hedge -1 ${AGENT_ARGS:-} > /tmp/pi_agent.log 2>&1 < /dev/null &
+    nohup timeout $PI_RUN_SECONDS .venv-agent/bin/python -u -m voice_pipeline.agent_server --host $PI_V4 --port $PORT_AGENT --pi-url local --apps-host $PI_V4 --ipv4 --hedge 0 ${AGENT_ARGS:-} > /tmp/pi_agent.log 2>&1 < /dev/null &
     echo \$! > /tmp/pi_agent.pid
     sleep 6; tail -n 3 /tmp/pi_apps.log /tmp/pi_agent.log" || die "starting the Pi agent over ssh failed"
   if [ "$DRY" = 1 ]; then echo "+ (wait for $PI_V4:$PORT_AGENT)"; return 0; fi
@@ -138,7 +138,7 @@ start_agent() {
   need_token
   # shellcheck disable=SC2086
   say_dry "agent environment: PI_DEVICE_URL=http://$PI_V4:$PORT_PI_DEVICE/mcp"
-  (cd pipeline && PI_DEVICE_URL="http://$PI_V4:$PORT_PI_DEVICE/mcp" bg agent "$LOGS/agent.log" uv run python -m voice_pipeline.agent_server --ipv4 --hedge -1 \
+  (cd pipeline && PI_DEVICE_URL="http://$PI_V4:$PORT_PI_DEVICE/mcp" bg agent "$LOGS/agent.log" uv run python -m voice_pipeline.agent_server --ipv4 --hedge 0 \
     --router-url "http://127.0.0.1:$PORT_ROUTER" ${AGENT_ARGS:-})
   agent_ready() { grep -q "agent server on" "$LOGS/agent.log"; }
   wait_for "agent server" "$LOGS/agent.log" 120 agent_ready
