@@ -202,11 +202,30 @@ PUBLISH_YES_S = 90.0
 _pending_publish: tuple[str, float] | None = None
 PUBLISH_RULE = (
     "Publishing ('publish it', 'push it', 'commit and push', 'republish', 'put it online'): call "
-    "open_app with an empty name to list the folders, then publish_pages with the app just built "
-    "or published (never a guessed name). The delegate cannot publish. It asks the user to "
-    "confirm; say what it returns."
+    "publish_pages; leave app empty for the app just built or changed, else give its folder name. "
+    "The delegate cannot publish. It asks the user to confirm; say what it returns."
 )
+PUBLISH_RECENT_S = 2 * 3600  # "it" is an app built or changed within this long
 PUBLISH_TASK = re.compile(r"\b(?:re-?publish|publish|push|commit|deploy|github pages)\b", re.I)
+
+
+def publish_target(app: str, root: Path | None = None) -> str:
+    """The app folder `publish_pages` is for: the named one, the closest to a misheard name, or
+    with no name (or an unknown one) the app changed most recently, if within PUBLISH_RECENT_S."""
+    base = APPS_ROOT if root is None else root
+    have = app_names(base)
+    if app in have:
+        return app
+    if app and (close := closest_app(app, have)) is not None:
+        return close
+    recent = [
+        (m, n)
+        for n in have
+        if (m := (base / n / "index.html").stat().st_mtime) > time.time() - PUBLISH_RECENT_S
+    ]
+    return max(recent)[1] if recent else app
+
+
 NOT_DELEGATED = (
     "The delegate has no credentials and cannot publish, push or commit. To put an app online call "
     "publish_pages with its folder (list them with open_app); delegate only the change to the app."
@@ -1117,7 +1136,8 @@ def _recorded(schema: FunctionSchema, record: list[dict[str, Any]]) -> FunctionS
             params.result_callback = job_callback
         elif schema.name == "publish_pages":
             global _pending_publish
-            app = str(args.get("app", "")).strip()
+            app = publish_target(str(args.get("app", "")).strip())
+            args["app"] = app
             pending = _pending_publish
             yes = (
                 pending is not None
