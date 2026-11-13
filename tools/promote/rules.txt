@@ -19,6 +19,8 @@
 - src/bench/**
 - src/voice_agent/telemetry/**
 - tests/audio_engine/**
++ tests/audio_engine/test_lan.py
++ scripts/speech_mcp_check.py
 - tests/bench/**
 - tests/fixtures/pi_health/**
 - tests/telemetry/**

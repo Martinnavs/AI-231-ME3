@@ -11,6 +11,8 @@ from .types import AudioClip, AudioFileError, Transcript, Voice
 
 register_transcriber("fake", FakeTranscriber)
 register_synthesizer("fake", FakeSynthesizer)
+register_transcriber("lan", "audio_engine.lan:LanTranscriber")
+register_synthesizer("lan", "audio_engine.lan:LanSynthesizer")
 
 __all__ = [
     "AudioClip",

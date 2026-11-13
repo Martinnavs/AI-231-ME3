@@ -102,6 +102,21 @@ def test_standard_servers(monkeypatch: pytest.MonkeyPatch) -> None:
     assert TIME_COMMAND[1:] == ["-m", "mcp_server_time", "--local-timezone", "Asia/Manila"]
 
 
+def test_the_speech_server_is_optional_and_hidden_from_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(agent_tools, "SPEECH_LAN_URL", None)
+    assert agent_tools.speech_command() is None
+    monkeypatch.setattr(agent_tools, "SPEECH_LAN_URL", "ws://10.0.0.1:8770")
+    command = agent_tools.speech_command()
+    assert command is not None and command[-2:] == [
+        "--lan-token-file",
+        "~/.config/lan_speech_token",
+    ]
+    assert "--lan-url" in command and "ws://10.0.0.1:8770" in command and "secret" not in command
+    assert set(agent_tools.SPEECH_TOOLS) <= agent_tools.MODEL_HIDDEN
+
+
 def test_prompts_needing_a_missing_tool_are_skipped() -> None:
     prompts = [
         {"id": "a", "expect": [[{"tool": "weather"}]]},

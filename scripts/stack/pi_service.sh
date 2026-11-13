@@ -17,6 +17,7 @@ case "${1:-}" in
     export MCP_PYTHON=$here/.venv-mcp/bin/python PYTHONPATH=$here/pipeline/src:$here/src
     export ROUTER_URL=http://$LAPTOP_IP:${PORT_ROUTER:-8089} MUSIC_RESOLVER_URL=http://$LAPTOP_IP:${PORT_RESOLVER:-8796}
     export APPS_PUBLIC_HOST=$PI_V4 PORT_APPS=${PORT_APPS:-8795}
+    export SPEECH_LAN_URL=ws://$LAPTOP_IP:${PORT_SPEECH:-8770}
     mkdir -p "$HOME/agent_sandbox/workspace/apps"
     # at boot the link-local cable address comes up after network-online: wait for it (up to 2 min)
     for _ in $(seq 1 120); do ip -o addr show | grep -q " $PI_V4/" && break; sleep 1; done

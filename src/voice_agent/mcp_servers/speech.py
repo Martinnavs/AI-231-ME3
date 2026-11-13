@@ -58,6 +58,8 @@ class _State:
     media_root: Path
     stt_backend: str = "fake"
     tts_backend: str = "fake"
+    lan_url: str = ""
+    lan_token: str | None = None
     max_audio_s: float = DEFAULT_MAX_AUDIO_S
     transcriber: Transcriber | None = None
     synthesizer: Synthesizer | None = None
@@ -69,6 +71,8 @@ _state = _State(media_root=PathsConfig().media_root)
 def _backend_kwargs(name: str) -> dict[str, object]:
     if name == "fake":
         return {}
+    if name == "lan":
+        return {"url": _state.lan_url, "token": _state.lan_token}
     try:
         secrets = load_config().secrets
     except ConfigError:
@@ -258,6 +262,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--stt-backend")
     parser.add_argument("--tts-backend")
     parser.add_argument("--media-root", type=Path)
+    parser.add_argument("--lan-url")
+    parser.add_argument("--lan-token-file", type=Path)
     parser.add_argument("--max-audio-s", type=float, default=DEFAULT_MAX_AUDIO_S)
     args = parser.parse_args(argv)
     if not math.isfinite(args.max_audio_s) or args.max_audio_s <= 0:
@@ -272,6 +278,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     _state.tts_backend = args.tts_backend or agent.tts_backend
     _state.media_root = (args.media_root or paths.media_root).expanduser()
     _state.max_audio_s = args.max_audio_s
+    _state.lan_url = args.lan_url or ""
+    _state.lan_token = (
+        args.lan_token_file.expanduser().read_text().strip() if args.lan_token_file else None
+    )
     _state.transcriber = None
     _state.synthesizer = None
     log.info("speech server: media_root=%s", _state.media_root)
