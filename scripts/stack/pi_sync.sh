@@ -4,7 +4,7 @@
 #   1. exports PI_REF (default HEAD) with git archive, never the working tree, so untracked files and
 #      uncommitted edits cannot leak; refuses when tracked files under the synced folders are modified
 #   2. rsyncs src, pipeline/src, pipeline/config, config, corpus and scripts to $PI_REPO with --delete
-#      (files the repo dropped go too), keeping the Pi's own config/pi.env, profile.md and pi_known_hosts
+#      (files the repo dropped go too), keeping the Pi's own config/pi.env, profile.md, publish.toml (the demo repository, set on the Pi only) and pi_known_hosts
 #   3. makes the shell scripts executable (git on the laptop's disk stores them as 644, and a service whose
 #      script is not executable fails with 203/EXEC)
 #   4. writes $PI_REPO/.deployed (commit, ref, date, a hash of the dependency files) and warns when the
@@ -20,7 +20,7 @@
 source "$(dirname "$0")/lib.sh"
 load_env
 SYNC_DIRS=(src pipeline/src pipeline/config config corpus scripts)
-KEEP=(--exclude=pi.env --exclude=profile.md --exclude=pi_known_hosts --exclude=__pycache__ '--exclude=*.pyc')
+KEEP=(--exclude=pi.env --exclude=profile.md --exclude=publish.toml --exclude=pi_known_hosts --exclude=__pycache__ '--exclude=*.pyc')
 PI_REF=${PI_REF:-HEAD}
 PI_RESTART=${PI_RESTART:-all}
 PI_SEARCH_MODE=${PI_SEARCH_MODE:-demo}
