@@ -15,8 +15,8 @@ def tone(level: float, seconds: float, rate: int = 16000) -> bytes:
 
 
 def test_the_gate_is_half_the_distance_to_the_background_voice_within_bounds() -> None:
-    assert calibrate.recommend_gate_db(-20.0, -40.0) == 10.0
-    assert calibrate.recommend_gate_db(-20.0, -33.0) == 6.5
+    assert calibrate.recommend_gate_db(-20.0, -40.0) == 13.3
+    assert calibrate.recommend_gate_db(-20.0, -33.0) == 8.7
     assert calibrate.recommend_gate_db(-20.0, -70.0) == 14.0  # capped
     assert calibrate.recommend_gate_db(-20.0, -29.0) is None  # under 12 dB: no gate can separate
 
@@ -145,7 +145,7 @@ def test_main_full_writes_every_key_and_the_recommended_gate(
     assert cal["music_db"] == pytest.approx(-40.0, abs=1.0)
     assert cal["user_music_db"] == pytest.approx(-20.0, abs=1.0)
     assert cal["bg_voice_db"] == pytest.approx(-33.0, abs=1.0)
-    assert cal["gate_db"] == pytest.approx(6.5, abs=0.6)
+    assert cal["gate_db"] == pytest.approx(8.7, abs=0.6)
     assert "--voice-gate-db auto" in capsys.readouterr().out
 
 
