@@ -21,6 +21,9 @@
 - tests/audio_engine/**
 + tests/audio_engine/test_lan.py
 + scripts/speech_mcp_check.py
++ scripts/setup_kitten.sh
++ scripts/setup_router.sh
++ scripts/setup_router_gguf.sh
 - tests/bench/**
 - tests/fixtures/pi_health/**
 - tests/telemetry/**

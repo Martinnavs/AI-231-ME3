@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: pi-sync pi-mode help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
+.PHONY: setup-kitten setup-router pi-sync pi-mode help check test pipeline-sync pipeline-check pipeline-test agent-dryrun agent-server check-all test-all \
         pi-detect up up-laptop up-pi restart-agent down status talk pi-check pi-clips pi-env pi-firewall pi-tune pi-netem \
         spotify-login calibrate doctor-tools addressee-replay chain-eval-list chain-eval-dry chain-eval test-chain
 
@@ -127,6 +127,12 @@ agent-server:
 check-all: check pipeline-check
 
 test-all: test pipeline-test
+setup-kitten: ## (laptop, network, once) install the Kitten TTS voice the speech server uses (scripts/setup_kitten.sh; KITTEN_VENV=... to move it)
+	scripts/setup_kitten.sh
+
+setup-router: ## (laptop, network, about 250 MB, once) download the published router GGUF and a prebuilt llama.cpp into ~/work/gguf-tools (scripts/setup_router.sh); retrained your own router: scripts/setup_router_gguf.sh
+	scripts/setup_router.sh
+
 spotify-login: ## (laptop) one-time Spotify OAuth login via browser
 	uv run --offline python scripts/spotify_login.py
 
