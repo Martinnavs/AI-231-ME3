@@ -94,4 +94,6 @@ A Granite 4.0 H 350M with a LoRA adapter, distilled from a 1B teacher on templat
 | Publishing pages, the owner profile | [`docs/PUBLISH-PAGES.md`](docs/PUBLISH-PAGES.md), [`docs/PROFILE.md`](docs/PROFILE.md) |
 | The map for a new maintainer | [`docs/HANDOFF.md`](docs/HANDOFF.md) |
 
+Licence: code is MIT ([`LICENSE`](LICENSE)). The router model is Apache 2.0, as its Granite base model.
+
 `main` holds only what runs the assistant; research, experiments and history are on the `agy/interrupts` branch (`tools/promote/README.md` explains the split).
