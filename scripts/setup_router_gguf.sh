@@ -16,15 +16,11 @@ mkdir -p "$G/llama.cpp/build/bin" "$M/gguf"
 if [ ! -x "$G/llama.cpp/build/bin/llama-quantize" ]; then  # prebuilt binaries (llama-server, llama-quantize)
   curl -fL "https://github.com/ggml-org/llama.cpp/releases/download/$TAG/llama-$TAG-bin-ubuntu-x64.tar.gz" | tar xz -C "$G/llama.cpp/build/bin" --strip-components=1
 fi
-if [ ! -f "$G/llama.cpp/convert_hf_to_gguf.py" ]; then  # the converter script and its requirements, from the pinned commit
-  rm -rf "$G/llama.cpp-src"
-  git init -q "$G/llama.cpp-src"
-  git -C "$G/llama.cpp-src" remote add origin https://github.com/ggml-org/llama.cpp
-  git -C "$G/llama.cpp-src" fetch -q --depth 1 origin "$LLAMA_REF"
-  git -C "$G/llama.cpp-src" checkout -q FETCH_HEAD
-  cp -r "$G/llama.cpp-src/convert_hf_to_gguf.py" "$G/llama.cpp-src/gguf-py" "$G/llama.cpp-src/requirements" "$G/llama.cpp/"
-  cp "$G/llama.cpp-src"/requirements.txt "$G/llama.cpp/" 2>/dev/null || true
-  rm -rf "$G/llama.cpp-src"
+if [ ! -f "$G/llama.cpp/convert_hf_to_gguf.py" ]; then  # the converter and its requirements: the source tree at the pinned commit
+  git init -q "$G/llama.cpp"
+  git -C "$G/llama.cpp" remote add origin https://github.com/ggml-org/llama.cpp
+  git -C "$G/llama.cpp" fetch -q --depth 1 origin "$LLAMA_REF"
+  git -C "$G/llama.cpp" checkout -q FETCH_HEAD
 fi
 if [ ! -x "$G/venv-merge/bin/python" ]; then  # merging the adapter into its base model
   uv venv --python 3.12 "$G/venv-merge"
