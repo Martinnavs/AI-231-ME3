@@ -116,3 +116,10 @@ def test_a_score_or_range_reads_as_to() -> None:
 def test_the_number_steps_are_skipped_without_the_helpers() -> None:
     text = "It is 8,848.86 m on June 13."
     assert kitten_text(text, lambda t: t, str) == text
+
+
+def test_a_time_on_the_hour_is_not_read_as_three_hundred() -> None:
+    """Kitten's time expander read "3:00 PM" as "three hundred pee em" (2026-11-13)."""
+    assert say("It's 3:00 PM.") == "It's three pee em."
+    assert say("Meet at 3:00.") == "Meet at three o'clock."
+    assert say("It's 3:07 PM.").startswith("It's 3:07")  # other times are the cleaner's

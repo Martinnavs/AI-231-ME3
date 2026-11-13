@@ -235,6 +235,8 @@ _KITTEN_YEAR = re.compile(
     r"(?<![\d$,.])(1[1-9]\d\d|20\d\d)(?!\d|,\d|\.\d|\s?(?:%|percent|degrees|km|kilometers|meters|minutes|kg))"
 )
 _KITTEN_AMPM = re.compile(r"\b([AP])\.?M\b")
+# "3:00 PM": its time expander reads a time on the hour as "three hundred"
+_KITTEN_HOUR = re.compile(r"\b(\d{1,2}):00(?![\d:])(\s+[AP]\.?M\b)?")
 _MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
 _KITTEN_DATE = re.compile(rf"\b({_MONTHS})\s+(\d{{1,2}})(?:st|nd|rd|th)?\b(?![\d:])")
 _KITTEN_RANGE = re.compile(
@@ -295,6 +297,10 @@ def kitten_text(
     if say_ordinal is not None:
         text = _KITTEN_DATE.sub(lambda m: f"{m[1]} {say_ordinal(int(m[2]))}", text)
     text = _KITTEN_YEAR.sub(lambda m: year_words(int(m[1])), text)
+    if say_number is not None:
+        text = _KITTEN_HOUR.sub(
+            lambda m: say_number(int(m[1])) + ("" if m[2] else " o'clock") + (m[2] or ""), text
+        )
     text = _KITTEN_AMPM.sub(lambda m: "A M" if m[1] == "A" else "pee em", text)
     if say_number is not None:
         text = _KITTEN_BIG.sub(lambda m: big_number_words(m, say_number), text)
