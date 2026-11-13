@@ -1,5 +1,7 @@
 # finetune/: train the voice agent's local router (start here on the cluster)
 
+**Production model (2026-11-13): `kd-web4-s0`, public at <https://huggingface.co/martinnavs/granite-4.0-h-350m-router-kd-web4-s0>. How it was made, tested and where it is wrong: [`MODEL-CARD.md`](MODEL-CARD.md) (this file is the round-by-round session log). The training code and generated data also live in <https://github.com/Martinnavs/ME3-LoRA-training> (data and training only; see its `docs/ARCHITECTURE.md` for the split). This directory owns the contract the router is trained against (`spec/tools.py`, `data/format.py`, the evaluation sets) and the serving and acceptance side; the training code here is a mirror until it is trimmed.**
+
 You are picking this up on the HPC cluster with no memory of the chat that produced it. Read this file, then `docs/LOCAL-LLM-FINETUNE-PLAN.md` (sections 1c, 3, 7, 8) and `docs/LOCAL-LLM-RESULTS.md` (what was measured). Everything needed to continue is in the repository.
 
 ## What and why
@@ -222,7 +224,7 @@ Ticket-03 held-out regressions (2): "play something relaxing" after a speaker or
 which is what ticket 04's play-target rule asks for (a mood is a target); that old case expected PLAY_MUSIC.
 Data counts, train (web3 -> web4): merged distillation 31068 -> 33128; new kinds in the merged train: negated 787+103, filipino
 1189+118, near-miss 481+62, play-target 914, play-bare 60, no-referent 304+223, confirm 472+378, delegate 1092 -> 1467.
-Teacher 63 min (kernels, 5 s/it), student 57 min (GPU 7, 2 s/it). Adapter `martinnavs/granite-4.0-h-350m-router-kd-web4-s0-unverified` (private).
+Teacher 63 min (kernels, 5 s/it), student 57 min (GPU 7, 2 s/it). Adapter `martinnavs/granite-4.0-h-350m-router-kd-web4-s0` (public since 2026-11-13, was `...-unverified`; the laptop accepted it, see `MODEL-CARD.md`).
 Caveats: held-out cases are my own (optimistic); the dev is template data; `no-referent` with a history is only trained for
 "set it to N" after a temperature or brightness turn and the existing follow-ups, not "do that again" after an action;
 "it's dark in here" has two labels in older seeds; `WEB_STATUS_WORDS` questions I added differ in wording from what the

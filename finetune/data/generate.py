@@ -1141,7 +1141,11 @@ def grams(text: str, n: int = 3) -> set[tuple[str, ...]]:
 def eval_prompts() -> list[str]:
     """Every user sentence of the two evaluation sets."""
     out = []
-    for path in (ROOT / "pipeline/config/eval/agent_prompts.jsonl", ROOT / "finetune/eval/onit_eval.jsonl"):
+    for path in (  # the project layout, then the stand-alone training repository (eval/ holds copies of both sets)
+        ROOT / "pipeline/config/eval/agent_prompts.jsonl",
+        HERE.parent / "eval/onit_eval.jsonl",
+        HERE.parent / "eval/agent_prompts.jsonl",
+    ):
         if path.exists():
             for raw in path.read_text().splitlines():
                 if raw.strip():
