@@ -76,6 +76,8 @@ def test_any_colour_is_accepted_and_unknown_words_show_grey() -> None:
     assert parse.css_color("Warm White") == "#ffd59e"
     assert parse.css_color("#ABC") == "#abc"
     assert parse.css_color("zorp") == parse.UNKNOWN_COLOR
+    assert parse.css_color("warm purple") == parse.css_color("purple")
+    assert parse.css_color("light sky blue") == parse.css_color("sky blue")
     state, _ = make_state()
     reply = state.command("COLOR", {"COLOR": "Zorp Green"})
     assert reply["ok"] and reply["state"]["lights"]["on"]
