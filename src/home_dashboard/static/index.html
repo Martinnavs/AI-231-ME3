@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home — dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="header">
+  <h1>Home</h1>
+  <div class="header-right">
+    <div class="clock" id="clock">00:00:00</div>
+    <div class="connection-pill" id="connection-pill">live</div>
+  </div>
+</header>
+
+<main class="panels-grid">
+
+  <!-- 1. Lights -->
+  <section class="panel" id="panel-lights">
+    <h2>Lights</h2>
+    <div class="panel-content">
+      <div class="lights-display">
+        <span class="lights-circle" id="lights-circle"></span>
+        <span class="lights-text" id="lights-text">Off</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Thermostat -->
+  <section class="panel" id="panel-thermostat">
+    <h2>Thermostat</h2>
+    <div class="panel-content">
+      <div class="big-number" id="thermostat-degrees">24°C</div>
+    </div>
+  </section>
+
+  <!-- 3. Timer -->
+  <section class="panel timer-panel" id="panel-timer">
+    <h2>Timer</h2>
+    <div class="panel-content">
+      <div class="big-number" id="timer-display">00:00:00</div>
+      <div class="timer-state" id="timer-state">idle</div>
+      <div class="timer-progress-bar" id="timer-progress-bar"></div>
+    </div>
+  </section>
+
+  <!-- 4. Alarm -->
+  <section class="panel alarm-panel" id="panel-alarm">
+    <h2>Alarm</h2>
+    <div class="panel-content">
+      <div class="alarm-display" id="alarm-display">No alarm</div>
+    </div>
+  </section>
+
+  <!-- 5. Phone -->
+  <section class="panel" id="panel-phone">
+    <h2>Phone</h2>
+    <div class="panel-content">
+      <div class="phone-display" id="phone-display">Phone idle</div>
+    </div>
+  </section>
+
+  <!-- 6. Reminders -->
+  <section class="panel reminders-panel" id="panel-reminders">
+    <h2>Reminders</h2>
+    <div class="panel-content">
+      <div class="reminders-header" id="reminders-header">0 reminders</div>
+      <ul class="reminders-list" id="reminders-list"></ul>
+    </div>
+  </section>
+
+  <!-- 7. Last heard -->
+  <section class="panel" id="panel-indicator">
+    <h2>Last heard</h2>
+    <div class="panel-content">
+      <div class="detected-large" id="detected">—</div>
+      <div class="status-small" id="status">—</div>
+      <ul class="history-list" id="history-list"></ul>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <details class="command-details">
+    <summary>Send a command</summary>
+    <div class="command-form">
+      <select id="intent-select">
+        <option value="">Select intent</option>
+        <option value="LIGHT_ON">LIGHT_ON</option>
+        <option value="LIGHT_OFF">LIGHT_OFF</option>
+        <option value="BRIGHTNESS">BRIGHTNESS</option>
+        <option value="COLOR">COLOR</option>
+        <option value="TEMPERATURE">TEMPERATURE</option>
+        <option value="TIMER">TIMER</option>
+        <option value="ALARM">ALARM</option>
+        <option value="CALL">CALL</option>
+        <option value="MESSAGE">MESSAGE</option>
+        <option value="CREATE_REMINDER">CREATE_REMINDER</option>
+        <option value="LIST_REMINDERS">LIST_REMINDERS</option>
+      </select>
+      <input type="text" id="slot-input" placeholder="slot value">
+      <button id="send-btn">Send</button>
+      <button id="reset-btn">Reset</button>
+    </div>
+    <pre id="command-reply"></pre>
+  </details>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

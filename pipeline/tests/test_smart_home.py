@@ -1,9 +1,11 @@
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 
+from voice_pipeline.reminders import Reminders
 from voice_pipeline.tools import smart_home
 
 
@@ -82,3 +84,27 @@ async def test_handler_rejects_unknown_contact() -> None:
 async def test_handler_accepts_contact_in_any_case() -> None:
     _, results = await _call({"intent": "MESSAGE", "slot": "anna"})
     assert results == [{"ok": True, "message": "recorded"}]
+
+
+async def test_with_a_dashboard_reminders_are_still_kept_and_read_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def fake_post(base_url: str, body: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": True, "changed": True, "message": "dashboard says " + body["intent"]}
+
+    monkeypatch.setattr(smart_home, "_post", fake_post)
+    record: list[dict[str, Any]] = []
+    reminders = Reminders(tmp_path / "r.json")
+    handler = smart_home.make_handler(base_url="http://dash", record=record, reminders=reminders)
+    seen: list[tuple[Any, Any]] = []
+
+    async def callback(value: Any, properties: Any = None) -> None:
+        seen.append((value, properties))
+
+    for intent, slot in (("CREATE_REMINDER", "buy milk"), ("LIST_REMINDERS", None)):
+        await handler(
+            SimpleNamespace(arguments={"intent": intent, "slot": slot}, result_callback=callback)  # type: ignore[arg-type]
+        )
+    assert reminders.count() == 1
+    assert seen[1][0] == "You have one reminder: buy milk."
+    assert seen[1][1] is not None and seen[1][1].run_llm is False

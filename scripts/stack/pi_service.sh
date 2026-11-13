@@ -22,8 +22,12 @@ case "${1:-}" in
     # at boot the link-local cable address comes up after network-online: wait for it (up to 2 min)
     for _ in $(seq 1 120); do ip -o addr show | grep -q " $PI_V4/" && break; sleep 1; done
     .venv-mcp/bin/python -u -m voice_agent.apps_server --host "$PI_V4" --port "$PORT_APPS" &
-    trap 'kill $! 2>/dev/null' EXIT
+    apps=$!
+    # the home dashboard (open the page from the laptop: http://$PI_V4:$PORT_DASH); the agent posts its home commands to it
+    .venv-mcp/bin/python -u -m home_dashboard --host "$PI_V4" --port "${PORT_DASH:-8800}" &
+    trap 'kill $apps $! 2>/dev/null' EXIT
     .venv-agent/bin/python -u -m voice_pipeline.agent_server --host "$PI_V4" --port "${PORT_AGENT:-8781}" \
-      --pi-url local --apps-host "$PI_V4" --ipv4 --hedge 0 ;;
+      --pi-url local --apps-host "$PI_V4" --ipv4 --hedge 0 \
+      --live "http://$PI_V4:${PORT_DASH:-8800}" ;;
   *) echo "usage: pi_service.sh speaker|device|agent" >&2; exit 2 ;;
 esac

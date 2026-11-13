@@ -42,7 +42,7 @@ load_env() {
   done
   PORT_ROUTER=${PORT_ROUTER:-8089}; PORT_SPEECH=${PORT_SPEECH:-8770}; PORT_AGENT=${PORT_AGENT:-8781}
   PORT_PI_SPEAKER=${PORT_PI_SPEAKER:-8780}; PORT_PI_DEVICE=${PORT_PI_DEVICE:-8790}
-  PORT_APPS=${PORT_APPS:-8795}; PORT_RESOLVER=${PORT_RESOLVER:-8796}
+  PORT_APPS=${PORT_APPS:-8795}; PORT_RESOLVER=${PORT_RESOLVER:-8796}; PORT_DASH=${PORT_DASH:-8800}
   # HARNESS=pi (default, the production setup): the agent server, its MCP servers and the apps server run on the Pi.
   # HARNESS=laptop: the agent server runs here (development).
   HARNESS=${HARNESS:-pi}

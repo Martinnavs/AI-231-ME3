@@ -118,7 +118,9 @@ start_pi_harness() {
   pi_ssh "cd $(printf '%q' "$PI_REPO") && mkdir -p ~/agent_sandbox/workspace/apps && export $env
     nohup timeout $PI_RUN_SECONDS .venv-mcp/bin/python -u -m voice_agent.apps_server --host $PI_V4 --port $PORT_APPS > /tmp/pi_apps.log 2>&1 < /dev/null &
     echo \$! > /tmp/pi_apps.pid
-    nohup timeout $PI_RUN_SECONDS .venv-agent/bin/python -u -m voice_pipeline.agent_server --host $PI_V4 --port $PORT_AGENT --pi-url local --apps-host $PI_V4 --ipv4 --hedge 0 ${AGENT_ARGS:-} > /tmp/pi_agent.log 2>&1 < /dev/null &
+    nohup timeout $PI_RUN_SECONDS .venv-mcp/bin/python -u -m home_dashboard --host $PI_V4 --port $PORT_DASH > /tmp/pi_dash.log 2>&1 < /dev/null &
+    echo \$! > /tmp/pi_dash.pid
+    nohup timeout $PI_RUN_SECONDS .venv-agent/bin/python -u -m voice_pipeline.agent_server --host $PI_V4 --port $PORT_AGENT --pi-url local --apps-host $PI_V4 --ipv4 --hedge 0 --live http://$PI_V4:$PORT_DASH ${AGENT_ARGS:-} > /tmp/pi_agent.log 2>&1 < /dev/null &
     echo \$! > /tmp/pi_agent.pid
     sleep 6; tail -n 3 /tmp/pi_apps.log /tmp/pi_agent.log" || die "starting the Pi agent over ssh failed"
   if [ "$DRY" = 1 ]; then echo "+ (wait for $PI_V4:$PORT_AGENT)"; return 0; fi
@@ -217,3 +219,6 @@ case "$MODE" in
   apps)   start_apps ;;
   *) die "usage: up.sh [all|laptop|pi|agent|apps]" ;;
 esac
+if [ "$HARNESS" = pi ] && [ "$MODE" = all ] && [ "$DRY" != 1 ]; then
+  echo "home dashboard: http://$PI_V4:$PORT_DASH (open it in a browser on the laptop; the agent's home commands show there)"
+fi
