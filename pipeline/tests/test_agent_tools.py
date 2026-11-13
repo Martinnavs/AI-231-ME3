@@ -1,6 +1,8 @@
 """agent_tools: the MCP servers the agent starts with, and what happens when one is missing."""
 
 import json
+import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -230,3 +232,19 @@ async def test_search_docs_is_not_run_for_a_turn_about_the_agents_own_work(asked
 async def test_search_docs_runs_for_a_real_document_question() -> None:
     ran, said = await _search_docs_calls("Who is McCarthy?")
     assert len(ran) == 1 and said == ["passage"]
+
+
+def test_publish_target_is_the_named_app_the_closest_name_or_the_newest(tmp_path: Path) -> None:
+    for name, age in (("tech_news", 500), ("sourdough_bread", 10)):
+        page = tmp_path / name / "index.html"
+        page.parent.mkdir()
+        page.write_text("x")
+        os.utime(page, (time.time() - age, time.time() - age))
+    assert agent_tools.publish_target("tech_news", tmp_path) == "tech_news"
+    assert agent_tools.publish_target("technews", tmp_path) == "tech_news"
+    assert agent_tools.publish_target("", tmp_path) == "sourdough_bread"
+    assert agent_tools.publish_target("zzzz qqqq", tmp_path) == "sourdough_bread"
+    old = tmp_path / "sourdough_bread" / "index.html"
+    os.utime(old, (0, 0))
+    os.utime(tmp_path / "tech_news" / "index.html", (0, 0))
+    assert agent_tools.publish_target("", tmp_path) == ""
