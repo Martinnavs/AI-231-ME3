@@ -133,3 +133,6 @@ banks. Use your own names and phrasings; the laptop tests with different ones.
 - Dev misses on new kinds: "mainit ba ngayon" x4, "patigilin mo ang music" (PAUSE), "last like song please" (NEXT, wrong for a backward request), "once more".
 - Adapter martinnavs/granite-4.0-h-350m-router-kd-web4-s0-unverified (private). Spend $0. Not pushed to GitHub.
 - Owner's decision: whether "play something relaxing" should escalate (trained so) or stay PLAY_MUSIC; "do that again" after an action is untrained (no data either way). Details: finetune/README.md.
+
+### 2026-11-13 cluster, publication
+- Owner declared kd-web4-s0 the production model (laptop acceptance in docs/PROGRESS-2026-11-06.md: held-out 61/62, OnIt 77/77, pack 82/92). Repo renamed to martinnavs/granite-4.0-h-350m-router-kd-web4-s0 (the old name redirects), made public, model card = finetune/MODEL-CARD.md (Apache 2.0, base model attribution kept). Tickets 01-04 describe the rounds that led here.
