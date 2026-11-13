@@ -40,7 +40,8 @@ def spoken(summary: str) -> str:
 def listed_files(summary: str) -> list[str]:
     for line in reversed(summary.splitlines()):
         if line.startswith("Files:"):
-            return [name.strip() for name in line[6:].split(",") if name.strip()]
+            names = [name.strip() for name in line[6:].split(",")]
+            return [n for n in names if n and n.lower() not in ("none", "n/a")]
     return []
 
 
