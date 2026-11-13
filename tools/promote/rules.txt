@@ -337,6 +337,7 @@
 + src/voice_agent/mcp_servers/music.py
 + src/voice_agent/mcp_servers/pages.py
 + src/voice_agent/mcp_servers/shell_policy.py
++ src/voice_agent/mcp_servers/speech.py
 + src/voice_agent/mcp_servers/tavily_search.py
 + src/voice_agent/tavily_budget.py
 + src/voice_agent/mcp_servers/web_info.py
